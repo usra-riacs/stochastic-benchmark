@@ -5,13 +5,28 @@ import matplotlib.pyplot as plt
 import os
 
 
-def add_one(number):
+def add_one(
+    number: int,
+) -> int:
+    '''
+    Test function for pip package
+
+    Return:
+        number + 1
+
+    Arguments:
+        number (int): Number to be added
+    '''
     return number + 1
 
 # %%
 
 
-def BER(N, p, eng_list):
+def BER(
+    N: int,
+    p: np.array,
+    eng_list: np.array,
+) -> float:
     '''
     Function to compute Bernoulli distribution from N datapoints using 
     probabilities p
@@ -36,7 +51,11 @@ def BER(N, p, eng_list):
     return np.round(ber, 8)
 
 
-def cumulative(energy, p, eng_list):
+def cumulative(
+    energy: float,
+    p: np.array,
+    eng_list: np.array,
+) -> float:
     '''
     Function to return whether a probability distribution associated with a list of 
     energy is beyond a threshold
@@ -60,7 +79,12 @@ def cumulative(energy, p, eng_list):
     return 1
 
 
-def confidence_prob(N, p, eng_list, eng_th):
+def confidence_prob(
+    N: int,
+    p: np.array,
+    eng_list: np.array,
+    eng_th: float,
+) -> float:
     '''
     Return the confidence probability based on the cumulative
 
@@ -77,7 +101,12 @@ def confidence_prob(N, p, eng_list, eng_th):
     return 1-(1-F)**N
 
 
-def invCDF(N, prob, eng_list, conf=0.99):
+def invCDF(
+    N: int,
+    prob: np.array,
+    eng_list: np.array,
+    conf: float = 0.99,
+) -> float:
     '''
     Return the inverse of the cumulative distribution function
 
@@ -101,7 +130,12 @@ def invCDF(N, prob, eng_list, conf=0.99):
                 return eng_list[idx]
 
 
-def failure_prob(N, p, eng_list, eng_th):
+def failure_prob(
+    N: int,
+    p: np.array,
+    eng_list: np.array,
+    eng_th: float,
+) -> float:
     '''
     Return the failure probability based on the cumulative
 
@@ -118,7 +152,12 @@ def failure_prob(N, p, eng_list, eng_th):
     return (1-F)**N
 
 
-def runs(Eth, conf, prob, eng_list):
+def runs(
+    Eth: float,
+    conf: float,
+    prob: np.array,
+    eng_list: np.array,
+) -> float:
     '''
     Return the estimate of runs based on the cumulative
 
@@ -139,7 +178,12 @@ def runs(Eth, conf, prob, eng_list):
 # %%
 
 
-def plot_avg_pass(NQ=44, n_data=1000, method="avg", save_fig=True):
+def plot_avg_pass(
+    NQ: int = 44,
+    n_data: int = 1000,
+    method: str = "avg",
+    save_fig: bool = True,
+) -> None:
     '''
     Returns a figure for the average passes of E metric vs R resources
 
@@ -148,8 +192,8 @@ def plot_avg_pass(NQ=44, n_data=1000, method="avg", save_fig=True):
     Arguments:
         NQ (int): Number of qubits
         n_data (int): Number of datapoints to be plotted
-        method = "avg" (str): String of instances to be plotted
-        save_fig = True (bool): Boolean to save figure
+        method (str)= "avg" (str): String of instances to be plotted
+        save_fig (bool)= True (bool): Boolean to save figure
     '''
     df_total_file = "../code_for_art/normalized_prob_dist/QPSK/" + \
         method + "/all_avg/avg_pass_test.csv"
@@ -192,11 +236,21 @@ def plot_avg_pass(NQ=44, n_data=1000, method="avg", save_fig=True):
 
 
 # %%
-plot_avg_pass(100, save_fig=False)
+plot_avg_pass(
+    NQ=100,
+    save_fig=False,
+)
 # %%
 
 
-def plot_avg_cumulatives(NQ=44, probs=20, conf=0.9, N_runs=1000, method="avg", save_fig=True):
+def plot_avg_cumulatives(
+    NQ: int = 44,
+    probs: int = 20,
+    conf: float = 0.9,
+    N_runs: int = 1000,
+    method: str = "avg",
+    save_fig: bool = True
+) -> None:
     '''
     Returns a figure for the cumulative passes of E vs N
 
@@ -255,11 +309,31 @@ def plot_avg_cumulatives(NQ=44, probs=20, conf=0.9, N_runs=1000, method="avg", s
 
 
 # %%
-plot_avg_cumulatives(save_fig=False, conf=0.99)
+plot_avg_cumulatives(
+    conf=0.99,
+    save_fig=False,
+)
 # %%
 
 
-def plot_hardness_full(NQ=44, N_runs=2000, style="lin", save_fig=True):
+def plot_hardness_full(
+    NQ: int = 44,
+    N_runs: int = 2000,
+    style: str = "lin",
+    save_fig: bool = True
+) -> None:
+    '''
+    Returns a figure for the cumulative passes of E vs N
+
+    Return:
+        fig (matplotlib figure): FIgure with all the... TODO
+
+    Arguments:
+        NQ (int): Number of qubits
+        N_runs (int): Number of runs for plot
+        style = "lin" (str): String of instances to be plotted
+        save_fig = True (bool): Boolean to save figure
+    '''
 
     df_total_file_avg = "../code_for_art/normalized_prob_dist/QPSK/avg/all_avg/avg_pass_test_N=" + \
         str(N_runs)+".csv"
@@ -482,5 +556,9 @@ def plot_hardness_full(NQ=44, N_runs=2000, style="lin", save_fig=True):
 
 
 # %%
-plot_hardness_full(N_runs=10000, style='log', save_fig=False)
+plot_hardness_full(
+    N_runs=10000,
+    style='log',
+    save_fig=False
+)
 # %%

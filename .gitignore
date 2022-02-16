@@ -128,5 +128,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# VSCode things
+# VSCode files
 .vscode/
+src/workspace.code-workspace
+
+# Extra data files
+data/sk/*/pickles/*
+data/sk/*/unique_gs/*
+data/sk/*/data/*

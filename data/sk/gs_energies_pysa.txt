@@ -1,0 +1,7 @@
+random_n_100_inst_1 -244.676815 best_found pysa
+random_n_100_inst_4 -240.79075799999998 best_found pysa
+random_n_100_inst_16 -230.311761 best_found pysa
+random_n_100_inst_15 -237.50345 best_found pysa
+random_n_100_inst_14 -228.627116 best_found pysa
+random_n_100_inst_11 -233.88761800000003 best_found pysa
+random_n_100_inst_42 -236.425821 best_found pysa

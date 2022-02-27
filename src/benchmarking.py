@@ -1,35 +1,30 @@
 # %%
 # Import the Dwave packages dimod and neal
-import functools
 import itertools
-import math
 import os
 import pickle
 import pickle as pkl
 import time
-from collections import Counter
 from ctypes.wintypes import DWORD
-from functools import reduce
 from gc import collect
 from typing import List, Union
 
 import dimod
-import matplotlib.colors as mcolors
-# Import Matplotlib to generate plots
+# Import Matplotlib to edit plots
 import matplotlib.pyplot as plt
 import neal
 import networkx as nx
 # Import numpy and scipy for certain numerical calculations below
 import numpy as np
 import pandas as pd
-from dimod.vartypes import Vartype
 from matplotlib import ticker
 from pysa.sa import Solver
 from scipy import sparse, stats
 
+from plotting import *
+
 # %%
 # Functions to retrieve instances files
-
 # Define functions to extract data files
 
 
@@ -48,7 +43,7 @@ def getInstances(filename):  # instance number
 
 def createInstanceFileList(directory, instance_list):
     '''
-    Creates a list of files in the directory for the isntances in the list
+    Creates a list of files in the directory for the instances in the list
 
     Args:
         directory: the directory where the files are
@@ -144,6 +139,7 @@ def createPySAExperimentFileList(
     sweep_list: Union[List[str], List[int]] = None,
     pcold_list: Union[List[str], List[float]] = None,
     phot_list: Union[List[str], List[float]] = None,
+    prefix: str = "",
 ) -> list:
     '''
     Creates a list of experiment files in the directory for the instances in the instance_list, replicas in the rep_list, sweeps in the sweep_list, P cold in the pcold_list, and P hot in the phot_list
@@ -155,6 +151,7 @@ def createPySAExperimentFileList(
         sweep_list: the list of sweeps
         pcold_list: the list of P cold
         phot_list: the list of P hot
+        prefix: the prefix of the files
 
     Returns:
         experiment_file_list: the list of files
@@ -168,7 +165,7 @@ def createPySAExperimentFileList(
                     not f.endswith('.zip') and
                     not f.endswith('.sh') and
                     not f.endswith('.p') and
-                    not f.startswith('results_'))]
+                    f.startswith(prefix))]
         # exclude gs_energies.txt files
         files = [f for f in files
                  if(not f.startswith('gs_energies'))]
@@ -243,6 +240,7 @@ def createDnealExperimentFileList(
     instance_list: Union[List[str], List[int]],
     sweep_list: Union[List[str], List[int]] = None,
     schedule_list: List[str] = None,
+    prefix: str = "",
 ) -> list:
     '''
     Creates a list of experiment files in the directory for the instances in the instance_list, sweeps in the sweep_list, and schedules in the schedule_list
@@ -252,6 +250,7 @@ def createDnealExperimentFileList(
         instance_list: the list of instances
         sweep_list: the list of sweeps
         schedule_list: the list of schedules
+        prefix: the prefix of the experiment files
 
     Returns:
         experiment_file_list: the list of files
@@ -265,9 +264,7 @@ def createDnealExperimentFileList(
                     not f.endswith('.zip') and
                     not f.endswith('.sh') and
                     not f.endswith('.p') and
-                    not f.endswith('results.pkl') and
-                    not f.startswith('df_results_all') and
-                    not f.startswith('results_'))]
+                    f.startswith(prefix))]
         # exclude gs_energies.txt files
         files = [f for f in files
                  if(not f.startswith('gs_energies'))]
@@ -289,239 +286,6 @@ def createDnealExperimentFileList(
         fileList = sorted(
             fileList, key=lambda x: getInstanceDnealExperiment(x))
     return fileList
-
-
-# %%
-# Helper functions
-# Some useful functions to get plots
-def plotEnergyValuesDwaveSampleSet(
-    results: dimod.SampleSet,
-    title: str = None,
-):
-    '''
-    Plots the energy values of the samples in a bar plot using as an impit a Dmid.sampleset.
-
-    Args:
-        results: A dimod.SampleSet object.
-        title: A string to use as the plot title.
-
-    Returns:
-        A matplotlib.pyplot.Figure object.
-    '''
-
-    _, ax = plt.subplots()
-
-    energies = [datum.energy for datum in results.data(
-        ['energy'], sorted_by='energy')]
-
-    if results.vartype == Vartype.BINARY:
-        samples = [''.join(c for c in str(datum.sample.values()).strip(
-            ', ') if c.isdigit()) for datum in results.data(['sample'], sorted_by=None)]
-        ax.set(xlabel='bitstring for solution')
-    else:
-        samples = np.arange(len(energies))
-        ax.set(xlabel='solution')
-
-    ax.bar(samples, energies)
-    ax.tick_params(axis='x', rotation=90)
-    ax.set_ylabel('Energy')
-    if title:
-        ax.set_title(str(title))
-    print("minimum energy:", min(energies))
-    return ax
-
-
-def plotBarValues(
-    df: pd.DataFrame,
-    column_name: str,
-    sorted: bool = True,
-    skip: int = 1,
-    xlabel: str = None,
-    ylabel: str = None,
-    title: str = None,
-    save_fig: bool = False,
-    **kwargs,
-) -> plt.Figure:
-    '''
-    Plots the values of a column in a bar plot.
-
-    Args:
-        df: A pandas dataframe.
-        column_name: A string of the column name.
-        sorted: A boolean to sort the dataframe.
-        skip: An integer of the number of rows to skip.
-        xlabel: A string of the xlabel.
-        ylabel: A string of the ylabel.
-        title: A string of the title.
-        save_fig: A boolean to save the figure.
-
-    Returns:
-        A matplotlib.pyplot.Figure object.
-    '''
-    _, ax = plt.subplots()
-    if sorted:
-        df = df.sort_values(by=column_name)
-    df.plot(y=column_name, kind='bar', ax=ax, **kwargs)
-    ax.figure.tight_layout()
-    new_ticks = np.arange(0, len(df.index) // skip)*skip
-    # positions of each tick, relative to the indices of the x-values
-    if column_name == 'sample':
-        new_ticks
-    ax.set_xticks(new_ticks)
-    # labels
-    ax.set_xticklabels(new_ticks)
-    if xlabel:
-        ax.set_xlabel(xlabel)
-    if ylabel:
-        ax.set_ylabel(ylabel)
-    if title:
-        ax.set_title(title)
-    if save_fig:
-        plt.savefig(title+'.png')
-    return ax
-
-
-def plotBarCounts(
-    df: pd.DataFrame,
-    column_name: str,
-    normalized: bool = False,
-    sorted: bool = True,
-    ascending: bool = False,
-    skip: int = 1,
-    xlabel: str = None,
-    title: str = None,
-    save_fig: bool = False,
-    **kwargs,
-) -> plt.Figure:
-    '''
-    Plots the counts of a column in a bar plot.
-
-    Args:
-        df: A pandas dataframe.
-        column_name: A string of the column name.
-        normalized: A boolean to normalize the counts.
-        sorted: A boolean to sort the dataframe.
-        ascending: A boolean to sort the plot in ascending order.
-        skip: An integer of the number of rows to skip.
-        xlabel: A string of the xlabel.
-        title: A string of the title.
-        save_fig: A boolean to save the figure.
-
-    Returns:
-        A matplotlib.pyplot.Figure object.
-    '''
-    _, ax = plt.subplots()
-    series = df[column_name].value_counts(normalize=normalized)
-    if sorted:
-        series = series.sort_values(ascending=ascending)
-    series.plot(kind='bar', ax=ax, **kwargs)
-    ax.figure.tight_layout()
-    if column_name == 'sample':
-        new_ticks = [str(list(state.values())).replace(', ', '')
-                     for i, state in enumerate(series.keys()) if not i % skip]
-    else:
-        new_ticks = [t.get_text()[:7] for i, t in enumerate(ax.get_xticklabels()) if not i %
-                     skip]
-    ax.set_xticks(ax.get_xticks()[::skip])
-    # labels
-    ax.set_xticklabels(new_ticks)
-    if xlabel:
-        ax.set_xlabel(xlabel)
-    if normalized:
-        ax.set_ylabel('Probability')
-    else:
-        ax.set_ylabel('Count')
-    if title:
-        ax.set_title(title)
-    if save_fig:
-        plt.savefig(title+'.png')
-    return ax
-
-
-def plotSamplesDwaveSampleSet(
-    results: dimod.SampleSet,
-    title: str = None,
-    skip: int = 1,
-):
-    '''
-    Plots the samples of the samples in a histogram.
-
-    Args:
-        results: A dimod.SampleSet object.
-        title: A string to use as the plot title.
-        skip: An integer to skip every nth sample.
-
-    Returns:
-        A matplotlib.pyplot.Figure object.
-    '''
-    _, ax = plt.subplots()
-    energies = results.data_vectors['energy']
-    if results.vartype == Vartype.BINARY:
-        samples = [''.join(c for c in str(datum.sample.values()).strip(
-            ', ') if c.isdigit()) for datum in results.data(['sample'], sorted_by=None)]
-        ax.set_xlabel('bitstring for solution')
-    else:
-        samples = np.arange(len(results))
-        ax.set_xlabel('solution')
-
-    counts = Counter(samples)
-    total = len(samples)
-    for key in counts:
-        counts[key] /= total
-    df = pd.DataFrame.from_dict(counts, orient='index').sort_index()
-    df.plot(kind='bar', legend=None, ax=ax)
-
-    ax.tick_params(axis='x', rotation=80)
-    ax.set_xticklabels([t.get_text()[:7] if not i %
-                       skip else "" for i, t in enumerate(ax.get_xticklabels())])
-    ax.set_ylabel('Probabilities')
-    if title:
-        ax.set_title(str(title))
-    print("minimum energy:", min(energies))
-    return ax
-
-
-def plotEnergyCFDDwaveSampleSet(
-    results: dimod.SampleSet,
-    title: str = None,
-    skip: int = 1,
-):
-    '''
-    Plots the energy values of the samples in a cumulative distribution function.
-
-    Args:
-        results: A dimod.SampleSet object.
-        title: A string to use as the plot title.
-        skip: An integer to skip every nth sample.
-
-    Returns:
-        A matplotlib.pyplot.Figure object.
-    '''
-    _, ax = plt.subplots()
-    # skip parameter given to avoid putting all xlabels
-    energies = results.data_vectors['energy']
-    occurrences = results.data_vectors['num_occurrences']
-    counts = Counter(energies)
-    total = sum(occurrences)
-    counts = {}
-    for index, energy in enumerate(energies):
-        if energy in counts.keys():
-            counts[energy] += occurrences[index]
-        else:
-            counts[energy] = occurrences[index]
-    for key in counts:
-        counts[key] /= total
-    df = pd.DataFrame.from_dict(counts, orient='index').sort_index()
-    df.plot(kind='bar', legend=None, ax=ax)
-    ax.set_xticklabels([t.get_text()[:7] if not i %
-                       skip else "" for i, t in enumerate(ax.get_xticklabels())])
-
-    ax.set_xlabel('Energy')
-    ax.set_ylabel('Probabilities')
-    if title:
-        ax.set_title(str(title))
-    print("minimum energy:", min(energies))
-    return ax
 
 
 # %%
@@ -622,6 +386,7 @@ def randomEnergySampler(
 
 
 # %%
+# Compute random sample on problem and print average energy
 random_energy, random_sample = randomEnergySampler(
     model_random, num_reads=1000, dwave_sampler=True)
 df_random_sample = random_sample.to_pandas_dataframe(sample_column=True)
@@ -695,7 +460,7 @@ plotBarCounts(
 )
 
 # %%
-# Schedule plot
+# Default Dwave-neal schedule plot
 print(default_samples.info)
 beta_schedule = np.geomspace(*default_samples.info['beta_range'], num=1000)
 fig, ax = plt.subplots()
@@ -752,7 +517,7 @@ if os.path.exists(zip_name) and use_raw_data:
 # %%
 # Compute minimum value using MIP
 # Ground state computation
-compute_mip_gs = True
+compute_mip_gs = False
 # Which type of MIP formulation to use ("qubo", "lcbo", "qcbo")
 mip_formulation = "qubo"
 if not compute_mip_gs:
@@ -898,7 +663,7 @@ def createDnealSamplesDataframe(
     total_reads: int = 1000,
     sim_ann_sampler=None,
     dneal_pickle_path: str = None,
-    use_raw_data: bool = False,
+    use_raw_pickles: bool = False,
     overwrite_pickles: bool = False,
 ) -> pd.DataFrame:
     '''
@@ -908,7 +673,14 @@ def createDnealSamplesDataframe(
     dict_pickle_name = prefix + str(instance) + "_" + schedule + \
         "_" + str(sweep) + ".p"
     df_samples_name = 'df_' + dict_pickle_name + 'kl'
-    if use_raw_data or not os.path.exists(dneal_pickle_path + df_samples_name):
+    df_path = os.path.join(dneal_pickle_path, df_samples_name)
+    if os.path.exists(df_path):
+        try:
+            df_samples = pd.read_pickle(os.path.join(df_path))
+            return df_samples
+        except (pkl.UnpicklingError, EOFError):
+            os.replace(df_path, df_path + '.bak')
+    if use_raw_pickles or not os.path.exists(df_path):
         # If you want to generate the data or load it here
         if sim_ann_sampler is None:
             sim_ann_sampler = neal.SimulatedAnnealingSampler()
@@ -933,11 +705,8 @@ def createDnealSamplesDataframe(
         df_samples = samples.to_pandas_dataframe(sample_column=True)
         df_samples['runtime (us)'] = int(
             1e6*samples.info['timing']/len(df_samples.index))
-        df_samples.to_pickle(os.path.join(
-            dneal_pickle_path, df_samples_name))
-    else:
-        df_samples = pd.read_pickle(os.path.join(
-            dneal_pickle_path, df_samples_name))
+        df_samples.to_pickle(df_path)
+            
     return df_samples
 
 
@@ -1073,6 +842,40 @@ def computeResultsList(
 
 
 # %%
+# Define clean up function
+
+
+def cleanup_df(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
+    '''
+    Function to cleanup dataframes by:
+    - From tuple-like confidence intervals by separating it into two columns.
+    - Recomputing the reads column.
+    - Defining the schedules columns as categoric.
+
+    Args:
+        df (pandas.DataFrame): Dataframe to be cleaned.
+
+    Returns:
+        pandas.DataFrame: Cleaned dataframe.
+    '''
+    df_new = df.copy()
+    for column in df_new.columns:
+        if column.endswith('conf_interval'):
+            df_new[column + '_lower'] = df_new[column].apply(lambda x: x[0])
+            df_new[column + '_upper'] = df_new[column].apply(lambda x: x[1])
+            df_new.drop(column, axis=1, inplace=True)
+        elif column == 'schedule':
+            df_new[column] = df_new[column].astype('category')
+    df_new['reads'] = df_new['sweeps'] * df_new['boots']
+    df_new['reads'] = df_new['reads'].astype('int')
+    df_new['sweeps'] = df_new['sweeps'].astype('int')
+    df_new['boots'] = df_new['boots'].astype('int')
+    return df_new
+
+
+# %%
 # Function to update the dataframes
 def createDnealResultsDataframes(
     df: pd.DataFrame = None,
@@ -1082,6 +885,7 @@ def createDnealResultsDataframes(
     dneal_results_path: str = None,
     dneal_pickle_path: str = None,
     use_raw_data: bool = False,
+    use_raw_pickles: bool = False,
     overwrite_pickles: bool = False,
     confidence_level: float = 68,
     gap: float = 1.0,
@@ -1089,8 +893,6 @@ def createDnealResultsDataframes(
     s: float = 0.99,
     fail_value: float = np.inf,
     save_pickle: bool = True,
-
-
 ) -> pd.DataFrame:
     '''
     Function to create the dataframes for the experiments
@@ -1106,24 +908,32 @@ def createDnealResultsDataframes(
         overwrite_pickles: If we want to overwrite the pickle files
 
     '''
+    if parameters_dict is None:
+        for i, j in parameters_dict.items():
+            parameters_dict[i] = set(j)
 
     # Check that the parameters are columns in the dataframe
     if df is not None:
         assert all([i in df.columns for i in parameters_dict.keys()])
         # In case that the data is already in the dataframe, return it
-        if all([k in df[i].values for (i, j) in parameters_dict.items() for k in j]) and all([boots in df['boots'].values for boots in boots_list]):
-            print('The dataframe already has all the data')
-            return df
+        if all([k in df[i].values for (i, j) in parameters_dict.items() for k in j]):
+            print('The dataframe has some data for the parameters')
+            cond = [df[k].apply(lambda k: k == i).astype(bool)
+                    for k, v in parameters_dict.items() for i in v]
+            cond_total = functools.reduce(lambda x, y: x & y, cond)
+            if all(boots in df[cond_total]['boots'].values for boots in boots_list):
+                print('The dataframe already has all the data')
+                return df
 
     # Create filename
-    if len(instance_list) > 0:
+    if len(instance_list) > 1:
         df_name = "df_results.pkl"
     else:
         df_name = "df_results_" + str(instance_list[0]) + ".pkl"
     df_path = os.path.join(dneal_results_path, df_name)
 
     # If use_raw_data compute the row
-    if use_raw_data:
+    if use_raw_data or not os.path.exists(df_path):
         list_results_dneal = []
         for instance in instance_list:
             random_energy = loadEnergyFromFile(os.path.join(
@@ -1148,13 +958,13 @@ def createDnealResultsDataframes(
                     total_reads=total_reads,
                     sim_ann_sampler=sim_ann_sampler,
                     dneal_pickle_path=dneal_pickle_path,
-                    use_raw_data=use_raw_data,
+                    use_raw_pickles=use_raw_pickles,
                     overwrite_pickles=overwrite_pickles,
                 )
 
                 for boots in boots_list:
 
-                    if df is not None and schedule in df['schedule'].values and sweep in df['sweeps'].values and boots in df['boots'].values:
+                    if (df is not None) and (boots in df[(df['schedule'] == schedule) & (df['sweeps'] == sweep)]['boots'].values):
                         continue
                     else:
                         print("Generating results for instance:", instance,
@@ -1173,29 +983,34 @@ def createDnealResultsDataframes(
                     list_results_dneal.append(
                         list_inputs + list_outputs)
 
-        df_results_dneal = pd.DataFrame(list_results_dneal, columns=['instance', 'schedule', 'sweeps', 'boots',
-                                                                     'min_energy', 'min_energy_conf_interval_lower', 'min_energy_conf_interval_upper',
-                                                                     'perf_ratio', 'perf_ratio_conf_interval_lower', 'perf_ratio_conf_interval_upper',
-                                                                     'success_prob', 'success_prob_conf_interval_lower', 'success_prob_conf_interval_upper',
-                                                                     'tts', 'tts_conf_interval_lower', 'tts_conf_interval_upper',
-                                                                     'mean_time', 'mean_time_conf_interval_lower', 'mean_time_conf_interval_upper'])
+        df_results_dneal = pd.DataFrame(list_results_dneal, columns=[
+            'instance', 'schedule', 'sweeps', 'boots',
+            'min_energy', 'min_energy_conf_interval_lower', 'min_energy_conf_interval_upper',
+            'perf_ratio', 'perf_ratio_conf_interval_lower', 'perf_ratio_conf_interval_upper',
+            'success_prob', 'success_prob_conf_interval_lower', 'success_prob_conf_interval_upper',
+            'tts', 'tts_conf_interval_lower', 'tts_conf_interval_upper',
+            'mean_time', 'mean_time_conf_interval_lower', 'mean_time_conf_interval_upper'])
         if df is not None:
-            df = pd.concat(
+            df_new = pd.concat(
                 [df, df_results_dneal], axis=0, ignore_index=True)
         else:
-            df = df_results_dneal
+            df_new = df_results_dneal.copy()
 
         if save_pickle:
-            df.to_pickle(df_path)
+            df_new = cleanup_df(df_new)
+            df_new.to_pickle(df_path)
     else:
-        df = pd.read_pickle(df_path)
-    return df
+        print("Loading the dataframe")
+        df_new = pd.read_pickle(df_path)
+    return df_new
 
 
 # %%
 # Compute results for instance 42 using D-Wave Neal
-use_raw_data = False
+use_raw_data = True
 overwrite_pickles = False
+use_raw_pickles = True
+instance = 42
 metrics_list = ['min_energy', 'tts',
                 'perf_ratio', 'success_prob', 'mean_time']
 sweeps_list = [i for i in range(1, 21, 1)] + [
@@ -1224,36 +1039,24 @@ if os.path.exists(df_path) and not use_raw_data:
 
 df_results_dneal = createDnealResultsDataframes(
     df=df_results_dneal,
-    instance_list=[42],
+    instance_list=[instance],
     parameters_dict={'schedule': schedules_list, 'sweeps': sweeps_list},
     boots_list=boots_list,
     dneal_results_path=dneal_results_path,
     dneal_pickle_path=dneal_pickle_path,
     use_raw_data=use_raw_data,
+    use_raw_pickles=use_raw_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
     bootstrap_samples=bootstrap_samples,
     gap=gap,
     fail_value=fail_value,
+    save_pickle=True,
 )
-# %%
-# Clean up dataframe by removing old confidence interval tuples and adding read columns
-# Split pandas dataframe confidence intervals into separate columns for easier processing
-metrics_list = ['min_energy', 'tts',
-                'perf_ratio', 'success_prob', 'mean_time']
-for metric in metrics_list:
-    if metric + '_conf_interval' in df_results_dneal.columns:
-        df_results_dneal[metric + '_conf_interval_lower'] = df_results_dneal[metric +
-                                                                             '_conf_interval'].apply(lambda x: x[0])
-        df_results_dneal[metric + '_conf_interval_upper'] = df_results_dneal[metric +
-                                                                             '_conf_interval'].apply(lambda x: x[1])
-        df_results_dneal.drop(metric + '_conf_interval', axis=1, inplace=True)
 
-df_results_dneal['reads'] = df_results_dneal['boots'] * \
-    df_results_dneal['sweeps']
 # %%
-# Plotting functions
+# Define plot longer labels
 labels = {
     'N': 'Number of variables',
     'instance': 'Random instance',
@@ -1278,266 +1081,6 @@ labels = {
     # 'tts': 'TTS to GS with 99% confidence \n [s * replica] ~ [MVM]',
 }
 
-
-def plot_1d_singleinstance(
-    df: pd.DataFrame,
-    x_axis: str,
-    y_axis: str,
-    label_plot: str,
-    dict_fixed: dict,
-    ax: plt.Axes,
-    log_x: bool = False,
-    log_y: bool = False,
-    save_fig: bool = False,
-    default_dict: dict = None,
-    **kwargs,
-) -> plt.Axes:
-    '''
-    Function to plot 1D dependance figures
-
-    Args:
-        df: Dataframe with the data to plot
-        x_axis: Name of the x axis
-        y_axis: Name of the y axis
-        label_plot: Name of the plot
-        dict_fixed: Dictionary with the fixed values
-        ax: Axes to plot on
-        log_x: Logarithmic x axis
-        log_y: Logarithmic y axis
-        save_fig: Save the figure
-        default_dict: Dictionary with the default values
-        **kwargs: Additional arguments to pass to the plot function
-
-    Returns:
-        ax: Axes with the plot
-    '''
-
-    # Condition to enforce dict_fix conditions
-    if dict_fixed is not None:
-        cond = [df[k].apply(lambda k: k == v).astype(bool)
-                for k, v in dict_fixed.items()]
-        cond_total = functools.reduce(lambda x, y: x & y, cond)
-        working_df = df[cond_total]
-    else:
-        working_df = df.copy()
-    if y_axis == 'tts' or y_axis == 'tts_scaled':
-        working_df.mask(
-            working_df[y_axis] == fail_value).sort_values(
-            x_axis
-        ).plot(
-            ax=ax,
-            x=x_axis,
-            y=y_axis,
-            label=label_plot,
-            style='-*',
-            **kwargs,)
-    else:
-        working_df.sort_values(
-            x_axis
-        ).plot(
-            ax=ax,
-            x=x_axis,
-            y=y_axis,
-            label=label_plot,
-            style='-*')
-
-    if y_axis + '_conf_interval_lower' in df.columns and y_axis + '_conf_interval_upper' in df.columns:
-        ax.fill_between(
-            working_df.sort_values(x_axis)[x_axis],
-            working_df.sort_values(x_axis)[y_axis + '_conf_interval_lower'],
-            working_df.sort_values(x_axis)[y_axis + '_conf_interval_upper'],
-            alpha=0.2,
-        )
-
-    if default_dict is not None:
-        cond_default = [df[k].apply(lambda k: k == v).astype(bool)
-                        for k, v in default_dict.items()]
-        cond_default_total = functools.reduce(lambda x, y: x & y, cond_default)
-        default_val = df[cond_default_total][y_axis].values
-        if default_val.size != 0:
-            default_val = default_val[0]
-            ax.axhline(default_val,
-                       label='Default',
-                       linestyle='--')
-
-    ax.legend()
-    if y_axis in labels.keys():
-        ax.set(ylabel=labels[y_axis])
-    else:
-        ax.set(ylabel=y_axis)
-    if x_axis in labels.keys():
-        ax.set(xlabel=labels[x_axis])
-    else:
-        ax.set(xlabel=x_axis)
-    if log_x:
-        ax.set(xscale='log')
-    if log_y:
-        ax.set(yscale='log')
-    ax.set(title='Plot N=' + str(N) +
-           '\n' + y_axis + ' dependance with ' + x_axis + ', \n' +
-                 ', '.join(str(key) + '=' + str(value) for key, value in dict_fixed.items()))
-
-    if save_fig:
-        plt.savefig(
-            plots_path + y_axis + '_' + x_axis + '_fixed_' + '_'.join(str(key)
-                                                                      for key in dict_fixed.keys())
-            + '.png')
-
-    return ax
-
-
-def plot_1d_singleinstance_list(
-    df: pd.DataFrame,
-    x_axis: str,
-    y_axis: str,
-    list_dicts: List[dict],
-    ax: plt.Axes,
-    dict_fixed: dict = None,
-    log_x: bool = False,
-    log_y: bool = False,
-    use_colorbar: bool = False,
-    save_fig: bool = False,
-    default_dict: dict = None,
-    colormap: plt.cm = None,
-    **kwargs,
-) -> plt.Axes:
-    '''
-    Function to plot 1D dependance figures
-
-    Args:
-        df: Dataframe with the data to plot
-        x_axis: Name of the x axis
-        y_axis: Name of the y axis
-        list_dicts: List of dictionaries with the values to plot
-        dict_fixed: Dictionary with the fixed values
-        ax: Axes to plot on
-        log_x: Logarithmic x axis
-        log_y: Logarithmic y axis
-        use_colorbar: Use colorbar
-        save_fig: Save the figure
-        **kwargs: Additional arguments to pass to the plot function
-
-    Returns:
-        ax: Axes with the plot
-    '''
-    if colormap is None:
-        colormap = plt.cm.rainbow
-    colors = colormap(np.linspace(0, 1, len(list_dicts)))
-    title_str = 'Random N=' + \
-        str(N) + '\n' + \
-        y_axis + ' dependance with ' + x_axis
-
-    # Condition to enforce dict_fix conditions
-    fixed_instance = False
-    if dict_fixed is not None:
-        if 'instance' not in dict_fixed.keys():
-            title_str += ', \n Ensemble'
-        else:
-            fixed_instance = True
-        cond = [df[k].apply(lambda k: k == v).astype(bool)
-                for k, v in dict_fixed.items()]
-        cond_total = functools.reduce(lambda x, y: x & y, cond)
-        working_df = df[cond_total]
-        title_str += ', \n' + \
-            ', '.join(str(key) + '=' + str(value)
-                      for key, value in dict_fixed.items())
-    else:
-        working_df = df.copy()
-    for i, line in enumerate(list_dicts):
-        cond_part = [working_df[k].apply(lambda k: k == v).astype(bool)
-                     for k, v in line.items()]
-        cond_partial = functools.reduce(lambda x, y: x & y, cond_part)
-        label_plot = ', '.join(str(key) + '=' + str(value)
-                               for key, value in line.items())
-        if 'instance' not in line.keys() and not fixed_instance:
-            label_plot = 'Ensemble, ' + label_plot
-        if len(working_df[cond_partial]) == 0:
-            continue
-        else:
-            if y_axis == 'tts' or y_axis == 'tts_scaled':
-                working_df[cond_partial].mask(
-                    working_df[cond_partial][y_axis] == fail_value).sort_values(
-                    x_axis
-                ).plot(
-                    ax=ax,
-                    x=x_axis,
-                    y=y_axis,
-                    label=label_plot,
-                    color=colors[i],
-                    style='-*',
-                    **kwargs,)
-            else:
-                working_df[cond_partial].sort_values(
-                    x_axis
-                ).plot(
-                    ax=ax,
-                    x=x_axis,
-                    y=y_axis,
-                    label=label_plot,
-                    color=colors[i],
-                    style='-*',
-                    **kwargs,)
-
-        if y_axis + '_conf_interval_lower' in df.columns and y_axis + '_conf_interval_upper' in df.columns and working_df[cond_partial][y_axis + '_conf_interval_lower'].values.shape[0] > 1:
-            ax.fill_between(
-                working_df[cond_partial].sort_values(x_axis)[x_axis],
-                working_df[cond_partial].sort_values(
-                    x_axis)[y_axis + '_conf_interval_lower'],
-                working_df[cond_partial].sort_values(
-                    x_axis)[y_axis + '_conf_interval_upper'],
-                alpha=0.2,
-                color=colors[i],
-            )
-
-    if default_dict is not None:
-        cond_default = [df[k].apply(lambda k: k == v).astype(bool)
-                        for k, v in default_dict.items()]
-        cond_default_total = functools.reduce(lambda x, y: x & y, cond_default)
-        default_val = df[cond_default_total][y_axis].values
-        if default_val.size != 0:
-            default_val = default_val[0]
-            ax.axhline(default_val,
-                       label='Default',
-                       linestyle='--')
-
-    if use_colorbar:
-        ax.get_legend().remove()
-        # We assign the colormap according to the first key of the list_dicts, which we assume is sorted
-        list_colorbar = [list(i.values())[0] for i in list_dicts]
-        # Setup the colorbar
-        normalize = mcolors.Normalize(
-            vmin=min(list_colorbar), vmax=max(list_colorbar))
-        scalarmappaple = plt.cm.ScalarMappable(norm=normalize, cmap=colormap)
-        scalarmappaple.set_array(list_colorbar)
-        plt.colorbar(scalarmappaple, ax=ax, label=', '.join(
-            labels[key] for key in line.keys()))
-    else:
-        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-    if y_axis in labels.keys():
-        ax.set(ylabel=labels[y_axis])
-    else:
-        ax.set(ylabel=y_axis)
-    if x_axis in labels.keys():
-        ax.set(xlabel=labels[x_axis])
-    else:
-        ax.set(xlabel=x_axis)
-    if log_x:
-        ax.set(xscale='log')
-    if log_y:
-        ax.set(yscale='log')
-
-    ax.set(title=title_str)
-
-    if save_fig:
-        plt.savefig(
-            plots_path + y_axis + '_' + x_axis + '_fixed_' + '_'.join(str(key)
-                                                                      for key in dict_fixed.keys())
-            + '_list_' + '_'.join(str(key) for key in list_dicts[0].keys())
-            + '.png')
-
-    return ax
-
-
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples
 f, ax = plt.subplots()
@@ -1548,6 +1091,8 @@ ax = plot_1d_singleinstance_list(
     dict_fixed={'instance': 42, 'schedule': 'geometric'},
     ax=ax,
     list_dicts=[{'boots': i} for i in [1, 10, 100, 1000]],
+    labels=labels,
+    prefix=prefix,
     log_x=True,
     log_y=False,
     save_fig=False,
@@ -1556,11 +1101,6 @@ ax = plot_1d_singleinstance_list(
     use_colorbar=False,
     ylim=[0.95, 1.005]
 )
-# %%
-# Definition of reads metric as sweeps * total_reads
-df_results_dneal['reads'] = df_results_dneal['boots'] * \
-    df_results_dneal['sweeps']
-df_results_dneal.to_pickle(df_path)
 # %%
 # Performance ratio vs runs for different bootstrap downsamples
 f, ax = plt.subplots()
@@ -1571,6 +1111,8 @@ ax = plot_1d_singleinstance_list(
     dict_fixed={'instance': 42, 'schedule': 'geometric'},
     ax=ax,
     list_dicts=[{'boots': i} for i in [1, 10, 100, 1000]],
+    labels=labels,
+    prefix=prefix,
     log_x=True,
     log_y=False,
     save_fig=False,
@@ -1589,6 +1131,8 @@ plot_1d_singleinstance_list(
     dict_fixed={'instance': 42, 'boots': 1000},
     ax=ax,
     list_dicts=[{'schedule': i} for i in schedules_list],
+    labels=labels,
+    prefix=prefix,
     log_x=False,
     log_y=False,
     save_fig=False,
@@ -1605,6 +1149,8 @@ plot_1d_singleinstance_list(
     dict_fixed={'instance': 42, 'boots': 1000},
     ax=ax,
     list_dicts=[{'schedule': i} for i in schedules_list],
+    labels=labels,
+    prefix=prefix,
     log_x=False,
     log_y=False,
     save_fig=False,
@@ -1622,6 +1168,8 @@ plot_1d_singleinstance_list(
     dict_fixed={'instance': 42},
     list_dicts=[{'schedule': i, 'boots': j}
                 for i in schedules_list for j in [10, 100, 1000]],
+    labels=labels,
+    prefix=prefix,
     log_x=False,
     log_y=False,
     save_fig=False,
@@ -1657,11 +1205,6 @@ df_results_dneal = createDnealResultsDataframes(
     fail_value=fail_value,
     save_pickle=True,
 )
-# %%
-# Definition of reads metric as sweeps * total_reads
-df_results_dneal['reads'] = df_results_dneal['boots'] * \
-    df_results_dneal['sweeps']
-df_results_dneal.to_pickle(df_path)
 
 # %%
 # Plot with performance ratio vs reads for interesting sweeps
@@ -1678,15 +1221,15 @@ ax = plot_1d_singleinstance_list(
     ax=ax,
     list_dicts=[{'sweeps': i, 'schedule': j}
                 for j in schedules_list for i in interesting_sweeps],
-    # list_dicts=[{'sweeps': i for i in [190]}],
-    # list_dicts=[{'boots': i for i in [1000]}],
+    labels=labels,
+    prefix=prefix,
     log_x=True,
     log_y=False,
     save_fig=False,
     default_dict={'schedule': 'geometric', 'sweeps': 1000, 'boots': 1000},
     use_colorbar=False,
     ylim=[0.95, 1.005],
-    # xlim=[1e2, 5e4],
+    xlim=[1e2, 5e5],
 )
 # %%
 # Compute all instances with Dwave-neal
@@ -1694,32 +1237,28 @@ instance_list = [i for i in range(20)] + [42]
 # %%
 # Compute random energy file
 compute_random = False
-
 if compute_random:
     for instance in instance_list:
         # Load problem instance
-
         np.random.seed(instance)
         J = np.random.rand(N, N)
         # We only consider upper triangular matrix ignoring the diagonal
         J = np.triu(J, 1)
         h = np.random.rand(N)
         ising_model = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
-
         random_energy, _ = randomEnergySampler(
             ising_model, dwave_sampler=False)
-
         with open(os.path.join(results_path, "random_energies.txt"), "a") as gs_file:
             gs_file.write(prefix + str(instance) + " " +
                           str(random_energy) + " " + "best_found pysa\n")
 
 
 # %%
-# Clean up previous dataframes by removing old confidence interval tuples and adding read columns
 # Merge all results dataframes in a single one
 schedules_list = ['geometric']
 df_list = []
 use_raw_data = True
+use_raw_pickles = True
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + ".pkl"
     df_path = os.path.join(dneal_results_path, df_name)
@@ -1732,6 +1271,7 @@ for instance in instance_list:
         dneal_results_path=dneal_results_path,
         dneal_pickle_path=dneal_pickle_path,
         use_raw_data=use_raw_data,
+        use_raw_pickles=use_raw_pickles,
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
@@ -1759,6 +1299,7 @@ for instance in instance_list:
         dneal_results_path=dneal_results_path,
         dneal_pickle_path=dneal_pickle_path,
         use_raw_data=use_raw_data,
+        use_raw_pickles=use_raw_pickles,
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
@@ -1768,31 +1309,19 @@ for instance in instance_list:
         save_pickle=True,
     )
 
-    for metric in metrics_list:
-        if metric + '_conf_interval' in df_results_dneal.columns:
-            df_results_dneal[metric + '_conf_interval_lower'] = df_results_dneal[metric +
-                                                                                 '_conf_interval'].apply(lambda x: x[0])
-            df_results_dneal[metric + '_conf_interval_upper'] = df_results_dneal[metric +
-                                                                                 '_conf_interval'].apply(lambda x: x[1])
-            df_results_dneal.drop(
-                metric + '_conf_interval', axis=1, inplace=True)
-
-    df_results_dneal['reads'] = df_results_dneal['boots'] * \
-        df_results_dneal['sweeps']
-    df_results_dneal['schedule'] = df_results_dneal['schedule'].astype(
-        'category')
-    df_results_dneal.to_pickle(df_path)
     df_list.append(df_results_dneal)
 
 df_results_all = pd.concat(df_list, ignore_index=True)
 df_name = "df_results.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
+df_results_all = cleanup_df(df_results_all)
 df_results_all.to_pickle(df_path)
 
 # %%
 # Run all the instances with Dwave-neal
 overwrite_pickles = False
 use_raw_data = True
+use_raw_pickles = False
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
 
@@ -1804,6 +1333,7 @@ df_results_all = createDnealResultsDataframes(
     dneal_results_path=dneal_results_path,
     dneal_pickle_path=dneal_pickle_path,
     use_raw_data=use_raw_data,
+    use_raw_pickles=use_raw_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -1812,30 +1342,19 @@ df_results_all = createDnealResultsDataframes(
     fail_value=fail_value,
     save_pickle=True,
 )
-
-# %%
-# Clean up previous dataframes by removing old confidence interval tuples and adding read columns
-for metric in metrics_list:
-    if metric + '_conf_interval' in df_results_all.columns:
-        df_results_all[metric + '_conf_interval_lower'] = df_results_all[metric +
-                                                                         '_conf_interval'].apply(lambda x: x[0])
-        df_results_all[metric + '_conf_interval_upper'] = df_results_all[metric +
-                                                                         '_conf_interval'].apply(lambda x: x[1])
-df_results_all['reads'] = df_results_all['boots'] * \
-    df_results_all['sweeps']
-df_results_all['schedule'] = df_results_all['schedule'].astype('category')
-df_results_all.to_pickle(df_path)
 # %%
 # Compute preliminary ground state file with best found solution by Dwave-neal
-compute_dneal_gs = True
-
+compute_dneal_gs = False
 if compute_dneal_gs:
     for instance in instance_list:
         # List all the pickled filed for an instance files
-        pickle_list = createDnealExperimentFileList(directory=dneal_pickle_path,
-                                                    instance_list=[instance])
+        pickle_list = createDnealExperimentFileList(
+            directory=dneal_pickle_path,
+            instance_list=[instance],
+            prefix=prefix,
+        )
         min_energies = []
-        min_energy = 1000
+        min_energy = np.inf
         for file in pickle_list:
             df_samples = pd.read_pickle(file)
             if min_energy > df_samples['energy'].min():
@@ -1917,24 +1436,18 @@ df_results_all_stats = df_results_all_stats.reset_index()
 
 # %%
 # Clean up dataframe
-for metric in metrics_list:
-    if metric + '_conf_interval' in df_results_all_stats.columns:
-        df_results_all_stats[metric + '_conf_interval_lower'] = df_results_all_stats[metric +
-                                                                                     '_conf_interval'].apply(lambda x: x[0])
-        df_results_all_stats[metric + '_conf_interval_upper'] = df_results_all_stats[metric +
-                                                                                     '_conf_interval'].apply(lambda x: x[1])
-df_results_all_stats['reads'] = df_results_all_stats['boots'] * \
-    df_results_all_stats['sweeps']
-df_results_all_stats['schedule'] = df_results_all_stats['schedule'].astype(
-    'category')
+df_results_all_stats = cleanup_df(df_results_all_stats)
 stat_measures = ['mean', 'median']
 for stat_measure in stat_measures:
-    df_results_all_stats[stat_measure + '_success_prob_conf_interval_lower'] = df_results_all_stats[stat_measure +
-                                                                                                    '_success_prob_conf_interval_lower'].clip(lower=0)
-    df_results_all_stats[stat_measure + '_success_prob_conf_interval_upper'] = df_results_all_stats[stat_measure +
-                                                                                                    '_success_prob_conf_interval_upper'].clip(upper=1)
-    df_results_all_stats[stat_measure + '_perf_ratio_conf_interval_upper'] = df_results_all_stats[stat_measure +
-                                                                                                  '_perf_ratio_conf_interval_upper'].clip(upper=1)
+    df_results_all_stats[stat_measure + '_success_prob_conf_interval_lower'] = \
+        df_results_all_stats[stat_measure +
+                             '_success_prob_conf_interval_lower'].clip(lower=0)
+    df_results_all_stats[stat_measure + '_success_prob_conf_interval_upper'] =\
+        df_results_all_stats[stat_measure +
+                             '_success_prob_conf_interval_upper'].clip(upper=1)
+    df_results_all_stats[stat_measure + '_perf_ratio_conf_interval_upper'] = \
+        df_results_all_stats[stat_measure +
+                             '_perf_ratio_conf_interval_upper'].clip(upper=1)
 df_name = 'df_results_stats'
 df_path = os.path.join(dneal_results_path, df_name + '.pkl')
 df_results_all_stats.to_pickle(df_path)
@@ -1950,6 +1463,8 @@ plot_1d_singleinstance_list(
     dict_fixed={'schedule': 'geometric'},
     list_dicts=[{'instance': 42, 'boots': j}
                 for j in [500, 1000]],
+    labels=labels,
+    prefix=prefix,
     log_x=False,
     log_y=True,
     colormap=plt.cm.Dark2,
@@ -1962,6 +1477,8 @@ plot_1d_singleinstance_list(
     dict_fixed={'schedule': 'geometric'},
     list_dicts=[{'boots': j}
                 for j in [500, 1000]],
+    labels=labels,
+    prefix=prefix,
     log_x=False,
     log_y=True,
 )
@@ -1976,6 +1493,8 @@ plot_1d_singleinstance_list(
     dict_fixed={'schedule': 'geometric'},
     list_dicts=[{'boots': j}
                 for j in boots_list],
+    labels=labels,
+    prefix=prefix,
     log_x=True,
     log_y=False,
     save_fig=False,
@@ -1992,6 +1511,8 @@ plot_1d_singleinstance_list(
     dict_fixed={'schedule': 'geometric', 'sweeps': 500},
     list_dicts=[{'boots': j}
                 for j in all_boots_list],
+    labels=labels,
+    prefix=prefix,
     log_x=True,
     log_y=False,
     save_fig=False,
@@ -2010,6 +1531,8 @@ plot_1d_singleinstance_list(
     dict_fixed={'schedule': 'geometric'},
     list_dicts=[{'sweeps': j}
                 for j in interesting_sweeps],
+    labels=labels,
+    prefix=prefix,
     log_x=True,
     log_y=False,
     save_fig=False,
@@ -2026,13 +1549,55 @@ plot_1d_singleinstance_list(
     dict_fixed={'schedule': 'geometric'},
     list_dicts=[{'boots': j}
                 for j in [1, 10, 100, 1000]],
+    labels=labels,
+    prefix=prefix,
     log_x=True,
     log_y=False,
     save_fig=False,
     # ylim=[0.9, 1.005],
     # xlim=[1e2, 5e4],
 )
+
 # %%
+# Gather all the data for the best tts of the ensemble for each instance
+best_ensemble_sweeps = []
+df_list = []
+
+for stat_measure in stat_measures:
+    best_sweep = df_results_all_stats.nsmallest(
+        1, stat_measure + '_tts')['sweeps'].values[0]
+    best_ensemble_sweeps.append(best_sweep)
+for instance in instance_list:
+    df_name = "df_results_" + str(instance) + ".pkl"
+    df_path = os.path.join(dneal_results_path, df_name)
+    df_results_dneal = pd.read_pickle(df_path)
+    df_results_dneal = createDnealResultsDataframes(
+        df=df_results_dneal,
+        instance_list=[instance],
+        parameters_dict={'schedule': schedules_list,
+                         'sweeps': best_ensemble_sweeps},
+        boots_list=all_boots_list,
+        dneal_results_path=dneal_results_path,
+        dneal_pickle_path=dneal_pickle_path,
+        use_raw_data=use_raw_data,
+        use_raw_pickles=use_raw_pickles,
+        overwrite_pickles=overwrite_pickles,
+        s=s,
+        confidence_level=conf_int,
+        bootstrap_samples=bootstrap_samples,
+        gap=gap,
+        fail_value=fail_value,
+        save_pickle=True,
+    )
+    df_list.append(df_results_dneal)
+
+df_results_all = pd.concat(df_list, ignore_index=True)
+df_results_all = cleanup_df(df_results_all)
+df_name = "df_results.pkl"
+df_path = os.path.join(dneal_results_path, df_name)
+df_results_all.to_pickle(df_path)
+# %%
+# Function to generate ensemble results list to be included in dataframe
 
 
 def computeEnsembleResultsList(
@@ -2268,8 +1833,11 @@ compute_pysa_gs = True
 if compute_pysa_gs:
     for instance in instance_list:
         # List all the pickled filed for an instance files
-        pickle_list = createPySAExperimentFileList(directory=pysa_pickles_path,
-                                                   instance_list=[instance])
+        pickle_list = createPySAExperimentFileList(
+            directory=pysa_pickles_path,
+            instance_list=[instance],
+            prefix=prefix,
+        )
         min_energies = []
         for file in pickle_list:
             df = pd.read_pickle(file)
@@ -2285,6 +1853,7 @@ if compute_pysa_gs:
 def getMinPySAEnergy(
     directory: str,
     instance: Union[str, int],
+    prefix: str = "",
 ) -> float:
     '''
     Load minimum found energy across each instance
@@ -2292,6 +1861,7 @@ def getMinPySAEnergy(
     Args:
         directory: Directory where the PySA pickles are located
         instance: Instance number
+        prefix: Prefix of the instance file
 
     Returns:
         Minimum found energy
@@ -2300,7 +1870,10 @@ def getMinPySAEnergy(
     min_energies = [
         df_dneal[df_dneal['instance'] == instance]['best'].min()]
     file_list = createPySAExperimentFileList(
-        directory=directory, instance_list=[instance])
+        directory=directory,
+        instance_list=[instance],
+        prefix=prefix,
+    )
     for file in file_list:
         df = pd.read_pickle(file)
         min_energies.append(df['best_energy'].min())
@@ -2337,12 +1910,15 @@ if use_raw_pickles:
                                         instance_name=prefix + str(instance))
 
         # List all the instances files
-        pickle_list = createPySAExperimentFileList(directory=pysa_pickles_path,
-                                                   instance_list=[instance],
-                                                   rep_list=n_replicas_list,
-                                                   sweep_list=sweeps_list,
-                                                   pcold_list=p_cold_list,
-                                                   phot_list=p_hot_list)
+        pickle_list = createPySAExperimentFileList(
+            directory=pysa_pickles_path,
+            instance_list=[instance],
+            rep_list=n_replicas_list,
+            sweep_list=sweeps_list,
+            pcold_list=p_cold_list,
+            phot_list=p_hot_list,
+            prefix=prefix,
+        )
         # print(pickle_list)
         for pickle_file in pickle_list:
             file_name = pickle_file.split(".pkl")[0].rsplit("/", 1)[-1]
@@ -2416,21 +1992,19 @@ if use_raw_pickles:
                 runtimes = data[:, 2]
 # %%
 # Create pickled Pandas framework with results for each instance
-
-# Success rate for TTS computation
-s = 0.99
-
-
 for instance in instance_list:
     data_dict_name = "results_" + str(instance) + ".pickle"
     df_name = "df_results_" + str(instance) + ".pickle"
 
-    file_list = createPySAExperimentFileList(directory=pysa_data_path,
-                                             instance_list=[instance],
-                                             rep_list=n_replicas_list,
-                                             sweep_list=sweeps_list,
-                                             pcold_list=p_cold_list,
-                                             phot_list=p_hot_list)
+    file_list = createPySAExperimentFileList(
+        directory=pysa_data_path,
+        instance_list=[instance],
+        rep_list=n_replicas_list,
+        sweep_list=sweeps_list,
+        pcold_list=p_cold_list,
+        phot_list=p_hot_list,
+        prefix=prefix,
+    )
 
     data_dict_path = os.path.join(pysa_path, data_dict_name)
     df_path = os.path.join(pysa_path, df_name)

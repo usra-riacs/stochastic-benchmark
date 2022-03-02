@@ -10,6 +10,8 @@ from typing import List, Union
 import matplotlib.colors as mcolors
 
 # %%
+
+
 def plotEnergyValuesDwaveSampleSet(
     results: dimod.SampleSet,
     title: str = None,
@@ -250,9 +252,11 @@ def plot_1d_singleinstance(
     log_x: bool = False,
     log_y: bool = False,
     save_fig: bool = False,
+    labels: dict = None,
     prefix: str = '',
     plots_path: str = './plots/',
     default_dict: dict = None,
+    color: str = None,
     fail_value: float = None,
     **kwargs,
 ) -> plt.Axes:
@@ -269,9 +273,11 @@ def plot_1d_singleinstance(
         log_x: Logarithmic x axis
         log_y: Logarithmic y axis
         save_fig: Save the figure
+        labels: Dictionary with the labels
         prefix: Prefix to add to the title
         plots_path: Path to save the figure
         default_dict: Dictionary with the default values
+        color: Color of the plot
         fail_value: Value to use when run has failed
         **kwargs: Additional arguments to pass to the plot function
 
@@ -280,6 +286,9 @@ def plot_1d_singleinstance(
     '''
     if fail_value is None:
         fail_value = np.inf
+    
+    if color is None:
+        color = 'grey'
 
     # Condition to enforce dict_fix conditions
     if dict_fixed is not None:
@@ -298,7 +307,8 @@ def plot_1d_singleinstance(
             x=x_axis,
             y=y_axis,
             label=label_plot,
-            style='-*',
+            style='-',
+            color=color,
             **kwargs,)
     else:
         working_df.sort_values(
@@ -308,7 +318,9 @@ def plot_1d_singleinstance(
             x=x_axis,
             y=y_axis,
             label=label_plot,
-            style='-*')
+            style='-*',
+            color=color,
+            **kwargs,)
 
     if y_axis + '_conf_interval_lower' in df.columns and y_axis + '_conf_interval_upper' in df.columns:
         ax.fill_between(
@@ -370,6 +382,7 @@ def plot_1d_singleinstance_list(
     prefix: str = '',
     plots_path: str = './plots/',
     default_dict: dict = None,
+    colors: List[str] = None,
     colormap: plt.cm = None,
     fail_value: float = None,
     **kwargs,
@@ -399,11 +412,19 @@ def plot_1d_singleinstance_list(
     Returns:
         ax: Axes with the plot
     '''
+    single_instance = False
     if fail_value is None:
         fail_value = np.inf
+    if 'alpha' in kwargs:
+        single_instance = True
     if colormap is None:
         colormap = plt.cm.rainbow
-    colors = colormap(np.linspace(0, 1, len(list_dicts)))
+    if colors is None:
+        # Default colors for matplotlib
+        colors = [u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                  u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf']
+    elif colors == ['colormap']:
+        colors = colormap(np.linspace(0, 1, len(list_dicts)))
     title_str = 'Plot ' + \
         prefix + '\n' + \
         y_axis + ' dependance with ' + x_axis
@@ -443,9 +464,9 @@ def plot_1d_singleinstance_list(
                     ax=ax,
                     x=x_axis,
                     y=y_axis,
-                    label=label_plot,
+                    label=label_plot if not single_instance else '',
                     color=colors[i],
-                    style='-*',
+                    style='-*' if not single_instance else '-',
                     **kwargs,)
             else:
                 working_df[cond_partial].sort_values(
@@ -454,12 +475,15 @@ def plot_1d_singleinstance_list(
                     ax=ax,
                     x=x_axis,
                     y=y_axis,
-                    label=label_plot,
+                    label=label_plot if not single_instance else '',
                     color=colors[i],
-                    style='-*',
+                    style='-*' if not single_instance else '-',
                     **kwargs,)
 
-        if y_axis + '_conf_interval_lower' in df.columns and y_axis + '_conf_interval_upper' in df.columns and working_df[cond_partial][y_axis + '_conf_interval_lower'].values.shape[0] > 1:
+        if y_axis + '_conf_interval_lower' in df.columns and \
+            y_axis + '_conf_interval_upper' in df.columns and \
+                not single_instance and \
+        working_df[cond_partial][y_axis + '_conf_interval_lower'].values.shape[0] > 1:
             ax.fill_between(
                 working_df[cond_partial].sort_values(x_axis)[x_axis],
                 working_df[cond_partial].sort_values(
@@ -481,19 +505,21 @@ def plot_1d_singleinstance_list(
                        label='Default',
                        linestyle='--')
 
-    if use_colorbar:
-        ax.get_legend().remove()
-        # We assign the colormap according to the first key of the list_dicts, which we assume is sorted
-        list_colorbar = [list(i.values())[0] for i in list_dicts]
-        # Setup the colorbar
-        normalize = mcolors.Normalize(
-            vmin=min(list_colorbar), vmax=max(list_colorbar))
-        scalarmappaple = plt.cm.ScalarMappable(norm=normalize, cmap=colormap)
-        scalarmappaple.set_array(list_colorbar)
-        plt.colorbar(scalarmappaple, ax=ax, label=', '.join(
-            labels[key] for key in line.keys()))
-    else:
-        ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    if not single_instance:
+        if use_colorbar:
+            ax.get_legend().remove()
+            # We assign the colormap according to the first key of the list_dicts, which we assume is sorted
+            list_colorbar = [list(i.values())[0] for i in list_dicts]
+            # Setup the colorbar
+            normalize = mcolors.Normalize(
+                vmin=min(list_colorbar), vmax=max(list_colorbar))
+            scalarmappaple = plt.cm.ScalarMappable(
+                norm=normalize, cmap=colormap)
+            scalarmappaple.set_array(list_colorbar)
+            plt.colorbar(scalarmappaple, ax=ax, label=', '.join(
+                labels[key] for key in line.keys()))
+        else:
+            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     if y_axis in labels.keys():
         ax.set(ylabel=labels[y_axis])
     else:

@@ -241,6 +241,7 @@ def createDnealExperimentFileList(
     sweep_list: Union[List[str], List[int]] = None,
     schedule_list: List[str] = None,
     prefix: str = "",
+    suffix: str = "",
 ) -> list:
     '''
     Creates a list of experiment files in the directory for the instances in the instance_list, sweeps in the sweep_list, and schedules in the schedule_list
@@ -263,7 +264,7 @@ def createDnealExperimentFileList(
                  if(not f.startswith('.') and
                     not f.endswith('.zip') and
                     not f.endswith('.sh') and
-                    not f.endswith('.p') and
+                    f.endswith(suffix) and
                     f.startswith(prefix))]
         # exclude gs_energies.txt files
         files = [f for f in files
@@ -869,9 +870,9 @@ def cleanup_df(
         elif column == 'schedule':
             df_new[column] = df_new[column].astype('category')
     df_new['reads'] = df_new['sweeps'] * df_new['boots']
-    df_new['reads'] = df_new['reads'].astype('int')
-    df_new['sweeps'] = df_new['sweeps'].astype('int')
-    df_new['boots'] = df_new['boots'].astype('int')
+    df_new['reads'] = df_new['reads'].astype('int', errors='ignore')
+    df_new['sweeps'] = df_new['sweeps'].astype('int', errors='ignore')
+    df_new['boots'] = df_new['boots'].astype('int', errors='ignore')
     return df_new
 
 
@@ -920,6 +921,7 @@ def createDnealResultsDataframes(
             print('The dataframe has some data for the parameters')
             cond = [df[k].apply(lambda k: k == i).astype(bool)
                     for k, v in parameters_dict.items() for i in v]
+            # TODO This looks like an overkill, as the dictionaries can have lists as values, change to have only values
             cond_total = functools.reduce(lambda x, y: x & y, cond)
             if all(boots in df[cond_total]['boots'].values for boots in boots_list):
                 print('The dataframe already has all the data')
@@ -967,8 +969,8 @@ def createDnealResultsDataframes(
                     if (df is not None) and (boots in df[(df['schedule'] == schedule) & (df['sweeps'] == sweep)]['boots'].values):
                         continue
                     else:
-                        print("Generating results for instance:", instance,
-                              "schedule:", schedule, "sweep:", sweep, "boots:", boots)
+                        # print("Generating results for instance:", instance,
+                            #   "schedule:", schedule, "sweep:", sweep, "boots:", boots)
                         list_outputs = computeResultsList(
                             df=df_samples,
                             random_energy=random_energy,
@@ -1008,8 +1010,8 @@ def createDnealResultsDataframes(
 # %%
 # Compute results for instance 42 using D-Wave Neal
 use_raw_data = True
-overwrite_pickles = False
 use_raw_pickles = False
+overwrite_pickles = False
 instance = 42
 metrics_list = ['min_energy', 'tts',
                 'perf_ratio', 'success_prob', 'mean_time']
@@ -1034,7 +1036,7 @@ sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
 df_name = "df_results_" + str(instance) + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-if os.path.exists(df_path) and not use_raw_data:
+if os.path.exists(df_path):
     df_results_dneal = pd.read_pickle(df_path)
 else:
     df_results_dneal = None
@@ -1183,13 +1185,15 @@ plot_1d_singleinstance_list(
 interesting_sweeps = [
     df_results_dneal[df_results_dneal['boots'] == default_boots].nsmallest(1, 'tts')[
         'sweeps'].values[0],
+    1,
     10,
+    100,
     default_sweeps // 2,
     default_sweeps,
 ]
 
 # Iterating for all values of bootstrapping downsampling proves to be very expensive, rather use steps of 10
-all_boots_list = list(range(1, 1001, 10))
+all_boots_list = list(range(1, 1001, 1))
 
 df_results_dneal = createDnealResultsDataframes(
     df=df_results_dneal,
@@ -1230,6 +1234,7 @@ ax = plot_1d_singleinstance_list(
     save_fig=False,
     default_dict={'schedule': 'geometric', 'sweeps': 1000, 'boots': 1000},
     use_colorbar=False,
+    colors=['colormap'],
     ylim=[0.95, 1.005],
     xlim=[1e2, 5e5],
 )
@@ -1261,10 +1266,11 @@ schedules_list = ['geometric']
 df_list = []
 use_raw_data = True
 use_raw_pickles = False
+all_boots_list = list(range(1, 1001, 1))
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + ".pkl"
     df_path = os.path.join(dneal_results_path, df_name)
-    if os.path.exists(df_path) and not use_raw_data:
+    if os.path.exists(df_path):
         df_results_dneal = pd.read_pickle(df_path)
     else:
         df_results_dneal = None
@@ -1290,6 +1296,7 @@ for instance in instance_list:
     interesting_sweeps = [
         df_results_dneal[df_results_dneal['boots'] == default_boots].nsmallest(1, 'tts')[
             'sweeps'].values[0],
+        1,
         10,
         default_sweeps // 2,
         default_sweeps,
@@ -1356,7 +1363,8 @@ if compute_dneal_gs:
         pickle_list = createDnealExperimentFileList(
             directory=dneal_pickle_path,
             instance_list=[instance],
-            prefix=prefix,
+            prefix='df_' + prefix,
+            suffix='.pkl'
         )
         min_energies = []
         min_energy = np.inf
@@ -1424,6 +1432,7 @@ def median_conf_interval(
 
 # %%
 # Split large dataframe such that we can compute the statistics and confidence interval for each metric across the instances
+# TODO This can be improved by the lambda function version of the approach defining an input parameter for the function as a dictionary. Currently this is too slow
 parameters = ['schedule', 'sweeps']
 df_results_all_groups = df_results_all.set_index(
     'instance').groupby(parameters + ['boots'])
@@ -1486,6 +1495,7 @@ plot_1d_singleinstance_list(
     prefix=prefix,
     log_x=False,
     log_y=True,
+    colors=['colormap']
 )
 # %%
 # Generate plots for performance ratio of ensemble vs sweeps
@@ -1524,6 +1534,7 @@ plot_1d_singleinstance_list(
     ylim=[0.95, 1.005],
     # xlim=[1e2, 5e4],
     use_colorbar=True,
+    colors=['colormap'],
 )
 # %%
 # Generate plots for performance ratio of ensemble vs reads
@@ -1690,6 +1701,7 @@ for instance in [42, 0, 19]:
         df_results_all[(df_results_all['boots'] == default_boots) & (df_results_all['instance'] == instance)].nsmallest(1, 'tts')[
             'sweeps'].values[0],
         10,
+        default_sweeps//2,
         default_sweeps,
     ] + list(set(best_ensemble_sweeps))
     f, ax = plt.subplots()
@@ -1757,6 +1769,26 @@ df_results_all_stats.to_pickle(df_path)
 # Generate plots for performance ratio of ensemble vs reads
 for stat_measure in stat_measures:
     f, ax = plt.subplots()
+    for instance in instance_list:
+        plot_1d_singleinstance_list(
+            df=df_results_all,
+            x_axis='reads',
+            y_axis='perf_ratio',
+            ax=ax,
+            dict_fixed={'schedule': 'geometric'},
+            list_dicts=[{'sweeps': i, 'instance': instance}
+                        for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
+            labels=labels,
+            prefix=prefix,
+            log_x=True,
+            log_y=False,
+            save_fig=False,
+            ylim=[0.975, 1.0025],
+            xlim=[5e2, 5e4],
+            use_colorbar=False,
+            alpha=0.25,
+            colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+        )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1764,7 +1796,7 @@ for stat_measure in stat_measures:
         ax=ax,
         dict_fixed={'schedule': 'geometric'},
         list_dicts=[{'sweeps': i}
-                    for i in [10, default_sweeps] + list(set(best_ensemble_sweeps))],
+                    for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -1773,6 +1805,111 @@ for stat_measure in stat_measures:
         ylim=[0.975, 1.0025],
         xlim=[5e2, 5e4],
         use_colorbar=False,
+        linewidth=2.5,
+        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+    )
+# %%
+# Create virtual best and virtual worst columns
+# TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
+df_virtual_all = df_results_all.groupby(
+    ['schedule','reads']
+    ).apply(lambda s: pd.Series({
+        'virt_best_tts': np.nanmin(s['tts']),
+        'virt_best_perf_ratio': np.nanmax(s['perf_ratio']),
+        'virt_best_success_prob': np.nanmax(s['success_prob']),
+        'virt_best_mean_time': np.nanmin(s['mean_time']),
+        'virt_worst_tts': np.nanmax(s['tts']),
+        'virt_worst_perf_ratio': np.nanmin(s['perf_ratio']),
+        'virt_worst_success_prob': np.nanmin(s['success_prob']),
+        'virt_worst_mean_time': np.nanmax(s['mean_time'])
+    })
+    ).reset_index()
+df_results_all = df_results_all.merge(df_virtual_all, on=['schedule','reads'], how='outer')
+df_results_all = cleanup_df(df_results_all)
+df_name = "df_results.pkl"
+df_path = os.path.join(dneal_results_path, df_name)
+df_results_all.to_pickle(df_path)
+
+# %%
+# Generate plots for performance ratio of ensemble vs reads
+for stat_measure in stat_measures:
+    f, ax = plt.subplots()
+    # for instance in instance_list:
+    #     plot_1d_singleinstance_list(
+    #         df=df_results_all,
+    #         x_axis='reads',
+    #         y_axis='perf_ratio',
+    #         ax=ax,
+    #         dict_fixed={'schedule': 'geometric'},
+    #         list_dicts=[{'sweeps': i, 'instance': instance}
+    #                     for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
+    #         labels=labels,
+    #         prefix=prefix,
+    #         log_x=True,
+    #         log_y=False,
+    #         save_fig=False,
+    #         ylim=[0.975, 1.0025],
+    #         xlim=[5e2, 5e4],
+    #         use_colorbar=False,
+    #         alpha=0.25,
+    #         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+    #     )
+    plot_1d_singleinstance(
+        df=df_results_all,
+        x_axis='reads',
+        y_axis='virt_best_perf_ratio',
+        ax=ax,
+        label_plot = 'Virtual best',
+        dict_fixed={'schedule': 'geometric'},
+        # list_dicts=[{'sweeps': i}
+        #             for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        save_fig=False,
+        ylim=[0.975, 1.0025],
+        xlim=[5e2, 5e4],
+        linewidth=1,
+        # color=[u'#1f77b4'],
+    )
+    plot_1d_singleinstance(
+        df=df_results_all,
+        x_axis='reads',
+        y_axis='virt_worst_perf_ratio',
+        ax=ax,
+        label_plot = 'Virtual best',
+        dict_fixed={'schedule': 'geometric'},
+        # list_dicts=[{'sweeps': i}
+        #             for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        save_fig=False,
+        ylim=[0.975, 1.0025],
+        xlim=[5e2, 5e4],
+        linewidth=1,
+        color=[u'#1f77b4'],
+    )
+    plot_1d_singleinstance_list(
+        df=df_results_all_stats,
+        x_axis='reads',
+        y_axis=stat_measure + '_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': 'geometric'},
+        list_dicts=[{'sweeps': i}
+                    for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        save_fig=False,
+        ylim=[0.975, 1.0025],
+        xlim=[5e2, 5e4],
+        use_colorbar=False,
+        linewidth=2.5,
+        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
     )
 # %%
 # Create all instances and save it into disk

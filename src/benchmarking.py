@@ -8,6 +8,7 @@ import time
 from ctypes.wintypes import DWORD
 from gc import collect
 from typing import List, Union
+import functools
 
 import dimod
 # Import Matplotlib to edit plots
@@ -405,7 +406,11 @@ plotBarValues(df=df_random_sample, column_name='energy', sorted=True, skip=200,
 # %%
 # Run default Dwave-neal simulated annealing implementation
 sim_ann_sampler = dimod.SimulatedAnnealingSampler()
-default_name = prefix + str(instance) + '_geometric_1000.p'
+default_sweeps = 1000
+total_reads = 1000
+default_boots = total_reads
+default_name = prefix + str(instance) + '_geometric_' + \
+    str(default_sweeps) + '.p'
 df_default_name = 'df_' + default_name + 'kl'
 rerun_default = False
 if not os.path.exists(os.path.join(dneal_pickle_path, default_name)) or rerun_default:
@@ -516,120 +521,6 @@ if os.path.exists(zip_name) and use_raw_data:
     print('Results zip file has been extrated to ' + dneal_pickle_path)
 
 # %%
-# Compute minimum value using MIP
-# Ground state computation
-compute_mip_gs = False
-# Which type of MIP formulation to use ("qubo", "lcbo", "qcbo")
-mip_formulation = "qubo"
-if not compute_mip_gs:
-    pass
-else:
-    import pyomo.environ as pyo
-    from pyomo.opt import SolverStatus, TerminationCondition
-
-    # Obtain ground states if possible using Mixed-Integer Formulation through Pyomo
-    # Set up MIP optimization results directory
-    mip_results_path = os.path.join(results_path, "mip_results/")
-    # Create unexisting directory
-    if not os.path.exists(mip_results_path):
-        print('MIP results ' + mip_results_path +
-              ' does not exist. We will create it.')
-        os.makedirs(mip_results_path)
-    # Compute optimal solution using MIP and save it into ground state file
-    # Other solvers are available using GLPK, CBC (timeout), GAMS, Gurobi, or CPLEX
-    solver_name = "gurobi"
-    mip_solver = pyo.SolverFactory(solver_name)
-    bqm_bin = model_random.change_vartype("BINARY", inplace=False)
-    offset = bqm_bin.offset
-    nx_graph_bin = bqm_bin.to_networkx_graph()
-
-    # Create instance
-    pyo_model = pyo.ConcreteModel(name="Random SK problem " + str(instance))
-    # Define variables
-    # Node variables
-    pyo_model.x = pyo.Var(nx_graph_bin.nodes(), domain=pyo.Binary)
-    obj_expr = offset
-    for i, val in nx.get_node_attributes(nx_graph_bin, 'bias').items():
-        obj_expr += val * pyo_model.x[i]
-
-    if mip_formulation == "qubo":
-        # Direct QUBO formulation
-        obj_expr += pyo.quicksum(nx_graph_bin[i][j]['bias'] * pyo_model.x[i] * pyo_model.x[j]
-                                 for (i, j) in nx_graph_bin.edges())
-        # for (i, j) in nx_graph_bin.edges():
-        #     # We want all edges to be sorted  with i-j and i<j
-        #     assert(i < j)
-        #     if i != j:
-        #         obj_expr += nx_graph_bin[i][j]['bias'] * instance.x[i]*instance.x[j]
-        #     else:
-        #         print("Graph with self-edges" + str(i))
-
-    elif mip_formulation == "lcbo":
-        # Linear Constrained Binary Optimization
-
-        # Edge variables
-        pyo_model.y = pyo.Var(nx_graph_bin.edges(), domain=pyo.Binary)
-
-        # add model constraints
-        pyo_model.c1 = pyo.ConstraintList()
-        pyo_model.c2 = pyo.ConstraintList()
-        pyo_model.c3 = pyo.ConstraintList()
-
-        for (i, j) in nx_graph_bin.edges():
-            # We want all edges to be sorted  with i-j and i<j
-            assert(i < j)
-            if i != j:
-                pyo_model.c1.add(pyo_model.y[i, j] <=
-                                 pyo_model.x[i])
-                pyo_model.c2.add(pyo_model.y[i, j] <=
-                                 pyo_model.x[j])
-                pyo_model.c3.add(pyo_model.y[i, j] >=
-                                 pyo_model.x[i] + pyo_model.x[j] - 1)
-                obj_expr += nx_graph_bin[i][j]['bias'] * pyo_model.y[i, j]
-            else:
-                print("Graph with self-edges" + str(i))
-    else:
-        print("Formulation not implemented yet")
-
-    # Define the objective function
-    pyo_model.objective = pyo.Objective(expr=obj_expr, sense=pyo.minimize)
-    # Solve
-    if solver_name == "gurobi":
-        mip_solver.options['NonConvex'] = 2
-        mip_solver.options['MIPGap'] = 1e-9
-        mip_solver.options['TimeLimit'] = 30
-    elif solver_name == "gams":
-        mip_solver.options['solver'] = 'baron'
-        mip_solver.options['solver'] = 'baron'
-        mip_solver.options['add_options'] = 'option reslim=10;'
-
-    results_dneal = mip_solver.solve(
-        pyo_model,
-        tee=True,
-    )
-    # result = opt_gams.solve(instance, tee=True)
-    # Save solution
-    obj_val = pyo_model.objective.expr()
-    opt_sol = pd.DataFrame.from_dict(
-        pyo_model.x.extract_values(), orient="index", columns=[str(pyo_model.x)])
-    # Missing transformation back to spin variables here
-
-    if (results_dneal.solver.status == SolverStatus.ok) and (results_dneal.solver.termination_condition == TerminationCondition.optimal):
-        opt_sol.to_csv(mip_results_path + instance_name + "_" + str(obj_val) +
-                       "_opt_sol.txt", header=None, index=True, sep=" ")
-        with open(mip_results_path + "gs_energies.txt", "a") as gs_file:
-            gs_file.write(instance_name + " " +
-                          str(obj_val) + " " + str(results_dneal.solver.time) + " " + mip_formulation + " " + solver_name + "\n")
-
-    else:
-        opt_sol.to_csv(mip_results_path + instance_name + "_" + str(obj_val) +
-                       "_sol.txt", header=None, index=True, sep=" ")
-        with open(mip_results_path + "gs_energies.txt", "a") as gs_file:
-            gs_file.write(instance_name + " " +
-                          str(obj_val) + " " + str(results_dneal.solver.time) +
-                          " " + str(results_dneal.solver.gap) + " " + mip_formulation + " " + solver_name + " suboptimal\n")
-
-# %%
 # Function to load ground state solutions from solution file gs_energies.txt
 
 
@@ -677,7 +568,7 @@ def createDnealSamplesDataframe(
     df_path = os.path.join(dneal_pickle_path, df_samples_name)
     if os.path.exists(df_path):
         try:
-            df_samples = pd.read_pickle(os.path.join(df_path))
+            df_samples = pd.read_pickle(df_path)
             return df_samples
         except (pkl.UnpicklingError, EOFError):
             os.replace(df_path, df_path + '.bak')
@@ -692,8 +583,7 @@ def createDnealSamplesDataframe(
             # print(pickle_name)
             samples = pickle.load(open(dict_pickle_name, "rb"))
             # Load dataframes
-            # df_samples = pd.read_pickle(os.path.join(
-            #     dneal_pickle_path, df_samples_name))
+            # df_samples = pd.read_pickle(df_path)
         # If it does not exist, generate the data
         else:
             start = time.time()
@@ -834,7 +724,7 @@ def computeResultsList(
         # tts_conf_interval = computeRRT_vectorized(
         #     success_prob_conf_interval, s=0.99, scale=1e-6*df_default_samples['runtime (us)'].sum())
         tts_conf_interval_lower = stats.scoreatpercentile(
-            tts_dist, 50+confidence_level/2)
+            tts_dist, 50-confidence_level/2)
         tts_conf_interval_upper = stats.scoreatpercentile(
             tts_dist, 50+confidence_level/2)
     # Question: How should we compute the confidence interval of the TTS? SHould we compute the function on the confidence interval of the probability or compute the confidence interval over the tts distribution?
@@ -869,9 +759,12 @@ def cleanup_df(
             df_new.drop(column, axis=1, inplace=True)
         elif column == 'schedule':
             df_new[column] = df_new[column].astype('category')
-    df_new['reads'] = df_new['sweeps'] * df_new['boots']
+    if 'sweeps' in df_new.columns:
+        df_new['reads'] = df_new['sweeps'] * df_new['boots']
+        df_new['sweeps'] = df_new['sweeps'].astype('int', errors='ignore')
+    else:
+        df_new['reads'] = df_new['boots']
     df_new['reads'] = df_new['reads'].astype('int', errors='ignore')
-    df_new['sweeps'] = df_new['sweeps'].astype('int', errors='ignore')
     df_new['boots'] = df_new['boots'].astype('int', errors='ignore')
     return df_new
 
@@ -944,7 +837,7 @@ def createDnealResultsDataframes(
                 results_path, 'gs_energies.txt'), prefix + str(instance))
             # We will assume that the insertion order in the keys is preserved (hence Python3.7+ only) and is sorted alphabetically
             combinations = itertools.product(
-                *(parameters_dict[Name] for Name in sorted(parameters_dict)))
+                *(parameters_dict[Name] for Name in parameters_dict))
             combinations = list(combinations)
             for combination in combinations:
                 list_inputs = [instance] + [i for i in combination]
@@ -970,7 +863,7 @@ def createDnealResultsDataframes(
                         continue
                     else:
                         # print("Generating results for instance:", instance,
-                            #   "schedule:", schedule, "sweep:", sweep, "boots:", boots)
+                        #   "schedule:", schedule, "sweep:", sweep, "boots:", boots)
                         list_outputs = computeResultsList(
                             df=df_samples,
                             random_energy=random_energy,
@@ -1010,7 +903,7 @@ def createDnealResultsDataframes(
 # %%
 # Compute results for instance 42 using D-Wave Neal
 use_raw_data = True
-use_raw_pickles = False
+use_raw_pickles = True
 overwrite_pickles = False
 instance = 42
 metrics_list = ['min_energy', 'tts',
@@ -1022,12 +915,9 @@ sweeps_list = [i for i in range(1, 21, 1)] + [
 schedules_list = ['geometric', 'linear']
 # schedules_list = ['geometric']
 bootstrap_samples = 1000
-total_reads = 1000
 s = 0.99  # This is the success probability for the TTS calculation
 gap = 1.0  # This is a percentual treshold of what the minimum energy should be
 conf_int = 68  #
-default_sweeps = 1000
-default_boots = total_reads
 fail_value = np.inf
 # Confidence interval for bootstrapping, value used to get standard deviation
 confidence_level = 68
@@ -1087,6 +977,8 @@ labels = {
 
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples
+default_dict = {'instance': 42, 'schedule': 'geometric',
+                'sweeps': 1000, 'boots': 1000}
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
     df=df_results_dneal,
@@ -1100,8 +992,7 @@ ax = plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'sweeps': 1000, 'boots': 1000},
+    default_dict=default_dict,
     use_colorbar=False,
     ylim=[0.95, 1.005]
 )
@@ -1120,8 +1011,7 @@ ax = plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'sweeps': 1000, 'boots': 1000},
+    default_dict=default_dict,
     use_colorbar=False,
     ylim=[0.95, 1.005]
 )
@@ -1140,8 +1030,7 @@ plot_1d_singleinstance_list(
     log_x=False,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'sweeps': 1000, 'boots': 1000}
+    default_dict=default_dict,
 )
 # %%
 # Success probability of some fixed parameter setting
@@ -1158,8 +1047,7 @@ plot_1d_singleinstance_list(
     log_x=False,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'sweeps': 1000, 'boots': 1000}
+    default_dict=default_dict,
 )
 # %%
 # TTS Plot for all bootstrapping downsamples in both schedules
@@ -1177,8 +1065,7 @@ plot_1d_singleinstance_list(
     log_x=False,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'sweeps': 1000, 'boots': 1000}
+    default_dict=default_dict,
 )
 # %%
 # Loop over the dataframes with 4 values of sweeps and a sweep in boots then compute the results, and complete by creating main Dataframe
@@ -1203,6 +1090,7 @@ df_results_dneal = createDnealResultsDataframes(
     dneal_results_path=dneal_results_path,
     dneal_pickle_path=dneal_pickle_path,
     use_raw_data=use_raw_data,
+    use_raw_pickles=use_raw_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -1232,7 +1120,7 @@ ax = plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict={'schedule': 'geometric', 'sweeps': 1000, 'boots': 1000},
+    default_dict=default_dict,
     use_colorbar=False,
     colors=['colormap'],
     ylim=[0.95, 1.005],
@@ -1265,7 +1153,7 @@ if compute_random:
 schedules_list = ['geometric']
 df_list = []
 use_raw_data = True
-use_raw_pickles = False
+use_raw_pickles = True
 all_boots_list = list(range(1, 1001, 1))
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + ".pkl"
@@ -1787,7 +1675,8 @@ for stat_measure in stat_measures:
             xlim=[5e2, 5e4],
             use_colorbar=False,
             alpha=0.25,
-            colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+            colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                    u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
         )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
@@ -1806,43 +1695,44 @@ for stat_measure in stat_measures:
         xlim=[5e2, 5e4],
         use_colorbar=False,
         linewidth=2.5,
-        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
     )
 # %%
 # Create virtual best and virtual worst columns
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 df_virtual_all = df_results_all.groupby(
-    ['schedule','reads']
-    ).apply(lambda s: pd.Series({
+    ['schedule', 'reads']
+).apply(lambda s: pd.Series({
         'virt_best_tts': np.nanmin(s['tts']),
         'virt_best_perf_ratio': np.nanmax(s['perf_ratio']),
         'virt_best_success_prob': np.nanmax(s['success_prob']),
         'virt_best_mean_time': np.nanmin(s['mean_time'])
-    })
-    ).reset_index()
+        })
+        ).reset_index()
 df_virtual_max = df_virtual_all[
-    ['reads','schedule',
-    'virt_best_perf_ratio','virt_best_success_prob']].sort_values(
-        'reads'
-        ).groupby(
-            'schedule'
-            ).expanding(min_periods=1).max().droplevel(-1).reset_index()
+    ['reads', 'schedule',
+     'virt_best_perf_ratio', 'virt_best_success_prob']].sort_values(
+    'reads'
+).groupby(
+    'schedule'
+).expanding(min_periods=1).max().droplevel(-1).reset_index()
 df_results_all = df_results_all.drop(
-    ['virt_best_perf_ratio','virt_best_success_prob'], axis=1).merge(
+    ['virt_best_perf_ratio', 'virt_best_success_prob'], axis=1).merge(
         df_virtual_max,
-        on=['schedule','reads'],
+        on=['schedule', 'reads'],
         how='outer')
 df_virtual_min = df_virtual_all[
-    ['reads','schedule',
-    'virt_best_tts','virt_best_mean_time']].sort_values(
-        'reads'
-        ).groupby(
-            'schedule'
-            ).expanding(min_periods=1).max().droplevel(-1).reset_index()
+    ['reads', 'schedule',
+     'virt_best_tts', 'virt_best_mean_time']].sort_values(
+    'reads'
+).groupby(
+    'schedule'
+).expanding(min_periods=1).max().droplevel(-1).reset_index()
 df_results_all = df_results_all.drop(
-    ['virt_best_tts','virt_best_mean_time'], axis=1).merge(
+    ['virt_best_tts', 'virt_best_mean_time'], axis=1).merge(
         df_virtual_min,
-        on=['schedule','reads'],
+        on=['schedule', 'reads'],
         how='outer')
 df_results_all = cleanup_df(df_results_all)
 df_name = "df_results.pkl"
@@ -1878,7 +1768,7 @@ for stat_measure in stat_measures:
         x_axis='reads',
         y_axis='virt_best_perf_ratio',
         ax=ax,
-        label_plot = 'Virtual best',
+        label_plot='Virtual best',
         dict_fixed={'schedule': 'geometric'},
         # list_dicts=[{'sweeps': i}
         #             for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
@@ -1909,7 +1799,8 @@ for stat_measure in stat_measures:
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
-        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
     )
 # %%
 # Create all instances and save it into disk
@@ -2310,5 +2201,117 @@ for instance in instance_list:
         else:  # Just reload processed datafile
             # data_dict = pkl.load(open(results_name, "rb"))
             pass
+
 # %%
-# %%
+# Compute minimum value using MIP
+# Ground state computation
+compute_mip_gs = False
+# Which type of MIP formulation to use ("qubo", "lcbo", "qcbo")
+mip_formulation = "qubo"
+if not compute_mip_gs:
+    pass
+else:
+    import pyomo.environ as pyo
+    from pyomo.opt import SolverStatus, TerminationCondition
+
+    # Obtain ground states if possible using Mixed-Integer Formulation through Pyomo
+    # Set up MIP optimization results directory
+    mip_results_path = os.path.join(results_path, "mip_results/")
+    # Create unexisting directory
+    if not os.path.exists(mip_results_path):
+        print('MIP results ' + mip_results_path +
+              ' does not exist. We will create it.')
+        os.makedirs(mip_results_path)
+    # Compute optimal solution using MIP and save it into ground state file
+    # Other solvers are available using GLPK, CBC (timeout), GAMS, Gurobi, or CPLEX
+    solver_name = "gurobi"
+    mip_solver = pyo.SolverFactory(solver_name)
+    bqm_bin = model_random.change_vartype("BINARY", inplace=False)
+    offset = bqm_bin.offset
+    nx_graph_bin = bqm_bin.to_networkx_graph()
+
+    # Create instance
+    pyo_model = pyo.ConcreteModel(name="Random SK problem " + str(instance))
+    # Define variables
+    # Node variables
+    pyo_model.x = pyo.Var(nx_graph_bin.nodes(), domain=pyo.Binary)
+    obj_expr = offset
+    for i, val in nx.get_node_attributes(nx_graph_bin, 'bias').items():
+        obj_expr += val * pyo_model.x[i]
+
+    if mip_formulation == "qubo":
+        # Direct QUBO formulation
+        obj_expr += pyo.quicksum(nx_graph_bin[i][j]['bias'] * pyo_model.x[i] * pyo_model.x[j]
+                                 for (i, j) in nx_graph_bin.edges())
+        # for (i, j) in nx_graph_bin.edges():
+        #     # We want all edges to be sorted  with i-j and i<j
+        #     assert(i < j)
+        #     if i != j:
+        #         obj_expr += nx_graph_bin[i][j]['bias'] * instance.x[i]*instance.x[j]
+        #     else:
+        #         print("Graph with self-edges" + str(i))
+
+    elif mip_formulation == "lcbo":
+        # Linear Constrained Binary Optimization
+
+        # Edge variables
+        pyo_model.y = pyo.Var(nx_graph_bin.edges(), domain=pyo.Binary)
+
+        # add model constraints
+        pyo_model.c1 = pyo.ConstraintList()
+        pyo_model.c2 = pyo.ConstraintList()
+        pyo_model.c3 = pyo.ConstraintList()
+
+        for (i, j) in nx_graph_bin.edges():
+            # We want all edges to be sorted  with i-j and i<j
+            assert(i < j)
+            if i != j:
+                pyo_model.c1.add(pyo_model.y[i, j] <=
+                                 pyo_model.x[i])
+                pyo_model.c2.add(pyo_model.y[i, j] <=
+                                 pyo_model.x[j])
+                pyo_model.c3.add(pyo_model.y[i, j] >=
+                                 pyo_model.x[i] + pyo_model.x[j] - 1)
+                obj_expr += nx_graph_bin[i][j]['bias'] * pyo_model.y[i, j]
+            else:
+                print("Graph with self-edges" + str(i))
+    else:
+        print("Formulation not implemented yet")
+
+    # Define the objective function
+    pyo_model.objective = pyo.Objective(expr=obj_expr, sense=pyo.minimize)
+    # Solve
+    if solver_name == "gurobi":
+        mip_solver.options['NonConvex'] = 2
+        mip_solver.options['MIPGap'] = 1e-9
+        mip_solver.options['TimeLimit'] = 30
+    elif solver_name == "gams":
+        mip_solver.options['solver'] = 'baron'
+        mip_solver.options['solver'] = 'baron'
+        mip_solver.options['add_options'] = 'option reslim=10;'
+
+    results_dneal = mip_solver.solve(
+        pyo_model,
+        tee=True,
+    )
+    # result = opt_gams.solve(instance, tee=True)
+    # Save solution
+    obj_val = pyo_model.objective.expr()
+    opt_sol = pd.DataFrame.from_dict(
+        pyo_model.x.extract_values(), orient="index", columns=[str(pyo_model.x)])
+    # Missing transformation back to spin variables here
+
+    if (results_dneal.solver.status == SolverStatus.ok) and (results_dneal.solver.termination_condition == TerminationCondition.optimal):
+        opt_sol.to_csv(mip_results_path + instance_name + "_" + str(obj_val) +
+                       "_opt_sol.txt", header=None, index=True, sep=" ")
+        with open(mip_results_path + "gs_energies.txt", "a") as gs_file:
+            gs_file.write(instance_name + " " +
+                          str(obj_val) + " " + str(results_dneal.solver.time) + " " + mip_formulation + " " + solver_name + "\n")
+
+    else:
+        opt_sol.to_csv(mip_results_path + instance_name + "_" + str(obj_val) +
+                       "_sol.txt", header=None, index=True, sep=" ")
+        with open(mip_results_path + "gs_energies.txt", "a") as gs_file:
+            gs_file.write(instance_name + " " +
+                          str(obj_val) + " " + str(results_dneal.solver.time) +
+                          " " + str(results_dneal.solver.gap) + " " + mip_formulation + " " + solver_name + " suboptimal\n")

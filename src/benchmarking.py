@@ -706,7 +706,7 @@ def createDnealSamplesDataframe(
         df_samples['runtime (us)'] = int(
             1e6*samples.info['timing']/len(df_samples.index))
         df_samples.to_pickle(df_path)
-            
+
     return df_samples
 
 
@@ -803,10 +803,10 @@ def computeResultsList(
 
     # Compute the performance ratio of each bootstrap samples and its corresponding confidence interval based on the resamples
     perf_ratio = (random_energy - min_boot) / (random_energy - min_energy)
-    perf_ratio_conf_interval_lower = (random_energy - mean_time_conf_interval_upper) / (
+    perf_ratio_conf_interval_lower = (random_energy - min_boot_conf_interval_upper) / (
         random_energy - min_energy)
     perf_ratio_conf_interval_upper = (
-        random_energy - mean_time_conf_interval_lower) / (random_energy - min_energy)
+        random_energy - min_boot_conf_interval_lower) / (random_energy - min_energy)
 
     # Compute the success probability of each bootstrap samples and its corresponding confidence interval based on the resamples
     if aggregated_df_flag:
@@ -1009,7 +1009,7 @@ def createDnealResultsDataframes(
 # Compute results for instance 42 using D-Wave Neal
 use_raw_data = True
 overwrite_pickles = False
-use_raw_pickles = True
+use_raw_pickles = False
 instance = 42
 metrics_list = ['min_energy', 'tts',
                 'perf_ratio', 'success_prob', 'mean_time']
@@ -1036,6 +1036,8 @@ df_name = "df_results_" + str(instance) + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 if os.path.exists(df_path) and not use_raw_data:
     df_results_dneal = pd.read_pickle(df_path)
+else:
+    df_results_dneal = None
 
 df_results_dneal = createDnealResultsDataframes(
     df=df_results_dneal,
@@ -1191,7 +1193,7 @@ all_boots_list = list(range(1, 1001, 10))
 
 df_results_dneal = createDnealResultsDataframes(
     df=df_results_dneal,
-    instance_list=[42],
+    instance_list=[instance],
     parameters_dict={'schedule': schedules_list, 'sweeps': interesting_sweeps},
     boots_list=all_boots_list,
     dneal_results_path=dneal_results_path,
@@ -1258,11 +1260,14 @@ if compute_random:
 schedules_list = ['geometric']
 df_list = []
 use_raw_data = True
-use_raw_pickles = True
+use_raw_pickles = False
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + ".pkl"
     df_path = os.path.join(dneal_results_path, df_name)
-    df_results_dneal = pd.read_pickle(df_path)
+    if os.path.exists(df_path) and not use_raw_data:
+        df_results_dneal = pd.read_pickle(df_path)
+    else:
+        df_results_dneal = None
     df_results_dneal = createDnealResultsDataframes(
         df=df_results_dneal,
         instance_list=[instance],
@@ -1321,7 +1326,7 @@ df_results_all.to_pickle(df_path)
 # Run all the instances with Dwave-neal
 overwrite_pickles = False
 use_raw_data = True
-use_raw_pickles = False
+use_raw_pickles = True
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
 
@@ -1564,7 +1569,7 @@ best_ensemble_sweeps = []
 df_list = []
 
 for stat_measure in stat_measures:
-    best_sweep = df_results_all_stats.nsmallest(
+    best_sweep = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
         1, stat_measure + '_tts')['sweeps'].values[0]
     best_ensemble_sweeps.append(best_sweep)
 for instance in instance_list:
@@ -1596,119 +1601,179 @@ df_results_all = cleanup_df(df_results_all)
 df_name = "df_results.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all.to_pickle(df_path)
+
 # %%
-# Function to generate ensemble results list to be included in dataframe
+# Reload all results with the best tts of the ensemble for each instance
+df_results_all = createDnealResultsDataframes(
+    df=df_results_all,
+    instance_list=instance_list,
+    parameters_dict={'schedule': schedules_list,
+                     'sweeps': best_ensemble_sweeps},
+    boots_list=all_boots_list,
+    dneal_results_path=dneal_results_path,
+    dneal_pickle_path=dneal_pickle_path,
+    use_raw_data=use_raw_data,
+    use_raw_pickles=use_raw_pickles,
+    overwrite_pickles=overwrite_pickles,
+    s=s,
+    confidence_level=conf_int,
+    bootstrap_samples=bootstrap_samples,
+    gap=gap,
+    fail_value=fail_value,
+    save_pickle=True,
+)
+# %%
+# Obtain the tts for each instance in the median and the mean of the ensemble accross the sweeps
+# TODO generalize this code. In general, one parameter (or several) are fixed in certain interesting values and then for all instances with the all other values of remaining parameters we report the metric output, everything at 1000 bootstraps
 
+for metric in ['perf_ratio', 'success_prob', 'tts']:
 
-def computeEnsembleResultsList(
-    df: pd.DataFrame,
-    random_energy: float = 0.0,
-    min_energy: float = None,
-    downsample: int = 10,
-    bootstrap_samples: int = 500,
-    confidence_level: float = 68,
-    gap: float = 1.0,
-    s: float = 0.99,
-) -> list:
-    '''
-    Compute a list of the results computed for analysis given a dataframe from a solver.
+    df_results_all[metric + '_lower'] = df_results_all[metric] - \
+        df_results_all[metric + '_conf_interval_lower']
+    df_results_all[metric + '_upper'] = df_results_all[metric] - \
+        df_results_all[metric + '_conf_interval_upper']
 
-    Args:
-        df: The dataframe from the solver.
-        random_energy: The mean energy of the random sample.
-        min_energy: The minimum energy of the samples.
-        downsample: The downsampling sample for bootstrapping.
-        bootstrap_samples: The number of bootstrap samples.
-        confidence_level: The confidence level for the bootstrap.
-        gap: The threshold for the considering a read successful w.r.t the performance ratio [%].
-        s: The success factor (usually said as RTT within s% probability).
+    # These following lineas can be extracted from the loop
+    df_default = df_results_all[(df_results_all['boots'] == default_boots) & (
+        df_results_all['sweeps'] == default_sweeps)].set_index(['instance', 'schedule'])
+    df_list = [df_default]
+    keys_list = ['default']
+    for i, sweep in enumerate(best_ensemble_sweeps):
+        df_list.append(df_results_all[(df_results_all['boots'] == default_boots) & (
+            df_results_all['sweeps'] == sweep)].set_index(['instance', 'schedule']))
+        keys_list.append(stat_measures[i])
+    # Until here can be done off-loop
 
-    Returns:
-        A list of the results computed for analysis. Organized as follows
-        [
-            number of downsamples,
-            bootstrapped mean minimum energy,
-            boostrapped mean minimum energy confidence interval,
-            bootstrapped performance ratio,
-            bootstrapped performance ratio confidence interval,
-            bootstrapped success probability,
-            boostrapped success probability confidence interval,
-            boostrapped resource to target,
-            boostrapped resource to target confidence interval,
-            boostrapped mean runtime,
-            boostrapped mean runtime confidence interval,
-        ]
+    # Metrics that you want to minimize
+    ascent = metric in ['tts', 'mean_time']
+    df_best = df_results_all[
+        (df_results_all['boots'] == default_boots)
+    ].sort_values(metric, ascending=ascent).groupby(
+        ['instance', 'schedule']).apply(
+            pd.DataFrame.head, n=1
+    ).droplevel(-1).drop(columns=['instance', 'schedule']
+                         )
 
-    TODO: Here we assume the succes metric is the performance ratio, we can generalize that as any function of the parameters (use external function)
-    TODO: Here we assume the energy is the response of the solver, we can generalize that as any column in the dataframe
-    TODO: Here we only return a few parameters with confidence intervals w.r.t. the bootstrapping. We can generalize that as any possible outcome (use function)
-    TODO: Since we are minimizing, computing the performance ratio gets the order of the minimum energy confidence interval inverted. Add parameter for maximization. Need to think what else should we change.
-    '''
-    aggregated_df_flag = False
-    if min_energy is None:
-        min_energy = df['energy'].min()
+    df_list.append(df_best)
+    keys_list.append('best')
 
-    success_val = random_energy - \
-        (1.0 - gap/100.0)*(random_energy - min_energy)
+    df_merged = pd.concat(df_list, axis=1, keys=keys_list,
+                          names=['stat_metric', 'measure'])
 
-    resamples = np.random.randint(0, len(df), size=(
-        len(df), bootstrap_samples)).astype(int)
+    fig, ax = plt.subplots()
+    df_merged.loc[
+        (slice(None), slice(None)),  # (slice(None), 'geometric'),
+        :
+    ].plot.bar(
+        y=[(stat_metric, metric) for stat_metric in keys_list],
+        yerr=df_merged.loc[
+            (slice(None), slice(None)),  # (slice(None), 'geometric'),
+            (slice(None), [metric + '_lower', metric + '_upper'])
+        ].to_numpy().T,
+        ax=ax,
+    )
+    ax.set(title='Different performance of ' + metric +
+           ' in instances ' + prefix + '\n' +
+           'evaluated individually and with the ensemble')
+    ax.set(ylabel=labels[metric])
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-    energies = df['energy'].values
-    times = df['runtime (us)'].values
-    # TODO Change this to be general for PySA dataframes
-    if 'num_occurrences' in df.columns and not np.all(df['num_occurrences'].values == 1):
-        print('The input dataframe is aggregated')
-        occurrences = df['num_occurrences'].values
-        aggregated_df_flag = True
+df_results_all = cleanup_df(df_results_all)
+df_name = "df_results.pkl"
+df_path = os.path.join(dneal_results_path, df_name)
+df_results_all.to_pickle(df_path)
+# %%
+# Plot with performance ratio vs reads for interesting sweeps
+for instance in [42, 0, 19]:
 
-    # Compute the minimum value of each bootstrap samples and its corresponding confidence interval based on the resamples
-    min_boot_dist = np.apply_along_axis(
-        func1d=np.min, axis=0, arr=energies[resamples])
-    min_boot = np.mean(min_boot_dist)
-    min_boot_conf_interval = (stats.scoreatpercentile(
-        min_boot_dist, 50-confidence_level/2), stats.scoreatpercentile(min_boot_dist, 50+confidence_level/2))
+    interesting_sweeps = [
+        df_results_all[(df_results_all['boots'] == default_boots) & (df_results_all['instance'] == instance)].nsmallest(1, 'tts')[
+            'sweeps'].values[0],
+        10,
+        default_sweeps,
+    ] + list(set(best_ensemble_sweeps))
+    f, ax = plt.subplots()
+    ax = plot_1d_singleinstance_list(
+        df=df_results_all,
+        x_axis='reads',
+        y_axis='perf_ratio',
+        # instance=42,
+        dict_fixed={
+            'instance': instance,
+            'schedule': 'geometric'
+        },
+        ax=ax,
+        list_dicts=[{'sweeps': i}
+                    for i in interesting_sweeps],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        save_fig=False,
+        default_dict={'schedule': 'geometric',
+                      'sweeps': default_sweeps, 'boots': default_boots},
+        use_colorbar=False,
+        ylim=[0.975, 1.0025],
+        xlim=[5e2, 5e4],
+    )
 
-    # Compute the mean time of each bootstrap samples and its corresponding confidence interval based on the resamples
-    times_dist = np.apply_along_axis(
-        func1d=np.mean, axis=0, arr=times[resamples])
-    mean_time = np.mean(times_dist)
-    mean_time_conf_interval = (stats.scoreatpercentile(
-        times_dist, 50-confidence_level/2), stats.scoreatpercentile(times_dist, 50+confidence_level/2))
+# %%
+# Regenerate the dataframe with the statistics to get the complete performance plot
 
-    # Compute the performance ratio of each bootstrap samples and its corresponding confidence interval based on the resamples
-    perf_ratio = (random_energy - min_boot) / (random_energy - min_energy)
-    perf_ratio_conf_interval = ((random_energy - min_boot_conf_interval[1]) / (
-        random_energy - min_energy), (random_energy - min_boot_conf_interval[0]) / (random_energy - min_energy))
+# Split large dataframe such that we can compute the statistics and confidence interval for each metric across the instances
+parameters = ['schedule', 'sweeps']
+df_results_all_groups = df_results_all.set_index(
+    'instance').groupby(parameters + ['boots'])
+df_list = []
+for metric in metrics_list:
+    df_results_all_mean = df_results_all_groups.apply(
+        mean_conf_interval, key_string=metric)
+    df_results_all_median = df_results_all_groups.apply(
+        median_conf_interval, key_string=metric)
+    df_list.append(df_results_all_mean)
+    df_list.append(df_results_all_median)
 
-    # Compute the success probability of each bootstrap samples and its corresponding confidence interval based on the resamples
-    if aggregated_df_flag:
-        return []
-        # TODO: One can think about deaggregating the dataframe here. Maybe check Dwave's code for this.
-    else:
-        success_prob_dist = np.apply_along_axis(func1d=lambda x: np.sum(
-            x < success_val)/downsample, axis=0, arr=energies[resamples])
-    success_prob = np.mean(success_prob_dist)
-    success_prob_conf_interval = (stats.scoreatpercentile(
-        success_prob_dist, 50-confidence_level/2), stats.scoreatpercentile(success_prob_dist, 50+confidence_level/2))
+df_results_all_stats = pd.concat(df_list, axis=1)
+df_results_all_stats = df_results_all_stats.reset_index()
 
-    # Compute the TTT within certain threshold of each bootstrap samples and its corresponding confidence interval based on the resamples
-    tts_dist = computeRRT_vectorized(
-        success_prob_dist, s=s, scale=1e-6*df['runtime (us)'].sum(), fail_value=np.inf)
-    # Question: should we scale the TTS with the number of bootstrapping we do, intuition says we don't need to
-    tts = np.mean(tts_dist)
-    if np.isinf(tts):
-        tts_conf_interval = (np.inf, np.inf)
-    else:
-        # tts_conf_interval = computeRRT_vectorized(
-        #     success_prob_conf_interval, s=0.99, scale=1e-6*df_default_samples['runtime (us)'].sum())
-        tts_conf_interval = (stats.scoreatpercentile(
-            tts_dist, 50-confidence_level/2), stats.scoreatpercentile(tts_dist, 50+confidence_level/2))
-    # Question: How should we compute the confidence interval of the TTS? Should we compute the function on the confidence interval of the probability or compute the confidence interval over the tts distribution?
-
-    return [downsample, min_boot, min_boot_conf_interval, perf_ratio, perf_ratio_conf_interval, success_prob, success_prob_conf_interval, tts, tts_conf_interval, mean_time, mean_time_conf_interval]
-
-
+# %%
+# Clean up dataframe
+df_results_all_stats = cleanup_df(df_results_all_stats)
+stat_measures = ['mean', 'median']
+for stat_measure in stat_measures:
+    df_results_all_stats[stat_measure + '_success_prob_conf_interval_lower'] = \
+        df_results_all_stats[stat_measure +
+                             '_success_prob_conf_interval_lower'].clip(lower=0)
+    df_results_all_stats[stat_measure + '_success_prob_conf_interval_upper'] =\
+        df_results_all_stats[stat_measure +
+                             '_success_prob_conf_interval_upper'].clip(upper=1)
+    df_results_all_stats[stat_measure + '_perf_ratio_conf_interval_upper'] = \
+        df_results_all_stats[stat_measure +
+                             '_perf_ratio_conf_interval_upper'].clip(upper=1)
+df_name = 'df_results_stats'
+df_path = os.path.join(dneal_results_path, df_name + '.pkl')
+df_results_all_stats.to_pickle(df_path)
+# %%
+# Generate plots for performance ratio of ensemble vs reads
+for stat_measure in stat_measures:
+    f, ax = plt.subplots()
+    plot_1d_singleinstance_list(
+        df=df_results_all_stats,
+        x_axis='reads',
+        y_axis=stat_measure + '_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': 'geometric'},
+        list_dicts=[{'sweeps': i}
+                    for i in [10, default_sweeps] + list(set(best_ensemble_sweeps))],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        save_fig=False,
+        ylim=[0.975, 1.0025],
+        xlim=[5e2, 5e4],
+        use_colorbar=False,
+    )
 # %%
 # Create all instances and save it into disk
 for instance in instance_list:

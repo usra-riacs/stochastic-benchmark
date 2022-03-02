@@ -1817,14 +1817,33 @@ df_virtual_all = df_results_all.groupby(
         'virt_best_tts': np.nanmin(s['tts']),
         'virt_best_perf_ratio': np.nanmax(s['perf_ratio']),
         'virt_best_success_prob': np.nanmax(s['success_prob']),
-        'virt_best_mean_time': np.nanmin(s['mean_time']),
-        'virt_worst_tts': np.nanmax(s['tts']),
-        'virt_worst_perf_ratio': np.nanmin(s['perf_ratio']),
-        'virt_worst_success_prob': np.nanmin(s['success_prob']),
-        'virt_worst_mean_time': np.nanmax(s['mean_time'])
+        'virt_best_mean_time': np.nanmin(s['mean_time'])
     })
     ).reset_index()
-df_results_all = df_results_all.merge(df_virtual_all, on=['schedule','reads'], how='outer')
+df_virtual_max = df_virtual_all[
+    ['reads','schedule',
+    'virt_best_perf_ratio','virt_best_success_prob']].sort_values(
+        'reads'
+        ).groupby(
+            'schedule'
+            ).expanding(min_periods=1).max().droplevel(-1).reset_index()
+df_results_all = df_results_all.drop(
+    ['virt_best_perf_ratio','virt_best_success_prob'], axis=1).merge(
+        df_virtual_max,
+        on=['schedule','reads'],
+        how='outer')
+df_virtual_min = df_virtual_all[
+    ['reads','schedule',
+    'virt_best_tts','virt_best_mean_time']].sort_values(
+        'reads'
+        ).groupby(
+            'schedule'
+            ).expanding(min_periods=1).max().droplevel(-1).reset_index()
+df_results_all = df_results_all.drop(
+    ['virt_best_tts','virt_best_mean_time'], axis=1).merge(
+        df_virtual_min,
+        on=['schedule','reads'],
+        how='outer')
 df_results_all = cleanup_df(df_results_all)
 df_name = "df_results.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
@@ -1868,29 +1887,9 @@ for stat_measure in stat_measures:
         log_x=True,
         log_y=False,
         save_fig=False,
-        ylim=[0.975, 1.0025],
-        xlim=[5e2, 5e4],
-        linewidth=1,
+        linewidth=2.5,
+        marker=None,
         # color=[u'#1f77b4'],
-    )
-    plot_1d_singleinstance(
-        df=df_results_all,
-        x_axis='reads',
-        y_axis='virt_worst_perf_ratio',
-        ax=ax,
-        label_plot = 'Virtual best',
-        dict_fixed={'schedule': 'geometric'},
-        # list_dicts=[{'sweeps': i}
-        #             for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=False,
-        save_fig=False,
-        ylim=[0.975, 1.0025],
-        xlim=[5e2, 5e4],
-        linewidth=1,
-        color=[u'#1f77b4'],
     )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
@@ -1905,10 +1904,11 @@ for stat_measure in stat_measures:
         log_x=True,
         log_y=False,
         save_fig=False,
-        ylim=[0.975, 1.0025],
-        xlim=[5e2, 5e4],
+        ylim=[0.9, 1.0025],
+        # xlim=[5e2, 5e4],
         use_colorbar=False,
-        linewidth=2.5,
+        linewidth=1.5,
+        markersize=1,
         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
     )
 # %%

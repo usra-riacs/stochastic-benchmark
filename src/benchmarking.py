@@ -23,271 +23,9 @@ from pysa.sa import Solver
 from scipy import sparse, stats
 
 from plotting import *
+from retrieve_data import *
 
-# %%
-# Functions to retrieve instances files
-# Define functions to extract data files
-
-
-def getInstances(filename):  # instance number
-    '''
-    Extracts the instance from the filename assuming it is at the end before extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        instance: the instance number
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 2)[-1])
-
-
-def createInstanceFileList(directory, instance_list):
-    '''
-    Creates a list of files in the directory for the instances in the list
-
-    Args:
-        directory: the directory where the files are
-        instance_list: the list of instances
-
-    Returns:
-        instance_file_list: the list of files
-    '''
-    fileList = []
-    for root, dirs, files in os.walk(directory):
-        # exclude hidden, compressed, or bash files
-        files = [f for f in files
-                 if(not f.startswith('.') and not f.endswith('.zip') and not f.endswith('.sh'))]
-        # exclude gs_energies.txt files
-        files = [f for f in files
-                 if(not f.startswith('gs_energies'))]
-        # Below, select only specifed n,s,alpha instances
-        files = [f for f in files if(getInstances(f) in instance_list)]
-        for f in files:
-            fileList.append(root+"/"+f)
-    return fileList
-
-
-def getInstancePySAExperiment(filename):  # instance number
-    '''
-    Extracts the instance number from the PySA experiment filename assuming the filename follows the naming convention prefix_instance_sweeps_replicas_pcold_phot.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        instance: the instance number
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 9)[-9])
-
-
-def getSweepsPySAExperiment(filename):
-    '''
-    Extracts the sweeps from the PySA experiment filename assuming the filename follows the naming convention prefix_instance_sweeps_replicas_pcold_phot.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        sweeps: the number of sweeps
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 7)[-7])
-
-
-def getPHot(filename):  # P hot
-    '''
-    Extracts the hot temperature transition probability from the PySA experiment filename assuming the filename follows the naming convention prefix_instance_sweeps_replicas_pcold_phot.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        phot: the hot temperature transition probability
-    '''
-    return float(filename.rsplit(".", 1)[0].rsplit("_", 2)[-1])
-
-
-def getPCold(filename):  # P cold
-    '''
-    Extracts the cold temperature transition probability from the PySA experiment filename assuming the filename follows the naming convention prefix_instance_sweeps_replicas_pcold_phot.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        pcold: the cold temperature transition probability
-    '''
-    return float(filename.rsplit(".", 1)[0].rsplit("_", 3)[-3])
-
-
-def getReplicas(filename):  # replicas
-    '''
-    Extracts the replicas from the PySA experiment filename assuming the filename follows the naming convention prefix_instance_sweeps_replicas_pcold_phot.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        replicas: the number of replicas
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 5)[-5])
-
-
-def createPySAExperimentFileList(
-    directory: str,
-    instance_list: Union[List[str], List[int]],
-    rep_list: Union[List[str], List[int]] = None,
-    sweep_list: Union[List[str], List[int]] = None,
-    pcold_list: Union[List[str], List[float]] = None,
-    phot_list: Union[List[str], List[float]] = None,
-    prefix: str = "",
-) -> list:
-    '''
-    Creates a list of experiment files in the directory for the instances in the instance_list, replicas in the rep_list, sweeps in the sweep_list, P cold in the pcold_list, and P hot in the phot_list
-
-    Args:
-        directory: the directory where the files are
-        instance_list: the list of instances
-        rep_list: the list of replicas
-        sweep_list: the list of sweeps
-        pcold_list: the list of P cold
-        phot_list: the list of P hot
-        prefix: the prefix of the files
-
-    Returns:
-        experiment_file_list: the list of files
-
-    '''
-    fileList = []
-    for root, dirs, files in os.walk(directory):
-        # exclude hidden, compressed, or bash files
-        files = [f for f in files
-                 if(not f.startswith('.') and
-                    not f.endswith('.zip') and
-                    not f.endswith('.sh') and
-                    not f.endswith('.p') and
-                    f.startswith(prefix))]
-        # exclude gs_energies.txt files
-        files = [f for f in files
-                 if(not f.startswith('gs_energies'))]
-        # Below, select only specifed instances
-        files = [f for f in files if(
-            getInstancePySAExperiment(f) in instance_list)]
-        # Consider replicas if provided list
-        if rep_list is not None:
-            files = [f for f in files if(
-                getReplicas(f) in rep_list)]
-        # Consider sweeps if provided list
-        if sweep_list is not None:
-            files = [f for f in files if(
-                getSweepsPySAExperiment(f) in sweep_list)]
-        # Consider pcold if provided list
-        if pcold_list is not None:
-            files = [f for f in files if(
-                getPCold(f) in pcold_list)]
-        # Consider phot if provided list
-        if phot_list is not None:
-            files = [f for f in files if(
-                getPHot(f) in phot_list)]
-        for f in files:
-            fileList.append(root+"/"+f)
-
-        # sort filelist by instance
-        fileList = sorted(fileList, key=lambda x: getInstancePySAExperiment(x))
-    return fileList
-
-
-def getSchedule(filename):
-    '''
-    Extracts the schedule from the Dwave-neal experiment filename assuming the filename follows the naming convention prefix_instance_schedule_sweeps.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        schedule: the schedule string
-    '''
-    return filename.rsplit(".", 1)[0].rsplit("_", 2)[-2]
-
-
-def getSweepsDnealExperiment(filename):
-    '''
-    Extracts the sweeps from the Dwave-neal experiment filename assuming the filename follows the naming convention prefix_instance_schedule_sweeps.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        sweep: the schedule string
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 1)[-1])
-
-
-def getInstanceDnealExperiment(filename):
-    '''
-    Extracts the instance from the Dwave-neal experiment filename assuming the filename follows the naming convention prefix_instance_schedule_sweeps.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        sweep: the sweep string
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 3)[-3])
-
-
-def createDnealExperimentFileList(
-    directory: str,
-    instance_list: Union[List[str], List[int]],
-    sweep_list: Union[List[str], List[int]] = None,
-    schedule_list: List[str] = None,
-    prefix: str = "",
-    suffix: str = "",
-) -> list:
-    '''
-    Creates a list of experiment files in the directory for the instances in the instance_list, sweeps in the sweep_list, and schedules in the schedule_list
-
-    Args:
-        directory: the directory where the files are
-        instance_list: the list of instances
-        sweep_list: the list of sweeps
-        schedule_list: the list of schedules
-        prefix: the prefix of the experiment files
-
-    Returns:
-        experiment_file_list: the list of files
-
-    '''
-    fileList = []
-    for root, dirs, files in os.walk(directory):
-        # exclude hidden, compressed, or bash files
-        files = [f for f in files
-                 if(not f.startswith('.') and
-                    not f.endswith('.zip') and
-                    not f.endswith('.sh') and
-                    f.endswith(suffix) and
-                    f.startswith(prefix))]
-        # exclude gs_energies.txt files
-        files = [f for f in files
-                 if(not f.startswith('gs_energies'))]
-        # Below, select only specifed instances
-        files = [f for f in files if(
-            getInstanceDnealExperiment(f) in instance_list)]
-        # Consider sweeps if provided list
-        if sweep_list is not None:
-            files = [f for f in files if(
-                getSweepsDnealExperiment(f) in sweep_list)]
-        # Consider schedules if provided list
-        if schedule_list is not None:
-            files = [f for f in files if(
-                getSchedule(f) in schedule_list)]
-        for f in files:
-            fileList.append(root+"/"+f)
-
-        # sort filelist by instance
-        fileList = sorted(
-            fileList, key=lambda x: getInstanceDnealExperiment(x))
-    return fileList
+idx = pd.IndexSlice
 
 
 # %%
@@ -416,7 +154,10 @@ rerun_default = False
 if not os.path.exists(os.path.join(dneal_pickle_path, default_name)) or rerun_default:
     print('Running default D-Wave-neal simulated annealing implementation')
     start = time.time()
-    default_samples = sim_ann_sampler.sample(model_random, num_reads=1000)
+    default_samples = sim_ann_sampler.sample(
+        model_random,
+        num_reads=1000
+        num_sweeps=1000,)
     time_default = time.time() - start
     default_samples.info['timing'] = time_default
     with open(os.path.join(dneal_pickle_path, default_name), 'wb') as f:
@@ -513,12 +254,12 @@ computeRRT_vectorized = np.vectorize(computeRTT, excluded=(1, 2, 3, 4))
 # Load zipped results if using raw data
 overwrite_pickles = False
 use_raw_data = True
-zip_name = os.path.join(dneal_results_path, 'results.zip')
-if os.path.exists(zip_name) and use_raw_data:
-    import zipfile
-    with zipfile.ZipFile(zip_name, 'r') as zip_ref:
-        zip_ref.extractall(dneal_pickle_path)
-    print('Results zip file has been extrated to ' + dneal_pickle_path)
+# zip_name = os.path.join(dneal_results_path, 'results.zip')
+# if os.path.exists(zip_name) and use_raw_data:
+#     import zipfile
+#     with zipfile.ZipFile(zip_name, 'r') as zip_ref:
+#         zip_ref.extractall(dneal_pickle_path)
+#     print('Results zip file has been extrated to ' + dneal_pickle_path)
 
 # %%
 # Function to load ground state solutions from solution file gs_energies.txt
@@ -550,8 +291,7 @@ def loadEnergyFromFile(data_file, instance_name):
 
 def createDnealSamplesDataframe(
     instance: int = 42,
-    schedule: str = 'geometric',
-    sweep: int = 1000,
+    parameters: dict = None,
     total_reads: int = 1000,
     sim_ann_sampler=None,
     dneal_pickle_path: str = None,
@@ -560,10 +300,34 @@ def createDnealSamplesDataframe(
 ) -> pd.DataFrame:
     '''
     Creates a dataframe with the samples for the dneal algorithm.
+
+    Args:
+        instance: The instance to load/create the samples for.
+        parameters: The parameters to use for the dneal algorithm.
+        schedule: The schedule to use for the dneal algorithm.
+        sweep: The number of sweeps to use for the dneal algorithm.
+        total_reads: The total number of reads to use for the dneal algorithm.
+        sim_ann_sampler: The sampler to use for the simulated annealing algorithm.
+        dneal_pickle_path: The path to the pickle files.
+        use_raw_pickles: Whether to use the raw pickles or not.
+        overwrite_pickles: Whether to overwrite the pickles or not.
+
+    Returns:
+        The dataframe with the samples for the dneal algorithm.
     '''
+    # TODO This can be further generalized to use arbitrary parameter dictionaries
+    # A proposal is to change all the input data to something along the way of '_'.join(str(keys) + '_' + str(vals) for keys,vals in parameters.items())
+    # 'schedule_geometric_sweep_1000_Tfactor_1'
+    if parameters is None:
+        parameters = {
+            'schedule': 'geometric',
+            'sweep': 1000,
+            'Tfactor': 1.0,
+        }
+
     # Gather instance names
-    dict_pickle_name = prefix + str(instance) + "_" + schedule + \
-        "_" + str(sweep) + ".p"
+    dict_pickle_name = prefix + str(instance) + "_" + \
+        '_'.join(str(vals) for vals in parameters.values()) + ".p"
     df_samples_name = 'df_' + dict_pickle_name + 'kl'
     df_path = os.path.join(dneal_pickle_path, df_samples_name)
     if os.path.exists(df_path):
@@ -588,7 +352,13 @@ def createDnealSamplesDataframe(
         else:
             start = time.time()
             samples = sim_ann_sampler.sample(
-                model_random, num_reads=total_reads, num_sweeps=sweep, beta_schedule_type=schedule)
+                model_random,
+                num_reads=total_reads,
+                num_sweeps=parameters['sweep'],
+                beta_schedule_type=parameters['schedule'],
+                beta_range=(default_samples.info['beta_range'][0]*parameters['Tfactor'],
+                            default_samples.info['beta_range'][1]),
+            )
             time_s = time.time() - start
             samples.info['timing'] = time_s
             pickle.dump(samples, open(dict_pickle_name, "wb"))
@@ -608,7 +378,7 @@ def computeResultsList(
     random_energy: float = 0.0,
     min_energy: float = None,
     downsample: int = 10,
-    bootstrap_samples: int = 1000,
+    bootstrap_iterations: int = 1000,
     confidence_level: float = 68,
     gap: float = 1.0,
     s: float = 0.99,
@@ -623,7 +393,7 @@ def computeResultsList(
         random_energy: The mean energy of the random sample.
         min_energy: The minimum energy of the samples.
         downsample: The downsampling sample for bootstrapping.
-        bootstrap_samples: The number of bootstrap samples.
+        bootstrap_iterations: The number of bootstrap samples.
         confidence_level: The confidence level for the bootstrap.
         gap: The threshold for the considering a read successful w.r.t the performance ratio [%].
         s: The success factor (usually said as RTT within s% probability).
@@ -664,7 +434,7 @@ def computeResultsList(
         (1.0 - gap/100.0)*(random_energy - min_energy)
 
     resamples = np.random.randint(0, len(df), size=(
-        downsample, bootstrap_samples)).astype(int)
+        downsample, bootstrap_iterations)).astype(int)
 
     energies = df['energy'].values
     times = df['runtime (us)'].values
@@ -783,7 +553,7 @@ def createDnealResultsDataframes(
     overwrite_pickles: bool = False,
     confidence_level: float = 68,
     gap: float = 1.0,
-    bootstrap_samples: int = 1000,
+    bootstrap_iterations: int = 1000,
     s: float = 0.99,
     fail_value: float = np.inf,
     save_pickle: bool = True,
@@ -795,7 +565,7 @@ def createDnealResultsDataframes(
         df: The dataframe to be updated
         instance: The instance number
         boots: The number of bootstraps
-        parameters_dict: The parameters dictionary
+        parameters_dict: The parameters dictionary to update the 
         dneal_results_path: The path to the results
         dneal_pickle_path: The path to the pickle files
         use_raw_data: If we want to use the raw data
@@ -812,15 +582,16 @@ def createDnealResultsDataframes(
         # In case that the data is already in the dataframe, return it
         if all([k in df[i].values for (i, j) in parameters_dict.items() for k in j]):
             print('The dataframe has some data for the parameters')
+            # The parameters dictionary has lists as values as the loop below makes the concatenation faster than running the loop for each parameter
             cond = [df[k].apply(lambda k: k == i).astype(bool)
                     for k, v in parameters_dict.items() for i in v]
-            # TODO This looks like an overkill, as the dictionaries can have lists as values, change to have only values
             cond_total = functools.reduce(lambda x, y: x & y, cond)
             if all(boots in df[cond_total]['boots'].values for boots in boots_list):
                 print('The dataframe already has all the data')
                 return df
 
     # Create filename
+    # TODO modify filenmaes inteligently to make it easier to work with
     if len(instance_list) > 1:
         df_name = "df_results.pkl"
     else:
@@ -869,7 +640,7 @@ def createDnealResultsDataframes(
                             random_energy=random_energy,
                             min_energy=min_energy,
                             downsample=boots,
-                            bootstrap_samples=bootstrap_samples,
+                            bootstrap_iterations=bootstrap_iterations,
                             confidence_level=confidence_level,
                             gap=gap,
                             s=s,
@@ -914,7 +685,7 @@ sweeps_list = [i for i in range(1, 21, 1)] + [
     i for i in range(500, 1001, 100)]
 schedules_list = ['geometric', 'linear']
 # schedules_list = ['geometric']
-bootstrap_samples = 1000
+bootstrap_iterations = 1000
 s = 0.99  # This is the success probability for the TTS calculation
 gap = 1.0  # This is a percentual treshold of what the minimum energy should be
 conf_int = 68  #
@@ -943,7 +714,7 @@ df_results_dneal = createDnealResultsDataframes(
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
-    bootstrap_samples=bootstrap_samples,
+    bootstrap_iterations=bootstrap_iterations,
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
@@ -1094,7 +865,7 @@ df_results_dneal = createDnealResultsDataframes(
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
-    bootstrap_samples=bootstrap_samples,
+    bootstrap_iterations=bootstrap_iterations,
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
@@ -1174,7 +945,7 @@ for instance in instance_list:
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
-        bootstrap_samples=bootstrap_samples,
+        bootstrap_iterations=bootstrap_iterations,
         gap=gap,
         fail_value=fail_value,
         save_pickle=True,
@@ -1203,7 +974,7 @@ for instance in instance_list:
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
-        bootstrap_samples=bootstrap_samples,
+        bootstrap_iterations=bootstrap_iterations,
         gap=gap,
         fail_value=fail_value,
         save_pickle=True,
@@ -1237,7 +1008,7 @@ df_results_all = createDnealResultsDataframes(
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
-    bootstrap_samples=bootstrap_samples,
+    bootstrap_iterations=bootstrap_iterations,
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
@@ -1488,7 +1259,7 @@ for instance in instance_list:
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
-        bootstrap_samples=bootstrap_samples,
+        bootstrap_iterations=bootstrap_iterations,
         gap=gap,
         fail_value=fail_value,
         save_pickle=True,
@@ -1516,7 +1287,7 @@ df_results_all = createDnealResultsDataframes(
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
-    bootstrap_samples=bootstrap_samples,
+    bootstrap_iterations=bootstrap_iterations,
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,

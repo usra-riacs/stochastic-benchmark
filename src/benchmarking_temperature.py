@@ -5,7 +5,6 @@ import itertools
 import os
 import pickle
 import pickle as pkl
-import random
 import time
 from ctypes.wintypes import DWORD
 from gc import collect
@@ -24,273 +23,9 @@ from pysa.sa import Solver
 from scipy import sparse, stats
 
 from plotting import *
+from retrieve_data import *
 
-# %%
-# Functions to retrieve instances files
-# Define functions to extract data files
-
-
-def getInstances(filename):  # instance number
-    '''
-    Extracts the instance from the filename assuming it is at the end before extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        instance: the instance number
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 2)[-1])
-
-# TODO rename all variables *_list as plurals
-
-
-def createInstanceFileList(directory, instance_list):
-    '''
-    Creates a list of files in the directory for the instances in the list
-
-    Args:
-        directory: the directory where the files are
-        instance_list: the list of instances
-
-    Returns:
-        instance_file_list: the list of files
-    '''
-    fileList = []
-    for root, dirs, files in os.walk(directory):
-        # exclude hidden, compressed, or bash files
-        files = [f for f in files
-                 if(not f.startswith('.') and not f.endswith('.zip') and not f.endswith('.sh'))]
-        # exclude gs_energies.txt files
-        files = [f for f in files
-                 if(not f.startswith('gs_energies'))]
-        # Below, select only specifed n,s,alpha instances
-        files = [f for f in files if(getInstances(f) in instance_list)]
-        for f in files:
-            fileList.append(root+"/"+f)
-    return fileList
-
-
-def getInstancePySAExperiment(filename):  # instance number
-    '''
-    Extracts the instance number from the PySA experiment filename assuming the filename follows the naming convention prefix_instance_sweeps_replicas_pcold_phot.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        instance: the instance number
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 9)[-9])
-
-
-def getSweepsPySAExperiment(filename):
-    '''
-    Extracts the sweeps from the PySA experiment filename assuming the filename follows the naming convention prefix_instance_sweeps_replicas_pcold_phot.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        sweeps: the number of sweeps
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 7)[-7])
-
-
-def getPHot(filename):  # P hot
-    '''
-    Extracts the hot temperature transition probability from the PySA experiment filename assuming the filename follows the naming convention prefix_instance_sweeps_replicas_pcold_phot.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        phot: the hot temperature transition probability
-    '''
-    return float(filename.rsplit(".", 1)[0].rsplit("_", 2)[-1])
-
-
-def getPCold(filename):  # P cold
-    '''
-    Extracts the cold temperature transition probability from the PySA experiment filename assuming the filename follows the naming convention prefix_instance_sweeps_replicas_pcold_phot.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        pcold: the cold temperature transition probability
-    '''
-    return float(filename.rsplit(".", 1)[0].rsplit("_", 3)[-3])
-
-
-def getReplicas(filename):  # replicas
-    '''
-    Extracts the replicas from the PySA experiment filename assuming the filename follows the naming convention prefix_instance_sweeps_replicas_pcold_phot.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        replicas: the number of replicas
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 5)[-5])
-
-
-def createPySAExperimentFileList(
-    directory: str,
-    instance_list: Union[List[str], List[int]],
-    rep_list: Union[List[str], List[int]] = None,
-    sweep_list: Union[List[str], List[int]] = None,
-    pcold_list: Union[List[str], List[float]] = None,
-    phot_list: Union[List[str], List[float]] = None,
-    prefix: str = "",
-) -> list:
-    '''
-    Creates a list of experiment files in the directory for the instances in the instance_list, replicas in the rep_list, sweeps in the sweep_list, P cold in the pcold_list, and P hot in the phot_list
-
-    Args:
-        directory: the directory where the files are
-        instance_list: the list of instances
-        rep_list: the list of replicas
-        sweep_list: the list of sweeps
-        pcold_list: the list of P cold
-        phot_list: the list of P hot
-        prefix: the prefix of the files
-
-    Returns:
-        experiment_file_list: the list of files
-
-    '''
-    fileList = []
-    for root, dirs, files in os.walk(directory):
-        # exclude hidden, compressed, or bash files
-        files = [f for f in files
-                 if(not f.startswith('.') and
-                    not f.endswith('.zip') and
-                    not f.endswith('.sh') and
-                    not f.endswith('.p') and
-                    f.startswith(prefix))]
-        # exclude gs_energies.txt files
-        files = [f for f in files
-                 if(not f.startswith('gs_energies'))]
-        # Below, select only specifed instances
-        files = [f for f in files if(
-            getInstancePySAExperiment(f) in instance_list)]
-        # Consider replicas if provided list
-        if rep_list is not None:
-            files = [f for f in files if(
-                getReplicas(f) in rep_list)]
-        # Consider sweeps if provided list
-        if sweep_list is not None:
-            files = [f for f in files if(
-                getSweepsPySAExperiment(f) in sweep_list)]
-        # Consider pcold if provided list
-        if pcold_list is not None:
-            files = [f for f in files if(
-                getPCold(f) in pcold_list)]
-        # Consider phot if provided list
-        if phot_list is not None:
-            files = [f for f in files if(
-                getPHot(f) in phot_list)]
-        for f in files:
-            fileList.append(root+"/"+f)
-
-        # sort filelist by instance
-        fileList = sorted(fileList, key=lambda x: getInstancePySAExperiment(x))
-    return fileList
-
-
-def getSchedule(filename):
-    '''
-    Extracts the schedule from the Dwave-neal experiment filename assuming the filename follows the naming convention prefix_instance_schedule_sweeps.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        schedule: the schedule string
-    '''
-    return filename.rsplit(".", 1)[0].rsplit("_", 2)[-2]
-
-
-def getSweepsDnealExperiment(filename):
-    '''
-    Extracts the sweeps from the Dwave-neal experiment filename assuming the filename follows the naming convention prefix_instance_schedule_sweeps.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        sweep: the schedule string
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 1)[-1])
-
-
-def getInstanceDnealExperiment(filename):
-    '''
-    Extracts the instance from the Dwave-neal experiment filename assuming the filename follows the naming convention prefix_instance_schedule_sweeps.extension
-
-    Args:
-        filename: the name of the file
-
-    Returns:
-        sweep: the sweep string
-    '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 3)[-3])
-
-
-def createDnealExperimentFileList(
-    directory: str,
-    instance_list: Union[List[str], List[int]],
-    sweep_list: Union[List[str], List[int]] = None,
-    schedule_list: List[str] = None,
-    prefix: str = "",
-    suffix: str = "",
-) -> list:
-    '''
-    Creates a list of experiment files in the directory for the instances in the instance_list, sweeps in the sweep_list, and schedules in the schedule_list
-
-    Args:
-        directory: the directory where the files are
-        instance_list: the list of instances
-        sweep_list: the list of sweeps
-        schedule_list: the list of schedules
-        prefix: the prefix of the experiment files
-
-    Returns:
-        experiment_file_list: the list of files
-
-    '''
-    fileList = []
-    for root, dirs, files in os.walk(directory):
-        # exclude hidden, compressed, or bash files
-        files = [f for f in files
-                 if(not f.startswith('.') and
-                    not f.endswith('.zip') and
-                    not f.endswith('.sh') and
-                    f.endswith(suffix) and
-                    f.startswith(prefix))]
-        # exclude gs_energies.txt files
-        files = [f for f in files
-                 if(not f.startswith('gs_energies'))]
-        # Below, select only specifed instances
-        files = [f for f in files if(
-            getInstanceDnealExperiment(f) in instance_list)]
-        # Consider sweeps if provided list
-        if sweep_list is not None:
-            files = [f for f in files if(
-                getSweepsDnealExperiment(f) in sweep_list)]
-        # Consider schedules if provided list
-        if schedule_list is not None:
-            files = [f for f in files if(
-                getSchedule(f) in schedule_list)]
-        for f in files:
-            fileList.append(root+"/"+f)
-
-        # sort filelist by instance
-        fileList = sorted(
-            fileList, key=lambda x: getInstanceDnealExperiment(x))
-    return fileList
+idx = pd.IndexSlice
 
 
 # %%
@@ -366,7 +101,7 @@ def randomEnergySampler(
         energies = [datum.energy for datum in randomSample.data(
             ['energy'], sorted_by='energy')]
     else:
-        if model.vartype == Vartype.BINARY:
+        if model.vartype == dimod.Vartype.BINARY:
             state = np.random.randint(2, size=(model.num_variables, num_reads))
         else:
             randomSample = np.random.randint(
@@ -387,7 +122,8 @@ print('Average random energy = ' + str(random_energy))
 # %%
 # Run default Dwave-neal simulated annealing implementation
 sim_ann_sampler = dimod.SimulatedAnnealingSampler()
-default_name = prefix + str(instance) + '_geometric_1000.p'
+default_name = prefix + str(instance) + '_geometric_' + \
+    str(default_sweeps) + '.p'
 df_default_name = 'df_' + default_name + 'kl'
 rerun_default = False
 if not os.path.exists(os.path.join(dneal_pickle_path, default_name)) or rerun_default:
@@ -856,6 +592,11 @@ lower_bounds['mean_time'] = 0.0
 upper_bounds = {key: None for key in metrics_list}
 upper_bounds['success_prob'] = 1.0
 upper_bounds['perf_ratio'] = 1.0
+
+# Define default behavior for the solver
+total_reads = 1000
+default_sweeps = 1000
+default_boots = total_reads
 # %%
 # Function to generate stats aggregated dataframe
 # TODO: this can be generalized by acknowledging that the boots are the resource R
@@ -928,8 +669,9 @@ def generateStatsDataframe(
     resources = ['boots']
     df_name = 'df_results_statsT'
     df_path = os.path.join(dneal_results_path, df_name + '.pkl')
-    if all([stat_measure + '_' + metric + '_conf_interval_' + limit in df_results_all_stats.columns for stat_measure in stat_measures for metric in metrics_list for limit in ['lower', 'upper']]) and not use_raw_data:
-        df_all_stats = pd.read_pickle(df_path)
+    df_all_stats = pd.read_pickle(df_path)
+    if all([stat_measure + '_' + metric + '_conf_interval_' + limit in df_all_stats.columns for stat_measure in stat_measures for metric in metrics_list for limit in ['lower', 'upper']]) and not use_raw_data:
+        pass
     else:
         df_all_groups = df_all.set_index(
             'instance').groupby(parameters + resources)
@@ -966,16 +708,13 @@ use_raw_data = True
 use_raw_pickles = True
 overwrite_pickles = False
 instance = 42
-Tfactor_list = list(np.logspace(-1, 3, 18))
+Tfactor_list = list(np.logspace(-1, 3, 35))
 schedules_list = ['geometric', 'linear']
 # schedules_list = ['geometric']
 bootstrap_iterations = 1000
-total_reads = 1000
 s = 0.99  # This is the success probability for the TTS calculation
 gap = 1.0  # This is a percentual treshold of what the minimum energy should be
 conf_int = 68  #
-default_sweeps = 1000
-default_boots = total_reads
 fail_value = np.inf
 # Confidence interval for bootstrapping, value used to get standard deviation
 confidence_level = 68
@@ -1263,8 +1002,8 @@ if compute_random:
 schedules_list = ['geometric']
 df_list = []
 use_raw_data = True
-use_raw_pickles = False
-all_boots_list = [1] + list(range(10, 1001, 10))
+use_raw_pickles = True
+all_boots_list = [1] + list(range(5, 1001, 5))
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + "T.pkl"
     df_path = os.path.join(dneal_results_path, df_name)
@@ -1954,7 +1693,8 @@ for stat_measure in stat_measures:
     )
 # %%
 # Loop through values of Tfactor to gather performance of exploration
-use_raw_data = False
+use_raw_data = True
+r = 2
 Tfactors = [default_Tfactor, 10, 100, 1000]
 parameters = {'schedule': ['geometric'],
               'Tfactor': [Tfactor for Tfactor in Tfactors]}
@@ -1977,14 +1717,13 @@ df_results_all_stats = generateStatsDataframe(
 )
 # %%
 # Defining which datapoints to take
-idx = pd.IndexSlice
 # Tfactors = Tfactor_list[::-1]
-repetitions = 5  # Times to run the algorithm
+repetitions = 3  # Times to run the algorithm
 r = 1  # resource per parameter setting (runs)
-rs = [1]
+rs = [1, 2, 5, 10]
 experiments = rs * repetitions
-R_exploration = 10  # budget for exploration (runs)
-R_budget = 500  # budget for exploitation (runs)
+R_exploration = 50  # budget for exploration (runs)
+R_budget = 550  # budget for exploitation (runs)
 R_exploitation = R_budget - R_exploration  # budget for exploitation (runs)
 progress_list = []
 for i, r in enumerate(experiments):
@@ -2096,7 +1835,7 @@ for stat_measure in stat_measures:
         ax=ax,
         dict_fixed={'schedule': 'geometric'},
         list_dicts=[{'Tfactor': i}
-                    for i in [10, 100, 1000, default_Tfactor] + list(set(best_ensemble_Tfactor))],
+                    for i in list(set(best_ensemble_Tfactor))],
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -2132,6 +1871,7 @@ for stat_measure in stat_measures:
         ylim=[0.975, 1.0025],
         # xlim=[5e2, 5e4],
         linewidth=1.5,
+        linestyle='--',
         markersize=1,
     )
 # %%

@@ -1,5 +1,6 @@
 # %%
 # Import the Dwave packages dimod and neal
+import functools
 import itertools
 import os
 import pickle
@@ -8,7 +9,6 @@ import time
 from ctypes.wintypes import DWORD
 from gc import collect
 from typing import List, Union
-import functools
 
 import dimod
 # Import Matplotlib to edit plots
@@ -156,7 +156,7 @@ if not os.path.exists(os.path.join(dneal_pickle_path, default_name)) or rerun_de
     start = time.time()
     default_samples = sim_ann_sampler.sample(
         model_random,
-        num_reads=1000
+        num_reads=1000,
         num_sweeps=1000,)
     time_default = time.time() - start
     default_samples.info['timing'] = time_default
@@ -253,7 +253,7 @@ computeRRT_vectorized = np.vectorize(computeRTT, excluded=(1, 2, 3, 4))
 # %%
 # Load zipped results if using raw data
 overwrite_pickles = False
-use_raw_data = True
+use_raw_data = False
 # zip_name = os.path.join(dneal_results_path, 'results.zip')
 # if os.path.exists(zip_name) and use_raw_data:
 #     import zipfile
@@ -540,6 +540,7 @@ def cleanup_df(
 
 
 # %%
+# TODO Remove all the list_* variables and name them as plurals instead
 # Function to update the dataframes
 def createDnealResultsDataframes(
     df: pd.DataFrame = None,
@@ -565,7 +566,7 @@ def createDnealResultsDataframes(
         df: The dataframe to be updated
         instance: The instance number
         boots: The number of bootstraps
-        parameters_dict: The parameters dictionary to update the 
+        parameters_dict: The parameters dictionary with values as lists
         dneal_results_path: The path to the results
         dneal_pickle_path: The path to the pickle files
         use_raw_data: If we want to use the raw data
@@ -600,6 +601,7 @@ def createDnealResultsDataframes(
 
     # If use_raw_data compute the row
     if use_raw_data or not os.path.exists(df_path):
+        # TODO Remove all the list_* variables and name them as plurals instead
         list_results_dneal = []
         for instance in instance_list:
             random_energy = loadEnergyFromFile(os.path.join(
@@ -617,10 +619,13 @@ def createDnealResultsDataframes(
                 schedule = combination[0]
                 sweep = combination[1]
 
+                parameters = {'schedule': schedule,
+                              'sweep': sweep,
+                              # 'Tfactor': 1.0,
+                              }
                 df_samples = createDnealSamplesDataframe(
                     instance=instance,
-                    schedule=schedule,
-                    sweep=sweep,
+                    parameters=parameters,
                     total_reads=total_reads,
                     sim_ann_sampler=sim_ann_sampler,
                     dneal_pickle_path=dneal_pickle_path,
@@ -630,6 +635,7 @@ def createDnealResultsDataframes(
 
                 for boots in boots_list:
 
+                    # TODO Good place to replace with mask and isin1d()
                     if (df is not None) and (boots in df[(df['schedule'] == schedule) & (df['sweeps'] == sweep)]['boots'].values):
                         continue
                     else:
@@ -672,9 +678,129 @@ def createDnealResultsDataframes(
 
 
 # %%
+# Create dictionaries for upper and lower bounds of confidence intervals
+metrics_list = ['min_energy', 'tts',
+                'perf_ratio', 'success_prob', 'mean_time']
+lower_bounds = {key: None for key in metrics_list}
+lower_bounds['success_prob'] = 0.0
+lower_bounds['mean_time'] = 0.0
+upper_bounds = {key: None for key in metrics_list}
+upper_bounds['success_prob'] = 1.0
+upper_bounds['perf_ratio'] = 1.0
+
+# Define default behavior for the solver
+total_reads = 1000
+default_sweeps = 1000
+default_boots = total_reads
+# %%
+# Function to generate stats aggregated dataframe
+# TODO: this can be generalized by acknowledging that the boots are the resource R
+
+
+def generateStatsDataframe(
+    df_all: List[dict] = None,
+    stat_measures: List[str] = ['mean', 'median'],
+    instance_list: List[str] = None,
+    parameters_dict: dict = None,
+    resource_list: List[int] = [default_boots],
+    dneal_results_path: str = None,
+    use_raw_data: bool = False,
+    use_raw_pickles: bool = False,
+    overwrite_pickles: bool = False,
+    s: float = 0.99,
+    confidence_level: float = 0.68,
+    bootstrap_iterations: int = 1000,
+    gap: float = 0.1,
+    fail_value: float = None,
+    save_pickle: bool = True,
+) -> pd.DataFrame:
+    '''
+    Function to generate statistics from the aggregated dataframe
+
+    Args:
+        df_all: List of dictionaries containing the aggregated dataframe
+        stat_measures: List of statistics to be calculated
+        instance_list: List of instances to be considered
+        parameters_dict: Dictionary of parameters to be considered, with list as values
+        resource_list: List of resources to be considered
+        dneal_results_path: Path to the directory containing the results
+        use_raw_data: Boolean indicating whether to use the raw data for generating the aggregated dataframe
+        use_raw_pickles: Boolean indicating whether to use the raw pickles for generating the aggregated pickles
+        overwrite_pickles: Boolean indicating whether to overwrite the pickles
+        s: The success factor (usually said as RTT within s% probability).
+        confidence_level: Confidence level for the confidence intervals in bootstrapping
+        bootstrap_iterations: Number of bootstrap iterations
+        gap: The threshold for the considering a read successful w.r.t the performance ratio [%].
+        fail_value: Value to be used for failed runs
+        save_pickle: Boolean indicating whether to save the aggregated pickle
+    '''
+    df_all = createDnealResultsDataframes(
+        df=df_all,
+        instance_list=instance_list,
+        parameters_dict=parameters_dict,
+        boots_list=resource_list,
+        dneal_results_path=dneal_results_path,
+        dneal_pickle_path=dneal_pickle_path,
+        use_raw_data=use_raw_data,
+        use_raw_pickles=use_raw_pickles,
+        overwrite_pickles=overwrite_pickles,
+        s=s,
+        confidence_level=confidence_level,
+        bootstrap_iterations=bootstrap_iterations,
+        gap=gap,
+        fail_value=fail_value,
+        save_pickle=True,
+    )
+    # Split large dataframe such that we can compute the statistics and confidence interval for each metric across the instances
+    # TODO This can be improved by the lambda function version of the approach defining an input parameter for the function as a dictionary. Currently this is too slow
+    # Not succesful reimplementation of the operation above
+    # df_stats_all = df_results_all.set_index(
+    #     'instance').groupby(parameters + ['boots']
+    #     ).apply(lambda s: pd.Series({
+    #         stat_measure + '_' + metric : conf_interval(s,metric, stat_measure) for metric in metrics_list for stat_measure in stat_measures})
+    #     ).reset_index()
+
+    parameters = list(parameters_dict.keys())
+    resources = ['boots']
+    df_name = 'df_results_stats'
+    df_path = os.path.join(dneal_results_path, df_name + '.pkl')
+    df_all_stats = pd.read_pickle(df_path)
+    if all([stat_measure + '_' + metric + '_conf_interval_' + limit in df_all_stats.columns for stat_measure in stat_measures for metric in metrics_list for limit in ['lower', 'upper']]) and not use_raw_data:
+        pass
+    else:
+        df_all_groups = df_all.set_index(
+            'instance').groupby(parameters + resources)
+        dataframes = []
+        for metric in metrics_list:
+            df_all_mean = df_all_groups.apply(
+                mean_conf_interval, key_string=metric)
+            df_all_median = df_all_groups.apply(
+                median_conf_interval, key_string=metric)
+            dataframes.append(df_all_mean)
+            dataframes.append(df_all_median)
+
+        df_all_stats = pd.concat(dataframes, axis=1).reset_index()
+
+    df_stats = df_all_stats.copy()
+
+    for stat_measure in stat_measures:
+        for key, value in lower_bounds.items():
+            df_stats[stat_measure + '_' + key + '_conf_interval_lower'].clip(
+                lower=value, inplace=True)
+        for key, value in upper_bounds.items():
+            df_stats[stat_measure + '_' + key + '_conf_interval_upper'].clip(
+                upper=value, inplace=True)
+    if save_pickle:
+        df_stats = cleanup_df(df_stats)
+        df_stats.to_pickle(df_path)
+
+    return df_stats
+
+
+# %%
 # Compute results for instance 42 using D-Wave Neal
-use_raw_data = True
-use_raw_pickles = True
+use_raw_data = False
+use_raw_pickles = False
 overwrite_pickles = False
 instance = 42
 metrics_list = ['min_energy', 'tts',
@@ -697,7 +823,7 @@ sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
 df_name = "df_results_" + str(instance) + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-if os.path.exists(df_path):
+if os.path.exists(df_path) and False:
     df_results_dneal = pd.read_pickle(df_path)
 else:
     df_results_dneal = None
@@ -741,8 +867,11 @@ labels = {
     'mean_tts': 'TTS ' + str(100*s) + '% confidence  \n (within ' + str(gap) + '% of best found) [s]',
     'boots': 'Number of downsamples during bootrapping',
     'reads': 'Total number of reads (proportional to time)',
+    'cum_reads': 'Total number of reads (proportional to time)',
     'min_energy': 'Minimum energy found',
     'mean_time': 'Mean time [us]',
+    'Tfactor': 'Factor to multiply lower temperature by',
+    'experiment': 'Experiment',
     # 'tts': 'TTS to GS with 99% confidence \n [s * replica] ~ [MVM]',
 }
 
@@ -901,6 +1030,25 @@ ax = plot_1d_singleinstance_list(
 # Compute all instances with Dwave-neal
 instance_list = [i for i in range(20)] + [42]
 # %%
+# Create all instances and save it into disk
+for instance in instance_list:
+    instance_file_name = prefix + str(instance) + ".txt"
+    instance_file_name = os.path.join(instance_path, instance_file_name)
+
+    if not os.path.exists(instance_file_name):
+        # Fixing the random seed to get the same result
+        np.random.seed(instance)
+        J = np.random.rand(N, N)
+        # We only consider upper triangular matrix ignoring the diagonal
+        J = np.triu(J, 1)
+        h = np.random.rand(N)
+        model_random = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
+
+        text_file = open(instance_file_name, "w")
+        text_file.write(model_random.to_coo())
+        text_file.close()
+
+# %%
 # Compute random energy file
 compute_random = False
 if compute_random:
@@ -923,13 +1071,13 @@ if compute_random:
 # Merge all results dataframes in a single one
 schedules_list = ['geometric']
 df_list = []
-use_raw_data = True
-use_raw_pickles = True
+use_raw_data = False
+use_raw_pickles = False
 all_boots_list = list(range(1, 1001, 1))
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + ".pkl"
     df_path = os.path.join(dneal_results_path, df_name)
-    if os.path.exists(df_path):
+    if os.path.exists(df_path) and False:
         df_results_dneal = pd.read_pickle(df_path)
     else:
         df_results_dneal = None
@@ -991,8 +1139,8 @@ df_results_all.to_pickle(df_path)
 # %%
 # Run all the instances with Dwave-neal
 overwrite_pickles = False
-use_raw_data = True
-use_raw_pickles = True
+use_raw_data = False
+use_raw_pickles = False
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
 
@@ -1047,7 +1195,7 @@ def mean_conf_interval(
     x: pd.Series,
     key_string: str,
 ):
-    """
+    '''
     Compute the mean and confidence interval of a series
 
     Args:
@@ -1056,7 +1204,7 @@ def mean_conf_interval(
 
     Returns:
         pd.Series: Series with mean and confidence interval
-    """
+    '''
     key_mean_string = 'mean_' + key_string
     result = {
         key_mean_string: x[key_string].mean(),
@@ -1071,7 +1219,7 @@ def median_conf_interval(
     x: pd.Series,
     key_string: str,
 ):
-    """
+    '''
     Compute the median and confidence interval of a series (see http://mathworld.wolfram.com/StatisticalMedian.html for uncertainty propagation)
 
     Args:
@@ -1080,7 +1228,7 @@ def median_conf_interval(
 
     Returns:
         pd.Series: Series with median and confidence interval
-    """
+    '''
     key_median_string = 'median_' + key_string
     result = {
         key_median_string: x[key_string].median(),
@@ -1088,43 +1236,63 @@ def median_conf_interval(
         key_median_string + '_conf_interval_upper': x[key_string].median() + np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))) * np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1))}
     return pd.Series(result)
 
+# Define function for ensemble metrics
+
+
+def conf_interval(
+    x: pd.Series,
+    key_string: str,
+    stat_measure: str = 'mean',
+):
+    '''
+    Compute the mean or median and confidence interval of a series (see http://mathworld.wolfram.com/StatisticalMedian.html for uncertainty propagation)
+
+    Args:
+        x (pd.Series): Series to compute the median and confidence interval
+        key_string (str): String to use as key for the output dataframe
+        stat_measure (str): String to use as key for the output dataframe
+
+    Returns:
+        pd.Series: Series with median and confidence interval
+    '''
+    key_median_string = stat_measure + '_' + key_string
+    deviation = np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(
+        x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string])))
+    if stat_measure == 'mean':
+        center = x[key_string].mean()
+    else:
+        center = x[key_string].median()
+        deviation = deviation * \
+            np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1))
+
+    result = {
+        key_median_string: center,
+        key_median_string + '_conf_interval_lower': center - deviation,
+        key_median_string + '_conf_interval_upper': center + deviation}
+    return pd.Series(result)
+
 
 # %%
-# Split large dataframe such that we can compute the statistics and confidence interval for each metric across the instances
-# TODO This can be improved by the lambda function version of the approach defining an input parameter for the function as a dictionary. Currently this is too slow
-parameters = ['schedule', 'sweeps']
-df_results_all_groups = df_results_all.set_index(
-    'instance').groupby(parameters + ['boots'])
-df_list = []
-for metric in metrics_list:
-    df_results_all_mean = df_results_all_groups.apply(
-        mean_conf_interval, key_string=metric)
-    df_results_all_median = df_results_all_groups.apply(
-        median_conf_interval, key_string=metric)
-    df_list.append(df_results_all_mean)
-    df_list.append(df_results_all_median)
-
-df_results_all_stats = pd.concat(df_list, axis=1)
-df_results_all_stats = df_results_all_stats.reset_index()
-
-# %%
-# Clean up dataframe
-df_results_all_stats = cleanup_df(df_results_all_stats)
-stat_measures = ['mean', 'median']
-for stat_measure in stat_measures:
-    df_results_all_stats[stat_measure + '_success_prob_conf_interval_lower'] = \
-        df_results_all_stats[stat_measure +
-                             '_success_prob_conf_interval_lower'].clip(lower=0)
-    df_results_all_stats[stat_measure + '_success_prob_conf_interval_upper'] =\
-        df_results_all_stats[stat_measure +
-                             '_success_prob_conf_interval_upper'].clip(upper=1)
-    df_results_all_stats[stat_measure + '_perf_ratio_conf_interval_upper'] = \
-        df_results_all_stats[stat_measure +
-                             '_perf_ratio_conf_interval_upper'].clip(upper=1)
-df_name = 'df_results_stats'
-df_path = os.path.join(dneal_results_path, df_name + '.pkl')
-df_results_all_stats.to_pickle(df_path)
-
+# Generate stats results
+use_raw_data = False
+use_raw_pickles = False
+df_results_all_stats = generateStatsDataframe(
+    df_all=df_results_all,
+    stat_measures=['mean', 'median'],
+    instance_list=instance_list,
+    parameters_dict={'schedule': schedules_list, 'sweeps': sweeps_list},
+    resource_list=boots_list,
+    dneal_results_path=dneal_results_path,
+    use_raw_data=use_raw_data,
+    use_raw_pickles=use_raw_pickles,
+    overwrite_pickles=overwrite_pickles,
+    s=s,
+    confidence_level=conf_int,
+    bootstrap_iterations=bootstrap_iterations,
+    gap=gap,
+    fail_value=fail_value,
+    save_pickle=True,
+)
 # %%
 # Generate plots for TTS of ensemble together with single instance (42)
 f, ax = plt.subplots()
@@ -1184,7 +1352,7 @@ plot_1d_singleinstance_list(
     ax=ax,
     dict_fixed={'schedule': 'geometric', 'sweeps': 500},
     list_dicts=[{'boots': j}
-                for j in all_boots_list],
+                for j in all_boots_list[::10]],
     labels=labels,
     prefix=prefix,
     log_x=True,
@@ -1237,7 +1405,7 @@ plot_1d_singleinstance_list(
 # Gather all the data for the best tts of the ensemble for each instance
 best_ensemble_sweeps = []
 df_list = []
-
+stat_measures = ['mean', 'median']
 for stat_measure in stat_measures:
     best_sweep = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
         1, stat_measure + '_tts')['sweeps'].values[0]
@@ -1292,6 +1460,7 @@ df_results_all = createDnealResultsDataframes(
     fail_value=fail_value,
     save_pickle=True,
 )
+
 # %%
 # Obtain the tts for each instance in the median and the mean of the ensemble accross the sweeps
 # TODO generalize this code. In general, one parameter (or several) are fixed in certain interesting values and then for all instances with the all other values of remaining parameters we report the metric output, everything at 1000 bootstraps
@@ -1384,46 +1553,31 @@ for instance in [42, 0, 19]:
         default_dict={'schedule': 'geometric',
                       'sweeps': default_sweeps, 'boots': default_boots},
         use_colorbar=False,
-        ylim=[0.975, 1.0025],
-        xlim=[5e2, 5e4],
+        ylim=[0.975, None],
+        # xlim=[5e2, 5e4],
     )
 
 # %%
 # Regenerate the dataframe with the statistics to get the complete performance plot
 
-# Split large dataframe such that we can compute the statistics and confidence interval for each metric across the instances
-parameters = ['schedule', 'sweeps']
-df_results_all_groups = df_results_all.set_index(
-    'instance').groupby(parameters + ['boots'])
-df_list = []
-for metric in metrics_list:
-    df_results_all_mean = df_results_all_groups.apply(
-        mean_conf_interval, key_string=metric)
-    df_results_all_median = df_results_all_groups.apply(
-        median_conf_interval, key_string=metric)
-    df_list.append(df_results_all_mean)
-    df_list.append(df_results_all_median)
-
-df_results_all_stats = pd.concat(df_list, axis=1)
-df_results_all_stats = df_results_all_stats.reset_index()
-
-# %%
-# Clean up dataframe
-df_results_all_stats = cleanup_df(df_results_all_stats)
-stat_measures = ['mean', 'median']
-for stat_measure in stat_measures:
-    df_results_all_stats[stat_measure + '_success_prob_conf_interval_lower'] = \
-        df_results_all_stats[stat_measure +
-                             '_success_prob_conf_interval_lower'].clip(lower=0)
-    df_results_all_stats[stat_measure + '_success_prob_conf_interval_upper'] =\
-        df_results_all_stats[stat_measure +
-                             '_success_prob_conf_interval_upper'].clip(upper=1)
-    df_results_all_stats[stat_measure + '_perf_ratio_conf_interval_upper'] = \
-        df_results_all_stats[stat_measure +
-                             '_perf_ratio_conf_interval_upper'].clip(upper=1)
-df_name = 'df_results_stats'
-df_path = os.path.join(dneal_results_path, df_name + '.pkl')
-df_results_all_stats.to_pickle(df_path)
+# Regenerate the dataframe with the statistics to get the complete performance plot
+df_results_all_stats = generateStatsDataframe(
+    df_all=df_results_all,
+    stat_measures=['mean', 'median'],
+    instance_list=instance_list,
+    parameters_dict={'schedule': schedules_list, 'sweeps': sweeps_list},
+    resource_list=boots_list,
+    dneal_results_path=dneal_results_path,
+    use_raw_data=use_raw_data,
+    use_raw_pickles=use_raw_pickles,
+    overwrite_pickles=overwrite_pickles,
+    s=s,
+    confidence_level=conf_int,
+    bootstrap_iterations=bootstrap_iterations,
+    gap=gap,
+    fail_value=fail_value,
+    save_pickle=True,
+)
 # %%
 # Generate plots for performance ratio of ensemble vs reads
 for stat_measure in stat_measures:
@@ -1445,7 +1599,7 @@ for stat_measure in stat_measures:
             ylim=[0.975, 1.0025],
             xlim=[5e2, 5e4],
             use_colorbar=False,
-            alpha=0.25,
+            alpha=0.15,
             colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
                     u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
         )
@@ -1472,13 +1626,15 @@ for stat_measure in stat_measures:
 # %%
 # Create virtual best and virtual worst columns
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
+# TODO This needs to be functionalized
 df_virtual_all = df_results_all.groupby(
     ['schedule', 'reads']
 ).apply(lambda s: pd.Series({
         'virt_best_tts': np.nanmin(s['tts']),
         'virt_best_perf_ratio': np.nanmax(s['perf_ratio']),
         'virt_best_success_prob': np.nanmax(s['success_prob']),
-        'virt_best_mean_time': np.nanmin(s['mean_time'])
+        'virt_best_mean_time': np.nanmin(s['mean_time']),
+        'virt_worst_perf_ratio': np.nanmin(s['perf_ratio'])
         })
         ).reset_index()
 df_virtual_max = df_virtual_all[
@@ -1488,11 +1644,32 @@ df_virtual_max = df_virtual_all[
 ).groupby(
     'schedule'
 ).expanding(min_periods=1).max().droplevel(-1).reset_index()
-df_results_all = df_results_all.drop(
-    ['virt_best_perf_ratio', 'virt_best_success_prob'], axis=1).merge(
-        df_virtual_max,
-        on=['schedule', 'reads'],
-        how='outer')
+
+df_virtual_max_w = df_virtual_all[
+    ['reads', 'schedule',
+     'virt_worst_perf_ratio']].sort_values(
+    'reads', ascending=False
+).groupby(
+    'schedule'
+).expanding(min_periods=1).min().droplevel(-1).reset_index()
+if 'virt_worst_perf_ratio' in df_results_all.columns:
+    df_results_all.drop('virt_worst_perf_ratio', axis=1, inplace=True)
+if 'virt_best_perf_ratio' in df_results_all.columns:
+    df_results_all.drop('virt_best_perf_ratio', axis=1, inplace=True)
+if 'virt_best_success_prob' in df_results_all.columns:
+    df_results_all.drop('virt_best_success_prob', axis=1, inplace=True)
+if 'virt_best_mean_time' in df_results_all.columns:
+    df_results_all.drop('virt_best_mean_time', axis=1, inplace=True)
+if 'virt_best_tts' in df_results_all.columns:
+    df_results_all.drop('virt_best_tts', axis=1, inplace=True)
+df_results_all = df_results_all.merge(
+    df_virtual_max,
+    on=['schedule', 'reads'],
+    how='outer')
+df_results_all = df_results_all.merge(
+    df_virtual_max_w,
+    on=['schedule', 'reads'],
+    how='outer')
 df_virtual_min = df_virtual_all[
     ['reads', 'schedule',
      'virt_best_tts', 'virt_best_mean_time']].sort_values(
@@ -1500,18 +1677,17 @@ df_virtual_min = df_virtual_all[
 ).groupby(
     'schedule'
 ).expanding(min_periods=1).max().droplevel(-1).reset_index()
-df_results_all = df_results_all.drop(
-    ['virt_best_tts', 'virt_best_mean_time'], axis=1).merge(
-        df_virtual_min,
-        on=['schedule', 'reads'],
-        how='outer')
+df_results_all = df_results_all.merge(
+    df_virtual_min,
+    on=['schedule', 'reads'],
+    how='outer')
 df_results_all = cleanup_df(df_results_all)
 df_name = "df_results.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all.to_pickle(df_path)
 
 # %%
-# Generate plots for performance ratio of ensemble vs reads
+# Generate plots for performance ratio of ensemble vs reads with best and worst performance
 for stat_measure in stat_measures:
     f, ax = plt.subplots()
     # for instance in instance_list:
@@ -1541,8 +1717,6 @@ for stat_measure in stat_measures:
         ax=ax,
         label_plot='Virtual best',
         dict_fixed={'schedule': 'geometric'},
-        # list_dicts=[{'sweeps': i}
-        #             for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -1550,7 +1724,23 @@ for stat_measure in stat_measures:
         save_fig=False,
         linewidth=2.5,
         marker=None,
-        # color=[u'#1f77b4'],
+        color=['k'],
+    )
+    plot_1d_singleinstance(
+        df=df_results_all,
+        x_axis='reads',
+        y_axis='virt_worst_perf_ratio',
+        ax=ax,
+        label_plot='Virtual worst',
+        dict_fixed={'schedule': 'geometric'},
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
     )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
@@ -1565,7 +1755,7 @@ for stat_measure in stat_measures:
         log_x=True,
         log_y=False,
         save_fig=False,
-        ylim=[0.9, 1.0025],
+        ylim=[0.975, None],
         # xlim=[5e2, 5e4],
         use_colorbar=False,
         linewidth=1.5,
@@ -1574,515 +1764,185 @@ for stat_measure in stat_measures:
                 u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
     )
 # %%
-# Create all instances and save it into disk
-for instance in instance_list:
-    instance_file_name = prefix + str(instance) + ".txt"
-    instance_file_name = os.path.join(instance_path, instance_file_name)
-
-    if not os.path.exists(instance_file_name):
-        # Fixing the random seed to get the same result
-        np.random.seed(instance)
-        J = np.random.rand(N, N)
-        # We only consider upper triangular matrix ignoring the diagonal
-        J = np.triu(J, 1)
-        h = np.random.rand(N)
-        model_random = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
-
-        text_file = open(instance_file_name, "w")
-        text_file.write(model_random.to_coo())
-        text_file.close()
+# Loop through values of Sweeps to gather performance of exploration
+use_raw_data = False
+r = 2
+parameters = {'schedule': ['geometric'],
+              'sweeps': [sweep for sweep in interesting_sweeps]}
+df_results_all_stats = generateStatsDataframe(
+    df_all=df_results_all,
+    stat_measures=['mean', 'median'],
+    instance_list=instance_list,
+    parameters_dict=parameters,
+    resource_list=[r],
+    dneal_results_path=dneal_results_path,
+    use_raw_data=use_raw_data,
+    use_raw_pickles=use_raw_pickles,
+    overwrite_pickles=overwrite_pickles,
+    s=s,
+    confidence_level=conf_int,
+    bootstrap_iterations=bootstrap_iterations,
+    gap=gap,
+    fail_value=fail_value,
+    save_pickle=True,
+)
 # %%
-# Run all instances with PySA
-# Parameters: replicas = [1, 2, 4, 8], n_reads = 100, sweeps = 100, p_hot=50, p_cold = 1
-# Input Parameters
-total_reads = 1000
-n_replicas_list = [1, 2, 4, 8]
-# n_replicas_list = [4]
-# sweeps = [i for i in range(
-#     1, 21, 1)] + [i for i in range(
-#         21, 101, 10)]
-p_hot_list = [50.0]
-p_cold_list = [1.0]
-# instance_list = list(range(20)) + [42]
-# instance_list = [1, 4, 11, 14, 15, 16] + [42]
-# instance_list = [0,2,3,5,6,7,8,9,10,12,13,17,18,19]
-# instance_list = [42]
-use_raw_pickles = True
-overwrite_pickle = False
-float_type = 'float32'
-
-# sweeps_list = [i for i in range(1, 21, 1)] + [
-#     i for i in range(20, 501, 10)] + [
-#     i for i in range(500, 1001, 20)]
-# sweeps = [1000]
-
-# Setup directory for PySA results
-pysa_path = os.path.join(results_path, "pysa/")
-# Create directory for PySA results
-if not os.path.exists(pysa_path):
-    os.makedirs(pysa_path)
-
-if use_raw_pickles:
-
-    # Setup directory for PySA pickles
-    pysa_pickles_path = os.path.join(pysa_path, "pickles/")
-    # Create directory for PySA pickles
-    if not os.path.exists(pysa_pickles_path):
-        os.makedirs(pysa_pickles_path)
-
-    # List all the instances files
-    file_list = createInstanceFileList(directory=instance_path,
-                                       instance_list=instance_list)
-
-    counter = 0
-    for file in file_list:
-
-        file_name = file.split(".txt")[0].rsplit("/", 1)[-1]
-        print(file_name)
-
-        data = np.loadtxt(file, dtype=float)
-        M = sparse.coo_matrix(
-            (data[:, 2], (data[:, 0], data[:, 1])), shape=(N, N))
-        problem = M.A
-        problem = problem+problem.T-np.diag(np.diag(problem))
-
-        # Get solver
-        solver = Solver(problem=problem, problem_type='ising',
-                        float_type=float_type)
-
-        for n_replicas in n_replicas_list:
-            for n_sweeps in sweeps_list:
-                for p_hot in p_hot_list:
-                    for p_cold in p_cold_list:
-                        counter += 1
-                        print("file "+str(counter)+" of " + str(len(file_list)
-                                                                * len(n_replicas_list) * len(sweeps_list) * len(p_hot_list) * len(p_cold_list)))
-
-                        pickle_name = pysa_pickles_path + file_name + '_swe_' + str(n_sweeps) + '_rep_' + str(
-                            n_replicas) + '_pcold_' + str(p_cold) + '_phot_' + str(p_hot) + '.pkl'
-
-                        min_temp = 2 * \
-                            np.min(np.abs(problem[np.nonzero(problem)])
-                                   ) / np.log(100/p_cold)
-                        min_temp_cal = 2*min(sum(abs(i)
-                                                 for i in problem)) / np.log(100/p_cold)
-                        max_temp = 2*max(sum(abs(i)
-                                             for i in problem)) / np.log(100/p_hot)
-                        if os.path.exists(pickle_name) and not overwrite_pickle:
-                            print(pickle_name)
-                            results_pysa = pd.read_pickle(pickle_name)
-                            continue
-                        print(pickle_name)
-                        # Apply Metropolis
-                        results_pysa = solver.metropolis_update(
-                            num_sweeps=n_sweeps,
-                            num_reads=total_reads,
-                            num_replicas=n_replicas,
-                            update_strategy='random',
-                            min_temp=min_temp,
-                            max_temp=max_temp,
-                            initialize_strategy='random',
-                            recompute_energy=True,
-                            sort_output_temps=True,
-                            parallel=True,  # True by default
-                            use_pt=True,
-                            verbose=False,
-                        )
-                        results_pysa.to_pickle(pickle_name)
-
-# %%
-# Compute preliminary ground state file with best found solution by PySA
-compute_pysa_gs = True
-
-if compute_pysa_gs:
-    for instance in instance_list:
-        # List all the pickled filed for an instance files
-        pickle_list = createPySAExperimentFileList(
-            directory=pysa_pickles_path,
-            instance_list=[instance],
-            prefix=prefix,
+# Defining which datapoints to take
+repetitions = 1000  # Times to run the algorithm
+r = 1  # resource per parameter setting (runs)
+rs = [1]
+experiments = rs * repetitions
+R_exploration = 10  # budget for exploration (runs)
+R_budget = 1e5  # budget for exploitation (runs)
+R_exploitation = R_budget - R_exploration  # budget for exploitation (runs)
+progress_list = []
+for i, r in enumerate(experiments):
+    random_sweeps = np.random.choice(
+        sweeps_list, size=R_exploration // r, replace=True)
+    # % Question: Should we replace these samples?
+    series_list = []
+    for sweep in random_sweeps:
+        series_list.append(
+            df_results_all_stats.set_index(
+                ['schedule', 'sweeps', 'boots']
+            ).loc[
+                idx['geometric', sweep, r]]
         )
-        min_energies = []
-        for file in pickle_list:
-            df = pd.read_pickle(file)
-            min_energies.append(df['best_energy'].min())
+        converged = False
+    df_progress = pd.concat(series_list, axis=1).T.rename_axis(
+        ['schedule', 'sweeps', 'boots'])
+    df_progress['median_perf_ratio'] = df_progress['median_perf_ratio'].expanding(
+        min_periods=1).max()
+    df_progress.reset_index('boots', inplace=True)
+    df_progress['cum_reads'] = df_progress['reads']
+    df_progress['cum_reads'] = df_progress.groupby('reads').expanding(
+        min_periods=1)['cum_reads'].sum().reset_index(drop=True).values
+    df_progress['experiment'] = i
+    progress_list.append(df_progress)
+    exploitation_step = df_results_all_stats.set_index(
+        ['schedule', 'sweeps']).loc[df_progress.nlargest(1, 'median_perf_ratio').index]
+    exploitation_step['cum_reads'] = exploitation_step['reads'] + \
+        df_progress['cum_reads'].max()
+    exploitation_step['median_perf_ratio'].fillna(0, inplace=True)
+    exploitation_step['median_perf_ratio'].clip(
+        lower=df_progress['median_perf_ratio'].max(), inplace=True)
+    exploitation_step['median_perf_ratio'] = exploitation_step['median_perf_ratio'].expanding(
+        min_periods=1).max()
+    exploitation_step['experiment'] = i
+    exploitation_step = exploitation_step[exploitation_step['reads'] <= R_budget]
+    progress_list.append(exploitation_step)
+df_progress_total = pd.concat(progress_list, axis=0)
+df_progress_total.reset_index(inplace=True)
 
-        with open(os.path.join(results_path, "gs_energies.txt"), "a") as gs_file:
-            gs_file.write(prefix + str(instance) + " " +
-                          str(np.nanmin(min_energies)) + " " + "best_found pysa\n")
-
+# .T.reset_index().rename(columns={'level_0':'schedule', 'level_1':'Tfactor', 'level_2':'reads'})
 
 # %%
-# Load minimum found energy across each instance
-def getMinPySAEnergy(
-    directory: str,
-    instance: Union[str, int],
-    prefix: str = "",
-) -> float:
-    '''
-    Load minimum found energy across each instance
-
-    Args:
-        directory: Directory where the PySA pickles are located
-        instance: Instance number
-        prefix: Prefix of the instance file
-
-    Returns:
-        Minimum found energy
-    '''
-    # instance = int(instance_name.rsplit("_",1)[1])
-    min_energies = [
-        df_dneal[df_dneal['instance'] == instance]['best'].min()]
-    file_list = createPySAExperimentFileList(
-        directory=directory,
-        instance_list=[instance],
+f, ax = plt.subplots()
+plot_1d_singleinstance_list(
+    df=df_progress_total,
+    x_axis='cum_reads',
+    y_axis='median_perf_ratio',
+    ax=ax,
+    dict_fixed={'schedule': 'geometric'},
+    # label_plot='Ordered exploration',
+    list_dicts=[{'experiment': i}
+                for i in range(len(experiments))],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=False,
+    colors=['colormap'],
+    colormap=plt.cm.get_cmap('tab10'),
+    use_colorbar=True,
+    use_conf_interval=False,
+    save_fig=False,
+    ylim=[0.95, 1.0025],
+    # xlim=[5e2, 5e4],
+    linewidth=1.5,
+    marker=None,
+)
+# %%
+# Generate plots for performance ratio of ensemble vs reads with best and worst performance
+for stat_measure in stat_measures:
+    f, ax = plt.subplots()
+    plot_1d_singleinstance(
+        df=df_results_all,
+        x_axis='reads',
+        y_axis='virt_best_perf_ratio',
+        ax=ax,
+        label_plot='Virtual best',
+        dict_fixed={'schedule': 'geometric'},
+        labels=labels,
         prefix=prefix,
+        log_x=True,
+        log_y=False,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['k'],
     )
-    for file in file_list:
-        df = pd.read_pickle(file)
-        min_energies.append(df['best_energy'].min())
-    return np.nanmin(min_energies)
-
-
-# %%
-# Create intermediate .data files with main information and unique_gs with unique groundstates information
-
-# Set up directory for intermediate .data files
-pysa_data_path = os.path.join(pysa_path, "data/")
-# Create directory for intermediate .data files
-if not os.path.exists(pysa_data_path):
-    os.makedirs(pysa_data_path)
-
-
-# Setup directory for unique ground states
-pysa_gs_path = os.path.join(pysa_path, "unique_gs/")
-# Create directory for unique ground states
-if not os.path.exists(pysa_gs_path):
-    os.makedirs(pysa_gs_path)
-
-# Percentual tolerance to consider succesful runs
-tol = 1
-
-if use_raw_pickles:
-    overwrite_files = True
-    output_files_in_progress = []
-
-    counter = 0
-    for instance in instance_list:
-
-        min_energy = loadEnergyFromFile(gs_file=results_path + "gs_energies.txt",
-                                        instance_name=prefix + str(instance))
-
-        # List all the instances files
-        pickle_list = createPySAExperimentFileList(
-            directory=pysa_pickles_path,
-            instance_list=[instance],
-            rep_list=n_replicas_list,
-            sweep_list=sweeps_list,
-            pcold_list=p_cold_list,
-            phot_list=p_hot_list,
-            prefix=prefix,
-        )
-        # print(pickle_list)
-        for pickle_file in pickle_list:
-            file_name = pickle_file.split(".pkl")[0].rsplit("/", 1)[-1]
-            instance_name = file_name.split("_swe")[0]
-            counter += 1
-            output_file = pysa_data_path+file_name+".data"
-            if overwrite_files or not os.path.exists(output_file):
-                print(file_name + ": file "+str(counter) +
-                      " of "+str(len(pickle_list)*len(instance_list)))
-                if os.path.exists(pickle_file):
-                    try:
-                        results_pysa = pd.read_pickle(pickle_file)
-                    except (pkl.UnpicklingError, EOFError):
-                        os.replace(pickle_file, pickle_file + '.bak')
-                        continue
-                else:
-                    print("Missing pickle file for " + file_name)
-                    break
-
-                sweeps_max = getSweepsPySAExperiment(pickle_file)
-
-                num_sweeps = results_pysa["num_sweeps"][0]
-
-                # Check that each file has as many reads as required
-                n_reads_file = len(results_pysa["best_energy"])
-                assert(total_reads == n_reads_file)
-
-                if os.path.exists(output_file) and not(output_file in output_files_in_progress):
-                    output_files_in_progress.append(output_file)
-                    with open(output_file, "w") as fout:
-                        fout.write("s read_num runtime(us) num_sweeps success_e" +
-                                   str(-int(np.log10(tol)))+"\n")
-
-                states_within_tolerance = []
-                # Skip first read, as numba needs compile time
-                runtimes = []
-                successes = []
-                for read_num in range(1, n_reads_file):
-                    best_energy = results_pysa["best_energy"][read_num]
-                    runtime = results_pysa["runtime (us)"][read_num]
-                    runtimes.append(runtime)
-
-                    best_sweeps = num_sweeps
-                    success = 0
-                    if(abs(float(best_energy)-float(min_energy))/float(min_energy) < tol/100):
-                        best_sweeps = results_pysa["min_sweeps"][read_num]
-                        states_within_tolerance.append(
-                            results_pysa["best_state"][read_num])
-                        success = 1
-                    successes.append(success)
-
-                    with open(output_file, "a") as fout:
-                        fout.write("{s} {read} {runtime} {best_sweeps} {success}\n".
-                                   format(s=num_sweeps,
-                                          read=read_num,
-                                          runtime=runtime,
-                                          best_sweeps=best_sweeps,
-                                          success=success))
-
-                # Separate file with unique MAXCUT per instance
-                unique_gs = np.unique(np.asarray(
-                    states_within_tolerance), axis=0)
-                with open(pysa_gs_path+output_file.split("/")[-1], "a") as fout:
-                    fout.write("tol{tol} s{s} unqGS{unqGS} \n".format(
-                        tol=-int(np.log10(tol)), s=num_sweeps, unqGS=len(unique_gs)))
-            else:
-                data = np.loadtxt(output_file, skiprows=1,
-                                  usecols=(0, 1, 2, 3, 4))
-                successes = data[:, 4]
-                best_sweeps = data[:, 3]
-                runtimes = data[:, 2]
-# %%
-# Create pickled Pandas framework with results for each instance
-for instance in instance_list:
-    data_dict_name = "results_" + str(instance) + ".pickle"
-    df_name = "df_results_" + str(instance) + ".pickle"
-
-    file_list = createPySAExperimentFileList(
-        directory=pysa_data_path,
-        instance_list=[instance],
-        rep_list=n_replicas_list,
-        sweep_list=sweeps_list,
-        pcold_list=p_cold_list,
-        phot_list=p_hot_list,
+    plot_1d_singleinstance(
+        df=df_results_all,
+        x_axis='reads',
+        y_axis='virt_worst_perf_ratio',
+        ax=ax,
+        label_plot='Virtual worst',
+        dict_fixed={'schedule': 'geometric'},
+        labels=labels,
         prefix=prefix,
+        log_x=True,
+        log_y=False,
+        use_conf_interval=False,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
     )
-
-    data_dict_path = os.path.join(pysa_path, data_dict_name)
-    df_path = os.path.join(pysa_path, df_name)
-    data_dict = {}
-    counter = 0
-
-    tts_list = []
-    tts_scaled_list = []
-    for file in file_list:
-        counter += 1
-        file_name = file.split(".data")[0].rsplit(
-            "/", 1)[-1]
-        print(file_name + ": file "+str(counter)+" of "+str(len(file_list)))
-
-        # If you wanto to use the raw data and process it here
-        if use_raw_data or not(os.path.exists(data_dict_path)) or not(os.path.exists(df_path)):
-            instance = getInstancePySAExperiment(file)
-            sweep = getSweepsPySAExperiment(file)
-            replica = getReplicas(file)
-            pcold = getPCold(file)
-            phot = getPHot(file)
-            # load in data, parameters
-            # s,sweeps,runtime(us),best_sweeps,success
-            data = np.loadtxt(file, skiprows=1, usecols=(0, 1, 2, 3, 4))
-
-            # Computation of TTS across mean value of all reads in each PySA run
-            successes = data[:, 4]
-            best_sweeps = data[:, 3]
-            runtimes = data[:, 2]
-            success_rate = np.mean(successes)
-            mean_time = np.mean(runtimes)  # us
-            if success_rate == 0:
-                tts_scaled = 1e15
-                tts = 1e15
-            # Consider continuous TTS and TTS scaled by assuming s=1 as s=1-1/1000*(1-1/10)
-            elif success_rate == 1:
-                tts_scaled = 1e-6*mean_time * \
-                    np.log(1-s) / np.log(1-0.999+0.0001)  # s
-                tts = replica*1e-6*mean_time * \
-                    np.log(1-s) / np.log(1-0.999+0.00001)  # s * replica
-            else:
-                tts_scaled = 1e-6*mean_time * \
-                    np.log(1-s) / np.log(1-success_rate)  # s
-                tts = replica*1e-6*mean_time * \
-                    np.log(1-s) / np.log(1-success_rate)  # s * replica
-            tts_scaled_list.append(tts_scaled)
-            tts_list.append(tts)
-            if instance not in data_dict.keys():
-                data_dict[instance] = {}
-            if sweep not in data_dict[instance].keys():
-                data_dict[instance][sweep] = {}
-            if replica not in data_dict[instance][sweep].keys():
-                data_dict[instance][sweep][replica] = {}
-            if pcold not in data_dict[instance][sweep][replica].keys():
-                data_dict[instance][sweep][replica][pcold] = {}
-            if phot not in data_dict[instance][sweep][replica][pcold].keys():
-                data_dict[instance][sweep][replica][pcold][phot] = {}
-
-            # data_dict[instance][sweep][replica][pcold][phot]['success'] = data[:,4]
-            data_dict[instance][sweep][replica][pcold][phot]['best_sweep'] = best_sweeps
-            data_dict[instance][sweep][replica][pcold][phot]['success_rate'] = success_rate
-            data_dict[instance][sweep][replica][pcold][phot]['mean_time'] = mean_time
-            data_dict[instance][sweep][replica][pcold][phot]['tts'] = tts
-            data_dict[instance][sweep][replica][pcold][phot]['tts_scaled'] = tts_scaled
-            if(len(data[:, 1]) < replica):
-                print('Missing replicas for instance' + str(file))
-                print(len(data[:, 1]))
-                pass
-
-            # Save results dictionary in case that we are interested in reusing them
-            pkl.dump(data_dict, open(data_dict_name, "wb"))
-
-            # Create Pandas framework for the results
-            # Restructure dictionary to dictionary of tuple keys -> values
-            data_dict_2 = {(instance, sweep, replica, pcold, phot):
-                           (data_dict[instance][sweep][replica][pcold][phot]['best_sweep'],
-                           data_dict[instance][sweep][replica][pcold][phot]['success_rate'],
-                           data_dict[instance][sweep][replica][pcold][phot]['mean_time'],
-                           data_dict[instance][sweep][replica][pcold][phot]['tts'],
-                           data_dict[instance][sweep][replica][pcold][phot]['tts_scaled'])
-                           for instance in data_dict.keys()
-                           for sweep in data_dict[instance].keys()
-                           for replica in data_dict[instance][sweep].keys()
-                           for pcold in data_dict[instance][sweep][replica].keys()
-                           for phot in data_dict[instance][sweep][replica][pcold].keys()}
-
-            # Construct dataframe from dictionary
-            df_dneal = pd.DataFrame.from_dict(
-                data_dict_2, orient='index').reset_index()
-
-            # Split column of tuples to multiple columns
-            df_dneal[['instance', 'sweeps', 'replicas', 'pcold',
-                      'phot']] = df_dneal['index'].apply(pd.Series)
-
-            # Clean up: remove unwanted columns, rename and sort
-            df_dneal = df_dneal.drop('index', 1).\
-                rename(columns={0: 'best_sweep', 1: 'success_rate', 2: 'mean_time', 3: 'tts', 4: 'tts_scaled'}).\
-                sort_index(axis=1)
-
-            df_dneal.to_pickle(df_path)
-        else:  # Just reload processed datafile
-            # data_dict = pkl.load(open(results_name, "rb"))
-            pass
+    plot_1d_singleinstance_list(
+        df=df_results_all_stats,
+        x_axis='reads',
+        y_axis=stat_measure + '_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': 'geometric'},
+        list_dicts=[{'sweeps': i}
+                    for i in list(set(best_ensemble_sweeps))],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        use_conf_interval=False,
+        save_fig=False,
+        ylim=[0.975, 1.0025],
+        # xlim=[5e2, 5e4],
+        use_colorbar=False,
+        linewidth=1.5,
+        markersize=1,
+        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+    )
+    plot_1d_singleinstance_list(
+        df=df_progress_total.reset_index(),
+        x_axis='cum_reads',
+        y_axis='median_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': 'geometric'},
+        # label_plot='Ordered exploration',
+        list_dicts=[{'experiment': i}
+                    for i in range(len(experiments))],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        colors=['colormap'],
+        colormap=plt.cm.get_cmap('tab10'),
+        use_colorbar=False,
+        use_conf_interval=False,
+        save_fig=False,
+        ylim=[0.975, 1.0025],
+        xlim=[1e2, 5e4],
+        linewidth=1.5,
+        linestyle='--',
+        markersize=1,
+    )
 
 # %%
-# Compute minimum value using MIP
-# Ground state computation
-compute_mip_gs = False
-# Which type of MIP formulation to use ("qubo", "lcbo", "qcbo")
-mip_formulation = "qubo"
-if not compute_mip_gs:
-    pass
-else:
-    import pyomo.environ as pyo
-    from pyomo.opt import SolverStatus, TerminationCondition
-
-    # Obtain ground states if possible using Mixed-Integer Formulation through Pyomo
-    # Set up MIP optimization results directory
-    mip_results_path = os.path.join(results_path, "mip_results/")
-    # Create unexisting directory
-    if not os.path.exists(mip_results_path):
-        print('MIP results ' + mip_results_path +
-              ' does not exist. We will create it.')
-        os.makedirs(mip_results_path)
-    # Compute optimal solution using MIP and save it into ground state file
-    # Other solvers are available using GLPK, CBC (timeout), GAMS, Gurobi, or CPLEX
-    solver_name = "gurobi"
-    mip_solver = pyo.SolverFactory(solver_name)
-    bqm_bin = model_random.change_vartype("BINARY", inplace=False)
-    offset = bqm_bin.offset
-    nx_graph_bin = bqm_bin.to_networkx_graph()
-
-    # Create instance
-    pyo_model = pyo.ConcreteModel(name="Random SK problem " + str(instance))
-    # Define variables
-    # Node variables
-    pyo_model.x = pyo.Var(nx_graph_bin.nodes(), domain=pyo.Binary)
-    obj_expr = offset
-    for i, val in nx.get_node_attributes(nx_graph_bin, 'bias').items():
-        obj_expr += val * pyo_model.x[i]
-
-    if mip_formulation == "qubo":
-        # Direct QUBO formulation
-        obj_expr += pyo.quicksum(nx_graph_bin[i][j]['bias'] * pyo_model.x[i] * pyo_model.x[j]
-                                 for (i, j) in nx_graph_bin.edges())
-        # for (i, j) in nx_graph_bin.edges():
-        #     # We want all edges to be sorted  with i-j and i<j
-        #     assert(i < j)
-        #     if i != j:
-        #         obj_expr += nx_graph_bin[i][j]['bias'] * instance.x[i]*instance.x[j]
-        #     else:
-        #         print("Graph with self-edges" + str(i))
-
-    elif mip_formulation == "lcbo":
-        # Linear Constrained Binary Optimization
-
-        # Edge variables
-        pyo_model.y = pyo.Var(nx_graph_bin.edges(), domain=pyo.Binary)
-
-        # add model constraints
-        pyo_model.c1 = pyo.ConstraintList()
-        pyo_model.c2 = pyo.ConstraintList()
-        pyo_model.c3 = pyo.ConstraintList()
-
-        for (i, j) in nx_graph_bin.edges():
-            # We want all edges to be sorted  with i-j and i<j
-            assert(i < j)
-            if i != j:
-                pyo_model.c1.add(pyo_model.y[i, j] <=
-                                 pyo_model.x[i])
-                pyo_model.c2.add(pyo_model.y[i, j] <=
-                                 pyo_model.x[j])
-                pyo_model.c3.add(pyo_model.y[i, j] >=
-                                 pyo_model.x[i] + pyo_model.x[j] - 1)
-                obj_expr += nx_graph_bin[i][j]['bias'] * pyo_model.y[i, j]
-            else:
-                print("Graph with self-edges" + str(i))
-    else:
-        print("Formulation not implemented yet")
-
-    # Define the objective function
-    pyo_model.objective = pyo.Objective(expr=obj_expr, sense=pyo.minimize)
-    # Solve
-    if solver_name == "gurobi":
-        mip_solver.options['NonConvex'] = 2
-        mip_solver.options['MIPGap'] = 1e-9
-        mip_solver.options['TimeLimit'] = 30
-    elif solver_name == "gams":
-        mip_solver.options['solver'] = 'baron'
-        mip_solver.options['solver'] = 'baron'
-        mip_solver.options['add_options'] = 'option reslim=10;'
-
-    results_dneal = mip_solver.solve(
-        pyo_model,
-        tee=True,
-    )
-    # result = opt_gams.solve(instance, tee=True)
-    # Save solution
-    obj_val = pyo_model.objective.expr()
-    opt_sol = pd.DataFrame.from_dict(
-        pyo_model.x.extract_values(), orient="index", columns=[str(pyo_model.x)])
-    # Missing transformation back to spin variables here
-
-    if (results_dneal.solver.status == SolverStatus.ok) and (results_dneal.solver.termination_condition == TerminationCondition.optimal):
-        opt_sol.to_csv(mip_results_path + instance_name + "_" + str(obj_val) +
-                       "_opt_sol.txt", header=None, index=True, sep=" ")
-        with open(mip_results_path + "gs_energies.txt", "a") as gs_file:
-            gs_file.write(instance_name + " " +
-                          str(obj_val) + " " + str(results_dneal.solver.time) + " " + mip_formulation + " " + solver_name + "\n")
-
-    else:
-        opt_sol.to_csv(mip_results_path + instance_name + "_" + str(obj_val) +
-                       "_sol.txt", header=None, index=True, sep=" ")
-        with open(mip_results_path + "gs_energies.txt", "a") as gs_file:
-            gs_file.write(instance_name + " " +
-                          str(obj_val) + " " + str(results_dneal.solver.time) +
-                          " " + str(results_dneal.solver.gap) + " " + mip_formulation + " " + solver_name + " suboptimal\n")

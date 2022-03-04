@@ -251,6 +251,7 @@ def plot_1d_singleinstance(
     ax: plt.Axes,
     log_x: bool = False,
     log_y: bool = False,
+    use_conf_interval: bool = True,
     save_fig: bool = False,
     labels: dict = None,
     prefix: str = '',
@@ -272,6 +273,7 @@ def plot_1d_singleinstance(
         ax: Axes to plot on
         log_x: Logarithmic x axis
         log_y: Logarithmic y axis
+        use_conf_interval: Use confidence intervals
         save_fig: Save the figure
         labels: Dictionary with the labels
         prefix: Prefix to add to the title
@@ -322,7 +324,8 @@ def plot_1d_singleinstance(
             color=color,
             **kwargs,)
 
-    if y_axis + '_conf_interval_lower' in df.columns and y_axis + '_conf_interval_upper' in df.columns:
+    if use_conf_interval and \
+        y_axis + '_conf_interval_lower' in df.columns and y_axis + '_conf_interval_upper' in df.columns:
         ax.fill_between(
             working_df.sort_values(x_axis)[x_axis],
             working_df.sort_values(x_axis)[y_axis + '_conf_interval_lower'],
@@ -376,6 +379,7 @@ def plot_1d_singleinstance_list(
     dict_fixed: dict = None,
     log_x: bool = False,
     log_y: bool = False,
+    use_conf_interval: bool = True,
     use_colorbar: bool = False,
     save_fig: bool = False,
     labels: dict = None,
@@ -399,6 +403,7 @@ def plot_1d_singleinstance_list(
         ax: Axes to plot on
         log_x: Logarithmic x axis
         log_y: Logarithmic y axis
+        use_conf_interval: Use confidence interval
         use_colorbar: Use colorbar
         save_fig: Save the figure
         labels: Dictionary with the labels to use
@@ -449,8 +454,8 @@ def plot_1d_singleinstance_list(
         cond_part = [working_df[k].apply(lambda k: k == v).astype(bool)
                      for k, v in line.items()]
         cond_partial = functools.reduce(lambda x, y: x & y, cond_part)
-        label_plot = ', '.join(str(key) + '=' + str(value)
-                               for key, value in line.items())
+        label_plot = ', '.join(str(key) + '=' +  "%.2f" %
+                               value for key, value in line.items())
         if 'instance' not in line.keys() and not fixed_instance:
             label_plot = 'Ensemble, ' + label_plot
         if len(working_df[cond_partial]) == 0:
@@ -480,7 +485,8 @@ def plot_1d_singleinstance_list(
                     style='-*' if not single_instance else '-',
                     **kwargs,)
 
-        if y_axis + '_conf_interval_lower' in df.columns and \
+        if use_conf_interval and \
+            y_axis + '_conf_interval_lower' in df.columns and \
             y_axis + '_conf_interval_upper' in df.columns and \
                 not single_instance and \
         working_df[cond_partial][y_axis + '_conf_interval_lower'].values.shape[0] > 1:
@@ -517,7 +523,7 @@ def plot_1d_singleinstance_list(
                 norm=normalize, cmap=colormap)
             scalarmappaple.set_array(list_colorbar)
             plt.colorbar(scalarmappaple, ax=ax, label=', '.join(
-                labels[key] for key in line.keys()))
+                key if key not in labels.keys() else labels[key] for key in line.keys()))
         else:
             ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     if y_axis in labels.keys():
@@ -543,3 +549,5 @@ def plot_1d_singleinstance_list(
             + '.png')
 
     return ax
+
+# %%

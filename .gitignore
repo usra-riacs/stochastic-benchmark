@@ -134,5 +134,6 @@ src/workspace.code-workspace
 
 # Extra data files
 data/sk/*/pickles/*
+data/sk/*/pickles_bak/*
 data/sk/*/unique_gs/*
 data/sk/*/data/*

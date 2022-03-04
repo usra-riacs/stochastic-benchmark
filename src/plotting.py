@@ -454,8 +454,7 @@ def plot_1d_singleinstance_list(
         cond_part = [working_df[k].apply(lambda k: k == v).astype(bool)
                      for k, v in line.items()]
         cond_partial = functools.reduce(lambda x, y: x & y, cond_part)
-        label_plot = ', '.join(str(key) + '=' +  "%.2f" %
-                               value for key, value in line.items())
+        label_plot = ', '.join(str(key) + '=' + '{}'.format(value) for key, value in line.items())
         if 'instance' not in line.keys() and not fixed_instance:
             label_plot = 'Ensemble, ' + label_plot
         if len(working_df[cond_partial]) == 0:

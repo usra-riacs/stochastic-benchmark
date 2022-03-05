@@ -288,7 +288,7 @@ def plot_1d_singleinstance(
     '''
     if fail_value is None:
         fail_value = np.inf
-    
+
     if color is None:
         color = 'grey'
 
@@ -309,7 +309,6 @@ def plot_1d_singleinstance(
             x=x_axis,
             y=y_axis,
             label=label_plot,
-            style='-',
             color=color,
             **kwargs,)
     else:
@@ -320,12 +319,11 @@ def plot_1d_singleinstance(
             x=x_axis,
             y=y_axis,
             label=label_plot,
-            style='-*',
             color=color,
             **kwargs,)
 
     if use_conf_interval and \
-        y_axis + '_conf_interval_lower' in df.columns and y_axis + '_conf_interval_upper' in df.columns:
+            y_axis + '_conf_interval_lower' in df.columns and y_axis + '_conf_interval_upper' in df.columns:
         ax.fill_between(
             working_df.sort_values(x_axis)[x_axis],
             working_df.sort_values(x_axis)[y_axis + '_conf_interval_lower'],
@@ -454,7 +452,8 @@ def plot_1d_singleinstance_list(
         cond_part = [working_df[k].apply(lambda k: k == v).astype(bool)
                      for k, v in line.items()]
         cond_partial = functools.reduce(lambda x, y: x & y, cond_part)
-        label_plot = ', '.join(str(key) + '=' + '{}'.format(value) for key, value in line.items())
+        label_plot = ', '.join(str(key) + '=' + '{}'.format(value)
+                               for key, value in line.items())
         if 'instance' not in line.keys() and not fixed_instance:
             label_plot = 'Ensemble, ' + label_plot
         if len(working_df[cond_partial]) == 0:
@@ -470,7 +469,6 @@ def plot_1d_singleinstance_list(
                     y=y_axis,
                     label=label_plot if not single_instance else '',
                     color=colors[i],
-                    style='-*' if not single_instance else '-',
                     **kwargs,)
             else:
                 working_df[cond_partial].sort_values(
@@ -481,14 +479,13 @@ def plot_1d_singleinstance_list(
                     y=y_axis,
                     label=label_plot if not single_instance else '',
                     color=colors[i],
-                    style='-*' if not single_instance else '-',
                     **kwargs,)
 
         if use_conf_interval and \
             y_axis + '_conf_interval_lower' in df.columns and \
             y_axis + '_conf_interval_upper' in df.columns and \
                 not single_instance and \
-        working_df[cond_partial][y_axis + '_conf_interval_lower'].values.shape[0] > 1:
+            working_df[cond_partial][y_axis + '_conf_interval_lower'].values.shape[0] > 1:
             ax.fill_between(
                 working_df[cond_partial].sort_values(x_axis)[x_axis],
                 working_df[cond_partial].sort_values(

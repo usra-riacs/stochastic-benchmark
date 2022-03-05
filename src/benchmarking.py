@@ -818,12 +818,13 @@ conf_int = 68  #
 fail_value = np.inf
 # Confidence interval for bootstrapping, value used to get standard deviation
 confidence_level = 68
-boots_list = [1, 10, 100, default_boots//2, default_boots]
+boots_list = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+# TODO there should be an attribute to the parameters and if they vary logarithmically, have a function that generates the list of values "equally" spaced in logarithmic space
 sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
 df_name = "df_results_" + str(instance) + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-if os.path.exists(df_path) and False:
+if os.path.exists(df_path):
     df_results_dneal = pd.read_pickle(df_path)
 else:
     df_results_dneal = None
@@ -1014,7 +1015,7 @@ ax = plot_1d_singleinstance_list(
     },
     ax=ax,
     list_dicts=[{'sweeps': i, 'schedule': j}
-                for j in schedules_list for i in interesting_sweeps],
+                for j in schedules_list for i in interesting_sweeps + [20]],
     labels=labels,
     prefix=prefix,
     log_x=True,
@@ -1077,7 +1078,7 @@ all_boots_list = list(range(1, 1001, 1))
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + ".pkl"
     df_path = os.path.join(dneal_results_path, df_name)
-    if os.path.exists(df_path) and False:
+    if os.path.exists(df_path):
         df_results_dneal = pd.read_pickle(df_path)
     else:
         df_results_dneal = None
@@ -1764,43 +1765,22 @@ for stat_measure in stat_measures:
                 u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
     )
 # %%
-# Loop through values of Sweeps to gather performance of exploration
-use_raw_data = False
-r = 2
-parameters = {'schedule': ['geometric'],
-              'sweeps': [sweep for sweep in interesting_sweeps]}
-df_results_all_stats = generateStatsDataframe(
-    df_all=df_results_all,
-    stat_measures=['mean', 'median'],
-    instance_list=instance_list,
-    parameters_dict=parameters,
-    resource_list=[r],
-    dneal_results_path=dneal_results_path,
-    use_raw_data=use_raw_data,
-    use_raw_pickles=use_raw_pickles,
-    overwrite_pickles=overwrite_pickles,
-    s=s,
-    confidence_level=conf_int,
-    bootstrap_iterations=bootstrap_iterations,
-    gap=gap,
-    fail_value=fail_value,
-    save_pickle=True,
-)
-# %%
 # Defining which datapoints to take
-repetitions = 1000  # Times to run the algorithm
+repetitions = 10  # Times to run the algorithm
 r = 1  # resource per parameter setting (runs)
-rs = [1]
+rs = [1]  # Downsampling of each sweep result (runs/sweep)
 experiments = rs * repetitions
-R_exploration = 10  # budget for exploration (runs)
+R_exploration = 100  # budget for exploration (runs)
 R_budget = 1e5  # budget for exploitation (runs)
 R_exploitation = R_budget - R_exploration  # budget for exploitation (runs)
 progress_list = []
 for i, r in enumerate(experiments):
     random_sweeps = np.random.choice(
-        sweeps_list, size=R_exploration // r, replace=True)
+        sweeps_list, size=int(R_exploration / r), replace=True)
+    # Conservative estimate of very unlikely scenario that we choose all sweeps=1
     # % Question: Should we replace these samples?
     series_list = []
+    total_reads = 0
     for sweep in random_sweeps:
         series_list.append(
             df_results_all_stats.set_index(
@@ -1808,17 +1788,20 @@ for i, r in enumerate(experiments):
             ).loc[
                 idx['geometric', sweep, r]]
         )
-        converged = False
+        total_reads += sweep
+        if total_reads > R_exploration:
+            converged = True
+            break
     df_progress = pd.concat(series_list, axis=1).T.rename_axis(
         ['schedule', 'sweeps', 'boots'])
     df_progress['median_perf_ratio'] = df_progress['median_perf_ratio'].expanding(
         min_periods=1).max()
     df_progress.reset_index('boots', inplace=True)
-    df_progress['cum_reads'] = df_progress['reads']
-    df_progress['cum_reads'] = df_progress.groupby('reads').expanding(
-        min_periods=1)['cum_reads'].sum().reset_index(drop=True).values
     df_progress['experiment'] = i
+    df_progress['cum_reads'] = df_progress.groupby('experiment').expanding(
+        min_periods=1)['reads'].sum().reset_index(drop=True).values
     progress_list.append(df_progress)
+
     exploitation_step = df_results_all_stats.set_index(
         ['schedule', 'sweeps']).loc[df_progress.nlargest(1, 'median_perf_ratio').index]
     exploitation_step['cum_reads'] = exploitation_step['reads'] + \

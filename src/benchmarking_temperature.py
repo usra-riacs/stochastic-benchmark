@@ -722,7 +722,7 @@ conf_int = 68  #
 fail_value = np.inf
 # Confidence interval for bootstrapping, value used to get standard deviation
 confidence_level = 68
-boots_list = [1, 10, 100, default_boots//2, default_boots]
+boots_list = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
 sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
 df_name = "df_results_" + str(instance) + "T.pkl"

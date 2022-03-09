@@ -218,7 +218,7 @@ def plot_avg_pass(
                 df_total[column].values[:n_data], c="grey", alpha=0.5)
     ax.plot(N_runs_list, df_total["avg"][:n_data], c="r", label="Mean")
 
-    ax.set_xlabel('#N')  # , fontsize=25)
+    ax.set_xlabel('R')  # , fontsize=25)
     ax.set_ylabel("E")  # ,  fontsize=25)
     fig.legend(loc=(0.9, 0.9))
 

@@ -1,4 +1,7 @@
 from retrieve_data import *
+import numpy as np
+import pandas as pd
+import dimod
 
 # TODO This code needs to be functionalized for it to be imported into data analysis code
 # %%
@@ -160,7 +163,7 @@ def getMinPySAEnergy(
     '''
     # instance = int(instance_name.rsplit("_",1)[1])
     min_energies = [
-        df_dneal[df_dneal['instance'] == instance]['best'].min()]
+        df_pysa[df_pysa['instance'] == instance]['best'].min()]
     file_list = createPySAExperimentFileList(
         directory=directory,
         instance_list=[instance],
@@ -384,19 +387,19 @@ for instance in instance_list:
                            for phot in data_dict[instance][sweep][replica][pcold].keys()}
 
             # Construct dataframe from dictionary
-            df_dneal = pd.DataFrame.from_dict(
+            df_pysa = pd.DataFrame.from_dict(
                 data_dict_2, orient='index').reset_index()
 
             # Split column of tuples to multiple columns
-            df_dneal[['instance', 'sweeps', 'replicas', 'pcold',
-                      'phot']] = df_dneal['index'].apply(pd.Series)
+            df_pysa[['instance', 'sweeps', 'replicas', 'pcold',
+                      'phot']] = df_pysa['index'].apply(pd.Series)
 
             # Clean up: remove unwanted columns, rename and sort
-            df_dneal = df_dneal.drop('index', 1).\
+            df_pysa = df_pysa.drop('index', 1).\
                 rename(columns={0: 'best_sweep', 1: 'success_rate', 2: 'mean_time', 3: 'tts', 4: 'tts_scaled'}).\
                 sort_index(axis=1)
 
-            df_dneal.to_pickle(df_path)
+            df_pysa.to_pickle(df_path)
         else:  # Just reload processed datafile
             # data_dict = pkl.load(open(results_name, "rb"))
             pass

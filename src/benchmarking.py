@@ -41,7 +41,7 @@ J = np.random.rand(N, N)
 J = np.triu(J, 1)
 h = np.random.rand(N)
 # %%
-# Create directories for results
+# Specify and if non-existing, create directories for results
 current_path = os.getcwd()
 results_path = os.path.join(current_path, '../data/sk/')
 if not(os.path.exists(results_path)):
@@ -417,6 +417,9 @@ def cleanup_df(
         pandas.DataFrame: Cleaned dataframe.
     '''
     df_new = df.copy()
+    int_columns = ['reads', 'boots', 'sweeps',
+                   'R_budget', 'R_exploit', 'R_explore', 'cum_reads']
+    cat_columns = ['schedule', 'instance']
     for column in df_new.columns:
         if column.endswith('conf_interval'):
             df_new[column + '_lower'] = df_new[column].apply(lambda x: x[0])
@@ -424,16 +427,27 @@ def cleanup_df(
             df_new.drop(column, axis=1, inplace=True)
         elif column == 'schedule':
             df_new[column] = df_new[column].astype('category')
-    if 'sweeps' in df_new.columns:
-        df_new['reads'] = df_new['sweeps'] * df_new['boots']
-        df_new['sweeps'] = df_new['sweeps'].astype('int', errors='ignore')
-    else:
-        df_new['reads'] = df_new['boots'] * default_sweeps
-    df_new['reads'] = df_new['reads'].astype('int', errors='ignore')
-    df_new['boots'] = df_new['boots'].astype('int', errors='ignore')
-    # TODO this should also clean up the confidence intervals in case they are beyond the medium level
+        elif column.endswith('_conf_interval_lower'):
+            # df_new[column] = np.nanmin(df_new[[column, column.removesuffix('_conf_interval_lower')]], axis=1)
+            # Only valid for Python 3.9+ PEP-616
+            df_new[column] = np.nanmin(df_new[[column, column[:-20]]], axis=1)
+        elif column.endswith('_conf_interval_upper'):
+            # df_new[column] = np.nanmax(df_new[[column, column.removesuffix('_conf_interval_upper')]], axis=1)
+            # Only valid for Python 3.9+ PEP-616
+            df_new[column] = np.nanmax(df_new[[column, column[:-20]]], axis=1)
+    if 'boots' in df_new.columns:
+        if 'sweeps' in df_new.columns:
+            df_new['reads'] = df_new['sweeps'] * df_new['boots']
+        else:
+            df_new['reads'] = default_sweeps * df_new['boots']
+
+    for column in df_new.columns:
+        if column in int_columns:
+            df_new[column] = df_new[column].astype('int', errors='ignore')
+        elif column in cat_columns:
+            df_new[column] = df_new[column].astype('category')
+
     return df_new
-    # TODO Consider if we should change instance column to be categoric
 
 
 # %%
@@ -799,7 +813,7 @@ labels = {
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples
 default_dict = {'schedule': 'geometric',
-                'sweeps': 1000, 'boots': 1000}
+                'sweeps': default_sweeps, 'boots': default_boots}
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
     df=df_dneal_42,
@@ -813,9 +827,28 @@ ax = plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict=default_dict.update({'instance': 42}),
+    default_dict=default_dict.update(
+        {'instance': 42, 'reads': default_sweeps*default_boots}),
     use_colorbar=False,
-    ylim=[0.95, 1.005]
+    ylim=[0.6, 1.01],
+)
+# %%
+# Inverse performance ratio vs sweeps for different bootstrap downsamples
+f, ax = plt.subplots()
+ax = plot_1d_singleinstance_list(
+    df=df_dneal_42,
+    x_axis='sweeps',
+    y_axis='inv_perf_ratio',
+    dict_fixed={'instance': 42, 'schedule': 'geometric'},
+    ax=ax,
+    list_dicts=[{'boots': i} for i in [1, 10, 100, 1000]],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=True,
+    save_fig=False,
+    default_dict=default_dict,
+    use_colorbar=False,
 )
 # %%
 # Performance ratio vs runs for different bootstrap downsamples
@@ -834,7 +867,26 @@ ax = plot_1d_singleinstance_list(
     save_fig=False,
     default_dict=default_dict,
     use_colorbar=False,
-    ylim=[0.95, 1.005]
+    ylim=[0.9, 1.005],
+)
+# %%
+# Performance ratio vs runs for different bootstrap downsamples
+f, ax = plt.subplots()
+ax = plot_1d_singleinstance_list(
+    df=df_dneal_42,
+    x_axis='reads',
+    y_axis='inv_perf_ratio',
+    dict_fixed={'instance': 42, 'schedule': 'geometric'},
+    ax=ax,
+    list_dicts=[{'boots': i} for i in [1, 10, 100, 1000]],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=True,
+    save_fig=False,
+    default_dict=default_dict,
+    use_colorbar=False,
+    # ylim=[0.95, 1.005]
 )
 # %%
 # Mean time plot of some fixed parameter setting
@@ -989,31 +1041,37 @@ ax = plot_1d_singleinstance_list(
     use_colorbar=False,
     colors=['colormap'],
     ylim=[0.95, 1.005],
-    # xlim=[1e2, 5e5],
+    xlim=[1e2, 5e5],
+)
+# %%
+# Plot with inverse performance ratio vs reads for interesting sweeps
+f, ax = plt.subplots()
+ax = plot_1d_singleinstance_list(
+    df=df_dneal_42,
+    x_axis='reads',
+    y_axis='inv_perf_ratio',
+    # instance=42,
+    dict_fixed={
+        'instance': 42,
+        'schedule': 'geometric'
+    },
+    ax=ax,
+    list_dicts=[{'sweeps': i} for i in interesting_sweeps + [20]],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=True,
+    save_fig=False,
+    default_dict=default_dict,
+    use_colorbar=False,
+    colors=['colormap'],
+    # ylim=[0.95, 1.005],
+    xlim=[1e2, default_sweeps*default_boots*1.1],
 )
 # %%
 # Compute all instances with Dwave-neal
 instance_list = [i for i in range(20)] + [42]
 training_instance_list = [i for i in range(20)]
-# %%
-# Compute random energy file
-compute_random = False
-if compute_random:
-    for instance in instance_list:
-        # Load problem instance
-        np.random.seed(instance)
-        J = np.random.rand(N, N)
-        # We only consider upper triangular matrix ignoring the diagonal
-        J = np.triu(J, 1)
-        h = np.random.rand(N)
-        ising_model = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
-        random_energy, _ = randomEnergySampler(
-            ising_model, dwave_sampler=False)
-        with open(os.path.join(results_path, "random_energies.txt"), "a") as gs_file:
-            gs_file.write(prefix + str(instance) + " " +
-                          str(random_energy) + " " + "best_found pysa\n")
-
-
 # %%
 # Merge all results dataframes in a single one
 schedules_list = ['geometric']
@@ -1108,32 +1166,6 @@ df_results_all = createDnealResultsDataframes(
     fail_value=fail_value,
     save_pickle=True,
 )
-# %%
-# Compute preliminary ground state file with best found solution by Dwave-neal
-compute_dneal_gs = False
-if compute_dneal_gs:
-    for instance in instance_list:
-        # List all the pickled filed for an instance files
-        pickle_list = createDnealExperimentFileList(
-            directory=dneal_pickle_path,
-            instance_list=[instance],
-            prefix='df_' + prefix,
-            suffix='.pkl'
-        )
-        min_energies = []
-        min_energy = np.inf
-        for file in pickle_list:
-            df_samples = pd.read_pickle(file)
-            if min_energy > df_samples['energy'].min():
-                min_energy = df_samples['energy'].min()
-                print(file)
-                print(min_energy)
-                min_energies.append(min_energy)
-                min_df_samples = df_samples.copy()
-
-        with open(os.path.join(results_path, "gs_energies.txt"), "a") as gs_file:
-            gs_file.write(prefix + str(instance) + " " +
-                          str(np.nanmin(min_energies)) + "  best_found dneal\n")
 # %%
 # Define function for ensemble averaging
 
@@ -1252,7 +1284,7 @@ plot_1d_singleinstance_list(
     ax=ax,
     dict_fixed={'schedule': 'geometric'},
     list_dicts=[{'instance': 42, 'boots': j}
-                for j in [500, 1000]],
+                for j in [1000]],
     labels=labels,
     prefix=prefix,
     log_x=False,
@@ -1266,7 +1298,7 @@ plot_1d_singleinstance_list(
     ax=ax,
     dict_fixed={'schedule': 'geometric'},
     list_dicts=[{'boots': j}
-                for j in [500, 1000]],
+                for j in [1000]],
     labels=labels,
     prefix=prefix,
     log_x=False,
@@ -1354,6 +1386,7 @@ plot_1d_singleinstance_list(
 best_ensemble_sweeps = []
 df_list = []
 stat_measures = ['mean', 'median']
+use_raw_dataframes = False
 for stat_measure in stat_measures:
     best_sweep = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
         1, stat_measure + '_tts')['sweeps'].values[0]
@@ -1410,21 +1443,24 @@ df_results_all = createDnealResultsDataframes(
 )
 # %%
 # Compute inverse of performance ratio for all instances
-df_results_all['inv_perf_ratio'] = 1 - df_results_all['perf_ratio'] + EPSILON
-df_results_all['inv_perf_ratio_conf_interval_lower'] = 1 - \
-    df_results_all['perf_ratio_conf_interval_upper'] + EPSILON
-df_results_all['inv_perf_ratio_conf_interval_upper'] = 1 - \
-    df_results_all['perf_ratio_conf_interval_lower'] + EPSILON
+if 'inv_perf_ratio' not in df_results_all.columns:
+    df_results_all['inv_perf_ratio'] = 1 - \
+        df_results_all['perf_ratio'] + EPSILON
+    df_results_all['inv_perf_ratio_conf_interval_lower'] = 1 - \
+        df_results_all['perf_ratio_conf_interval_upper'] + EPSILON
+    df_results_all['inv_perf_ratio_conf_interval_upper'] = 1 - \
+        df_results_all['perf_ratio_conf_interval_lower'] + EPSILON
 df_results_all = cleanup_df(df_results_all)
 df_name = "df_results.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all.to_pickle(df_path)
 
-df_dneal_42['inv_perf_ratio'] = 1 - df_dneal_42['perf_ratio'] + EPSILON
-df_dneal_42['inv_perf_ratio_conf_interval_lower'] = 1 - \
-    df_dneal_42['perf_ratio_conf_interval_upper'] + EPSILON
-df_dneal_42['inv_perf_ratio_conf_interval_upper'] = 1 - \
-    df_dneal_42['perf_ratio_conf_interval_lower'] + EPSILON
+if 'inv_perf_ratio' not in df_dneal_42.columns:
+    df_dneal_42['inv_perf_ratio'] = 1 - df_dneal_42['perf_ratio'] + EPSILON
+    df_dneal_42['inv_perf_ratio_conf_interval_lower'] = 1 - \
+        df_dneal_42['perf_ratio_conf_interval_upper'] + EPSILON
+    df_dneal_42['inv_perf_ratio_conf_interval_upper'] = 1 - \
+        df_dneal_42['perf_ratio_conf_interval_lower'] + EPSILON
 df_dneal_42 = cleanup_df(df_dneal_42)
 df_name = "df_results_42.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
@@ -1493,7 +1529,7 @@ df_path = os.path.join(dneal_results_path, df_name)
 df_results_all.to_pickle(df_path)
 # %%
 # Plot with performance ratio vs reads for interesting sweeps
-for instance in [3, 0, 19, 42]:
+for instance in [3, 0, 7, 42]:
 
     interesting_sweeps = [
         df_results_all[(df_results_all['boots'] == default_boots) & (df_results_all['instance'] == instance)].nsmallest(1, 'tts')[
@@ -1526,7 +1562,7 @@ for instance in [3, 0, 19, 42]:
 
 # %%
 # Plot with inverse performance ratio vs reads for interesting sweeps
-for instance in [3, 0, 19, 42]:
+for instance in [3, 0, 7, 42]:
 
     interesting_sweeps = [
         int(df_results_all[(df_results_all['boots'] == default_boots) & (df_results_all['instance'] == instance)].nsmallest(1, 'tts')[
@@ -1596,6 +1632,7 @@ for stat_measure in stat_measures:
             log_y=False,
             save_fig=False,
             use_colorbar=False,
+            marker=None,
             alpha=0.15,
             colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
                     u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
@@ -1726,9 +1763,11 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
         df_virtual_worst_min,
         on=['schedule', 'reads'],
         how='left')
+    df_virtual_best = cleanup_df(df_virtual_best)
     df_virtual_best.to_pickle(df_path)
 else:
     df_virtual_best = pd.read_pickle(df_path)
+    df_virtual_best = cleanup_df(df_virtual_best)
 
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance
@@ -1931,14 +1970,7 @@ else:
 if 'R_budget' not in df_progress_total.columns:
     df_progress_total['R_budget'] = df_progress_total['R_explor'] + \
         df_progress_total['R_exploit']
-df_progress_total['R_budget'] = df_progress_total['R_budget'].astype(int)
-df_progress_total['R_exploit'] = df_progress_total['R_exploit'].astype(int)
-df_progress_total['R_explor'] = df_progress_total['R_explor'].astype(int)
-df_progress_total['cum_reads'] = df_progress_total['cum_reads'].astype(int)
-df_progress_total['schedule'] = df_progress_total['schedule'].astype(
-    'category')
-df_progress_total['reads'] = df_progress_total['reads'].astype(int)
-df_progress_total['boots'] = df_progress_total['boots'].astype(int)
+df_progress_total = cleanup_df(df_progress_total)
 
 # %%
 # Plot for all the experiments trajectories
@@ -2052,6 +2084,7 @@ df_best_random = df_progress.set_index(
     pd.concat(df_best_random_list).set_index(
         ['R_budget', 'frac_r_exploration', 'run_per_solve']).index
 ].reset_index()
+df_best_random = cleanup_df(df_best_random)
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance
 for stat_measure in stat_measures:
@@ -2330,15 +2363,11 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
         progress_list.append(exploitation_step)
     df_progress_ternary = pd.concat(progress_list, axis=0)
     df_progress_ternary.reset_index(inplace=True)
+    df_progress_ternary = cleanup_df(df_progress_ternary)
     df_progress_ternary.to_pickle(df_path)
 else:
     df_progress_ternary = pd.read_pickle(df_path)
 
-df_progress_ternary['cum_reads'] = df_progress_ternary['cum_reads'].astype(int)
-df_progress_ternary['schedule'] = df_progress_ternary['schedule'].astype(
-    'category')
-df_progress_ternary['reads'] = df_progress_ternary['reads'].astype(int)
-df_progress_ternary['boots'] = df_progress_ternary['boots'].astype(int)
 df_progress_ternary['median_inv_perf_ratio'] = 1 - \
     df_progress_ternary['median_perf_ratio'] + EPSILON
 df_progress_ternary['mean_inv_perf_ratio'] = 1 - \

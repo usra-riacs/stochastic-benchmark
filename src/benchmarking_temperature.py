@@ -9,6 +9,7 @@ import time
 from ctypes.wintypes import DWORD
 from gc import collect
 from typing import List, Union
+from unicodedata import category
 
 import dimod
 # Import Matplotlib to edit plots
@@ -24,10 +25,12 @@ from scipy import sparse, stats
 
 from plotting import *
 from retrieve_data import *
+from do_dneal import *
 
 idx = pd.IndexSlice
 
 EPSILON = 1e-10
+
 # %%
 # Specify instance 42
 N = 100  # Number of variables
@@ -76,40 +79,6 @@ model_random = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
 prefix = "random_n_" + str(N) + "_inst_"
 instance_name = prefix + str(instance)
 
-# %%
-# Define function to compute random sampled energy
-
-
-def randomEnergySampler(
-    model: dimod.BinaryQuadraticModel,
-    num_reads: int = 1000,
-    dwave_sampler: bool = False,
-) -> float:
-    '''
-    Computes the energy of a random sampling.
-
-    Args:
-        num_reads: The number of samples to use.
-        dwave_sampler: A boolean to use the D-Wave sampler or not.
-
-    Returns:
-        The energy of the random sampling.
-    '''
-    if dwave_sampler:
-        randomSampler = dimod.RandomSampler()
-        randomSample = randomSampler.sample(model, num_reads=num_reads)
-        energies = [datum.energy for datum in randomSample.data(
-            ['energy'], sorted_by='energy')]
-    else:
-        if model.vartype == dimod.Vartype.BINARY:
-            state = np.random.randint(2, size=(model.num_variables, num_reads))
-        else:
-            randomSample = np.random.randint(
-                2, size=(model.num_variables, num_reads)) * 2 - 1
-            energies = [model.energy(randomSample[:, i])
-                        for i in range(num_reads)]
-    return np.mean(energies), randomSample
-
 
 # %%
 # Compute random sample on problem and print average energy
@@ -123,6 +92,9 @@ print('Average random energy = ' + str(random_energy))
 # Run default Dwave-neal simulated annealing implementation
 sim_ann_sampler = dimod.SimulatedAnnealingSampler()
 default_sweeps = 1000
+total_reads = 1000
+default_reads = 1000
+default_boots = default_reads
 default_name = prefix + str(instance) + '_geometric_' + \
     str(default_sweeps) + '.p'
 df_default_name = 'df_' + default_name + 'kl'
@@ -219,8 +191,7 @@ def loadEnergyFromFile(data_file, instance_name):
 
 def createDnealSamplesDataframeTemp(
     instance: int = 42,
-    schedule: str = 'geometric',
-    Tfactor: float = 1,
+    parameters: dict = None,
     total_reads: int = 1000,
     sim_ann_sampler=None,
     dneal_pickle_path: str = None,
@@ -229,10 +200,34 @@ def createDnealSamplesDataframeTemp(
 ) -> pd.DataFrame:
     '''
     Creates a dataframe with the samples for the dneal algorithm.
+
+    Args:
+        instance: The instance to load/create the samples for.
+        parameters: The parameters to use for the dneal algorithm.
+        schedule: The schedule to use for the dneal algorithm.
+        sweep: The number of sweeps to use for the dneal algorithm.
+        total_reads: The total number of reads to use for the dneal algorithm.
+        sim_ann_sampler: The sampler to use for the simulated annealing algorithm.
+        dneal_pickle_path: The path to the pickle files.
+        use_raw_dneal_pickles: Whether to use the raw pickles or not.
+        overwrite_pickles: Whether to overwrite the pickles or not.
+
+    Returns:
+        The dataframe with the samples for the dneal algorithm.
     '''
+    # TODO This can be further generalized to use arbitrary parameter dictionaries
+    # A proposal is to change all the input data to something along the way of '_'.join(str(keys) + '_' + str(vals) for keys,vals in parameters.items())
+    # 'schedule_geometric_sweep_1000_Tfactor_1'
+    if parameters is None:
+        parameters = {
+            'schedule': 'geometric',
+            'sweep': 1000,
+            'Tfactor': 1.0,
+        }
+
     # Gather instance names
-    dict_pickle_name = prefix + str(instance) + "_" + schedule + \
-        "_" + str(Tfactor) + "T.p"
+    dict_pickle_name = prefix + str(instance) + "_" + \
+        '_'.join(str(vals) for vals in parameters.values()) + "T.p"
     df_samples_name = 'df_' + dict_pickle_name + 'kl'
     df_path = os.path.join(dneal_pickle_path, df_samples_name)
     if os.path.exists(df_path):
@@ -268,10 +263,11 @@ def createDnealSamplesDataframeTemp(
             samples = sim_ann_sampler.sample(
                 model_random,
                 num_reads=total_reads,
-                num_sweeps=default_sweeps,
-                beta_schedule_type=schedule,
-                beta_range=(default_samples.info['beta_range'][0]*Tfactor,
-                            default_samples.info['beta_range'][1]))
+                num_sweeps=parameters['sweep'],
+                beta_schedule_type=parameters['schedule'],
+                beta_range=(default_samples.info['beta_range'][0]*parameters['Tfactor'],
+                            default_samples.info['beta_range'][1]),
+            )
             time_s = time.time() - start
             samples.info['timing'] = time_s
             pickle.dump(samples, open(dict_pickle_name, "wb"))
@@ -421,7 +417,7 @@ def computeResultsList(
             tts_dist, 50-confidence_level/2)
         tts_conf_interval_upper = stats.scoreatpercentile(
             tts_dist, 50+confidence_level/2)
-    # Question: How should we compute the confidence interval of the TTS? SHould we compute the function on the confidence interval of the probability or compute the confidence interval over the tts distribution?
+    # Question: How should we compute the confidence interval of the TTS? Should we compute the function on the confidence interval of the probability or compute the confidence interval over the tts distribution?
 
     return [downsample, min_boot, min_boot_conf_interval_lower, min_boot_conf_interval_upper, perf_ratio, perf_ratio_conf_interval_lower, perf_ratio_conf_interval_upper, success_prob, success_prob_conf_interval_lower, success_prob_conf_interval_upper, tts, tts_conf_interval_lower, tts_conf_interval_upper, mean_time, mean_time_conf_interval_lower, mean_time_conf_interval_upper, inv_perf_ratio, inv_perf_ratio_conf_interval_lower, inv_perf_ratio_conf_interval_upper]
 
@@ -455,17 +451,19 @@ def cleanup_df(
             df_new[column] = df_new[column].astype('category')
     if 'sweeps' in df_new.columns:
         df_new['reads'] = df_new['sweeps'] * df_new['boots']
-        df_new['sweeps'] = df_new['sweeps'].astype('int')
+        df_new['sweeps'] = df_new['sweeps'].astype('int', errors='ignore')
     else:
         df_new['reads'] = df_new['boots'] * default_sweeps
-    df_new['reads'] = df_new['reads'].astype('int')
-    df_new['boots'] = df_new['boots'].astype('int')
+    df_new['reads'] = df_new['reads'].astype('int', errors='ignore')
+    df_new['boots'] = df_new['boots'].astype('int', errors='ignore')
     # TODO this should also clean up the confidence intervals in case they are beyond the medium level
     return df_new
+    # TODO Consider if we should change instance column to be categoric
 
 
 # %%
 # Function to update the dataframes
+# TODO Remove all the list_* variables and name them as plurals instead
 def createDnealResultsDataframes(
     df: pd.DataFrame = None,
     instance_list: List[int] = [0],
@@ -482,7 +480,6 @@ def createDnealResultsDataframes(
     s: float = 0.99,
     fail_value: float = np.inf,
     save_pickle: bool = True,
-    compute_list_params: dict = {},
 ) -> pd.DataFrame:
     '''
     Function to create the dataframes for the experiments
@@ -517,6 +514,7 @@ def createDnealResultsDataframes(
                 return df
 
     # Create filename
+    # TODO modify filenmaes inteligently to make it easier to work with
     if len(instance_list) > 1:
         df_name = "df_resultsT.pkl"
     else:
@@ -542,11 +540,13 @@ def createDnealResultsDataframes(
                 # For the moment, let's hard-code it
                 schedule = combination[0]
                 Tfactor = combination[1]
-
+                parameters = {'schedule': schedule,
+                              #   'sweep': sweep,
+                              'Tfactor': Tfactor,
+                              }
                 df_samples = createDnealSamplesDataframeTemp(
                     instance=instance,
-                    schedule=schedule,
-                    Tfactor=Tfactor,
+                    parameters=parameters,
                     total_reads=total_reads,
                     sim_ann_sampler=sim_ann_sampler,
                     dneal_pickle_path=dneal_pickle_path,
@@ -556,6 +556,7 @@ def createDnealResultsDataframes(
 
                 for boots in boots_list:
 
+                    # TODO Good place to replace with mask and isin1d()
                     if (df is not None) and \
                         (boots in df[(df['schedule'] == schedule)
                                      & (df['Tfactor'] == Tfactor)]['boots'].values):
@@ -583,8 +584,9 @@ def createDnealResultsDataframes(
             'perf_ratio', 'perf_ratio_conf_interval_lower', 'perf_ratio_conf_interval_upper',
             'success_prob', 'success_prob_conf_interval_lower', 'success_prob_conf_interval_upper',
             'tts', 'tts_conf_interval_lower', 'tts_conf_interval_upper',
-            'mean_time', 'mean_time_conf_interval_lower', 'mean_time_conf_interval_upper'
-            'inv_perf_ratio', 'inv_perf_ratio_conf_interval_lower', 'inv_perf_ratio_conf_interval_upper', ])
+            'mean_time', 'mean_time_conf_interval_lower', 'mean_time_conf_interval_upper',
+            'inv_perf_ratio', 'inv_perf_ratio_conf_interval_lower', 'inv_perf_ratio_conf_interval_upper',
+        ])
         if df is not None:
             df_new = pd.concat(
                 [df, df_results_dneal], axis=0, ignore_index=True)
@@ -604,7 +606,7 @@ def createDnealResultsDataframes(
 # %%
 # Create dictionaries for upper and lower bounds of confidence intervals
 metrics_list = ['min_energy', 'tts',
-                'perf_ratio', 'inv_perf_ratio', 'success_prob', 'mean_time']
+                'perf_ratio', 'success_prob', 'mean_time', 'inv_perf_ratio']
 lower_bounds = {key: None for key in metrics_list}
 lower_bounds['success_prob'] = 0.0
 lower_bounds['mean_time'] = 0.0
@@ -615,9 +617,10 @@ upper_bounds['perf_ratio'] = 1.0
 
 # Define default behavior for the solver
 total_reads = 1000
-# TODO rename this total_reads parameter
+# TODO rename this total_reads parameter, remove redundancy with above
 default_reads = 1000
 default_sweeps = 1000
+default_Tfactor = 1.0
 default_boots = total_reads
 # %%
 # Function to generate stats aggregated dataframe
@@ -732,6 +735,8 @@ use_raw_dataframes = False
 use_raw_dneal_pickles = False
 overwrite_pickles = False
 instance = 42
+metrics_list = ['min_energy', 'tts',
+                'perf_ratio', 'success_prob', 'mean_time', 'inv_perf_ratio']
 Tfactor_list = list(np.logspace(-1, 3, 35))
 schedules_list = ['geometric', 'linear']
 # schedules_list = ['geometric']
@@ -743,6 +748,7 @@ fail_value = np.inf
 # Confidence interval for bootstrapping, value used to get standard deviation
 confidence_level = 68
 boots_list = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+# TODO there should be an attribute to the parameters and if they vary logarithmically, have a function that generates the list of values "equally" spaced in logarithmic space
 sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
 df_name = "df_results_" + str(instance) + "T.pkl"
@@ -796,6 +802,7 @@ labels = {
     'boots': 'Number of downsamples during bootrapping',
     'reads': 'Total number of reads (proportional to time)',
     'cum_reads': 'Total number of reads (proportional to time)',
+    'mean_cum_reads': 'Total number of reads (proportional to time)',
     'min_energy': 'Minimum energy found',
     'mean_time': 'Mean time [us]',
     'Tfactor': 'Factor to multiply lower temperature by',
@@ -812,6 +819,8 @@ labels = {
 
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples
+default_dict = {'schedule': 'geometric',
+                'Tfactor': 1.0, 'boots': 1000}
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
     df=df_dneal_42,
@@ -825,8 +834,7 @@ ax = plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'Tfactor': 1, 'boots': 1000},
+    default_dict=default_dict.update({'instance': 42}),
     use_colorbar=False,
     # ylim=[0.95, 1.005]
 )
@@ -845,8 +853,7 @@ ax = plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'Tfactor': 1, 'boots': 1000},
+    default_dict=default_dict,
     use_colorbar=False,
     ylim=[0.95, 1.005]
 )
@@ -865,8 +872,7 @@ plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'Tfactor': 1, 'boots': 1000}
+    default_dict=default_dict,
 )
 # %%
 # Success probability of some fixed parameter setting
@@ -883,8 +889,7 @@ plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'Tfactor': 1, 'boots': 1000}
+    default_dict=default_dict,
 )
 # %%
 # TTS Plot for all bootstrapping downsamples in both schedules
@@ -902,8 +907,7 @@ plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'Tfactor': 1, 'boots': 1000}
+    default_dict=default_dict,
 )
 
 # %%
@@ -914,7 +918,7 @@ plot_1d_singleinstance_list(
     x_axis='Tfactor',
     y_axis='tts',
     ax=ax,
-    dict_fixed={'instance': 42, 'schedule': 'geometric'},
+    dict_fixed={'schedule': 'geometric', 'instance': 42},
     list_dicts=[{'boots': j}
                 for j in [10, 100, 1000]],
     labels=labels,
@@ -922,12 +926,10 @@ plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict={'instance': 42, 'schedule': 'geometric',
-                  'Tfactor': 1, 'boots': 1000}
+    default_dict=default_dict,
 )
 # %%
 # Loop over the dataframes with 4 values of TFactors and a sweep in boots then compute the results, and complete by creating main Dataframe
-default_Tfactor = 1
 interesting_Tfactors = [
     df_dneal_42[df_dneal_42['boots'] == default_boots].nsmallest(1, 'tts')[
         'Tfactor'].values[0],
@@ -950,6 +952,7 @@ df_dneal_42 = createDnealResultsDataframes(
     dneal_results_path=dneal_results_path,
     dneal_pickle_path=dneal_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
+    use_raw_dneal_pickles=use_raw_dneal_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -961,7 +964,6 @@ df_dneal_42 = createDnealResultsDataframes(
 
 # %%
 # Plot with performance ratio vs reads for interesting sweeps
-default_dict = {'schedule': 'geometric', 'Tfactor': 1, 'boots': 1000}
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
     df=df_dneal_42,
@@ -1205,8 +1207,8 @@ def median_conf_interval(
         key_median_string + '_conf_interval_upper': x[key_string].median() + np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))) * np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1))}
     return pd.Series(result)
 
-
 # Define function for ensemble metrics
+
 
 def conf_interval(
     x: pd.Series,
@@ -1589,7 +1591,8 @@ df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
     instance_list=training_instance_list,
-    parameters_dict={'schedule': schedules_list, 'Tfactor': Tfactor_list},
+    parameters_dict={'schedule': schedules_list,
+                     'Tfactor': Tfactor_list},
     resource_list=boots_list,
     dneal_results_path=dneal_results_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
@@ -1651,113 +1654,91 @@ for stat_measure in stat_measures:
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
 
-# df_name = "df_resultsT.pkl"
-# df_path = os.path.join(dneal_results_path, df_name)
-# df_results_all = pd.read_pickle(df_path)
-# df_results_all = cleanup_df(df_results_all)
-
-df_virtual_all = df_results_all.groupby(
-    ['schedule', 'reads']
-).apply(lambda s: pd.Series({
-        'virt_best_tts': np.nanmin(s['tts']),
-        'virt_best_perf_ratio': np.nanmax(s['perf_ratio']),
-        'virt_best_inv_perf_ratio': np.nanmin(s['inv_perf_ratio']),
-        'virt_best_success_prob': np.nanmax(s['success_prob']),
-        'virt_best_mean_time': np.nanmin(s['mean_time']),
-        'virt_worst_perf_ratio': np.nanmin(s['perf_ratio']),
-        'virt_worst_inv_perf_ratio': np.nanmax(s['inv_perf_ratio'])
-        })
-        ).reset_index()
-df_virtual_best_max = df_virtual_all[
-    ['reads', 'schedule',
-     'virt_best_perf_ratio',
-     'virt_best_success_prob']
-].sort_values('reads'
-              ).groupby(
-    'schedule'
-).expanding(min_periods=1).max().droplevel(-1).reset_index()
-
-# This is done as the virtual worst counts the worst case, computed as the minimum from last read to first
-df_virtual_worst_max = df_virtual_all[
-    ['reads', 'schedule',
-     'virt_worst_perf_ratio']
-].sort_values('reads', ascending=False
-              ).groupby(
-    'schedule'
-).expanding(min_periods=1).min().droplevel(-1).reset_index()
-
-df_virtual_best_min = df_virtual_all[
-    ['reads', 'schedule',
-     'virt_best_tts',
-     'virt_best_mean_time',
-     'virt_best_inv_perf_ratio']
-].sort_values('reads'
-              ).groupby(
-    'schedule'
-).expanding(min_periods=1).agg({
-    'reads': np.max,
-    'virt_best_tts': np.min,
-    'virt_best_mean_time': np.min,
-    'virt_best_inv_perf_ratio': np.min}
-).droplevel(-1).reset_index()
-# df_virtual_best_min['reads'] = df_virtual_all[
-#     ['reads', 'schedule']
-# ].sort_values(['schedule','reads'])['reads']
-
-df_virtual_worst_min = df_virtual_all[
-    ['reads', 'schedule',
-     'virt_worst_inv_perf_ratio']
-].sort_values('reads', ascending=False
-              ).groupby(
-    'schedule'
-).expanding(min_periods=1).agg({
-    'reads': np.min,
-    'virt_worst_inv_perf_ratio': np.max}
-).droplevel(-1).reset_index()
-df_virtual_best_min['reads'] = df_virtual_all[
-    ['reads', 'schedule']
-].sort_values('schedule').sort_values('reads', ascending=False)['reads']
-
-df_virtual_best = df_virtual_best_max.merge(
-    df_virtual_worst_max,
-    on=['schedule', 'reads'],
-    how='left')
-df_virtual_best = df_virtual_best.merge(
-    df_virtual_best_min,
-    on=['schedule', 'reads'],
-    how='left')
-df_virtual_best = df_virtual_best.merge(
-    df_virtual_worst_min,
-    on=['schedule', 'reads'],
-    how='left')
 df_name = "df_results_virtT.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-df_virtual_best.to_pickle(df_path)
+if use_raw_dataframes or os.path.exists(df_path) is False:
+    df_virtual_all = df_results_all.groupby(
+        ['schedule', 'reads']
+    ).apply(lambda s: pd.Series({
+            'virt_best_tts': np.nanmin(s['tts']),
+            'virt_best_perf_ratio': np.nanmax(s['perf_ratio']),
+            'virt_best_inv_perf_ratio': np.nanmin(s['inv_perf_ratio']),
+            'virt_best_success_prob': np.nanmax(s['success_prob']),
+            'virt_best_mean_time': np.nanmin(s['mean_time']),
+            'virt_worst_perf_ratio': np.nanmin(s['perf_ratio']),
+            'virt_worst_inv_perf_ratio': np.nanmax(s['inv_perf_ratio'])
+            })
+            ).reset_index()
+    df_virtual_best_max = df_virtual_all[
+        ['reads', 'schedule',
+         'virt_best_perf_ratio',
+         'virt_best_success_prob']
+    ].sort_values('reads'
+                  ).groupby(
+        'schedule'
+    ).expanding(min_periods=1).max().droplevel(-1).reset_index()
+
+    # This is done as the virtual worst counts the worst case, computed as the minimum from last read to first
+    df_virtual_worst_max = df_virtual_all[
+        ['reads', 'schedule',
+         'virt_worst_perf_ratio']
+    ].sort_values('reads', ascending=False
+                  ).groupby(
+        'schedule'
+    ).expanding(min_periods=1).min().droplevel(-1).reset_index()
+
+    df_virtual_best_min = df_virtual_all[
+        ['reads', 'schedule',
+         'virt_best_tts',
+         'virt_best_mean_time',
+         'virt_best_inv_perf_ratio']
+    ].sort_values('reads'
+                  ).groupby(
+        'schedule'
+    ).expanding(min_periods=1).agg({
+        'reads': np.max,
+        'virt_best_tts': np.min,
+        'virt_best_mean_time': np.min,
+        'virt_best_inv_perf_ratio': np.min}
+    ).droplevel(-1).reset_index()
+    # df_virtual_best_min['reads'] = df_virtual_all[
+    #     ['reads', 'schedule']
+    # ].sort_values(['schedule','reads'])['reads']
+
+    df_virtual_worst_min = df_virtual_all[
+        ['reads', 'schedule',
+         'virt_worst_inv_perf_ratio']
+    ].sort_values('reads', ascending=False
+                  ).groupby(
+        'schedule'
+    ).expanding(min_periods=1).agg({
+        'reads': np.min,
+        'virt_worst_inv_perf_ratio': np.max}
+    ).droplevel(-1).reset_index()
+    df_virtual_best_min['reads'] = df_virtual_all[
+        ['reads', 'schedule']
+    ].sort_values('schedule').sort_values('reads', ascending=False)['reads']
+
+    df_virtual_best = df_virtual_best_max.merge(
+        df_virtual_worst_max,
+        on=['schedule', 'reads'],
+        how='left')
+    df_virtual_best = df_virtual_best.merge(
+        df_virtual_best_min,
+        on=['schedule', 'reads'],
+        how='left')
+    df_virtual_best = df_virtual_best.merge(
+        df_virtual_worst_min,
+        on=['schedule', 'reads'],
+        how='left')
+    df_virtual_best.to_pickle(df_path)
+else:
+    df_virtual_best = pd.read_pickle(df_path)
 
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance
 for stat_measure in stat_measures:
     f, ax = plt.subplots()
-    # for instance in instance_list:
-    #     plot_1d_singleinstance_list(
-    #         df=df_results_all,
-    #         x_axis='reads',
-    #         y_axis='perf_ratio',
-    #         ax=ax,
-    #         dict_fixed={'schedule': 'geometric'},
-    #         list_dicts=[{'Tfactor': i, 'instance': instance}
-    #                     for i in [10, 500, default_Tfactor] + list(set(best_ensemble_Tfactor))],
-    #         labels=labels,
-    #         prefix=prefix,
-    #         log_x=True,
-    #         log_y=False,
-    #         save_fig=False,
-    #         ylim=[0.975, 1.0025],
-    #         xlim=[5e2, 5e4],
-    #         use_colorbar=False,
-    #         alpha=0.25,
-    #         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
-    #     )
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
@@ -1767,8 +1748,6 @@ for stat_measure in stat_measures:
         dict_fixed={'schedule': 'geometric'},
         labels=labels,
         prefix=prefix,
-        log_x=True,
-        log_y=False,
         save_fig=False,
         linewidth=2.5,
         marker=None,
@@ -1783,8 +1762,6 @@ for stat_measure in stat_measures:
         dict_fixed={'schedule': 'geometric'},
         labels=labels,
         prefix=prefix,
-        log_x=True,
-        log_y=False,
         save_fig=False,
         linewidth=2.5,
         marker=None,
@@ -1811,31 +1788,10 @@ for stat_measure in stat_measures:
         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
                 u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
     )
-
 # %%
 # Generate plots for inverse performance ratio of ensemble vs reads with best and worst performance
 for stat_measure in stat_measures:
     f, ax = plt.subplots()
-    # for instance in instance_list:
-    #     plot_1d_singleinstance_list(
-    #         df=df_results_all,
-    #         x_axis='reads',
-    #         y_axis='perf_ratio',
-    #         ax=ax,
-    #         dict_fixed={'schedule': 'geometric'},
-    #         list_dicts=[{'Tfactor': i, 'instance': instance}
-    #                     for i in [10, 500, default_Tfactor] + list(set(best_ensemble_Tfactor))],
-    #         labels=labels,
-    #         prefix=prefix,
-    #         log_x=True,
-    #         log_y=False,
-    #         save_fig=False,
-    #         ylim=[0.975, 1.0025],
-    #         xlim=[5e2, 5e4],
-    #         use_colorbar=False,
-    #         alpha=0.25,
-    #         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd', u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
-    #     )
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
@@ -1861,9 +1817,9 @@ for stat_measure in stat_measures:
         dict_fixed={'schedule': 'geometric'},
         labels=labels,
         prefix=prefix,
+        save_fig=False,
         log_x=True,
         log_y=False,
-        save_fig=False,
         linewidth=2.5,
         marker=None,
         color=['r'],
@@ -1881,7 +1837,6 @@ for stat_measure in stat_measures:
         log_x=True,
         log_y=True,
         save_fig=False,
-        # xlim=[5e2, 5e4],
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
@@ -1892,16 +1847,13 @@ for stat_measure in stat_measures:
 # %%
 # Defining which datapoints to take
 repetitions = 10  # Times to run the algorithm
-# r = 1  # resource per parameter setting (runs)
-rs = [1, 5, 10]
-# , 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+rs = [1, 5, 10]  # resources per parameter setting (runs)
 frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 experiments = rs * repetitions
-# R_budget = 550  # budget for exploitation (runs)
 df_name = "df_progress_totalT.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-use_raw_dataframes = False
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
@@ -1965,7 +1917,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                         lower=exploration_step['median_perf_ratio'].max(), inplace=True)
                     exploitation_step['median_perf_ratio'] = exploitation_step['median_perf_ratio'].expanding(
                         min_periods=1).max()
-                    exploitation_step['median_perf_ratio'].fillna(
+                    exploitation_step['mean_perf_ratio'].fillna(
                         0, inplace=True)
                     exploitation_step['mean_perf_ratio'].clip(
                         lower=exploration_step['mean_perf_ratio'].max(), inplace=True)
@@ -1978,7 +1930,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     progress_list.append(exploitation_step)
     df_progress_total = pd.concat(progress_list, axis=0)
     df_progress_total.reset_index(inplace=True)
-    # df_progress_total.to_pickle(df_path)
+    df_progress_total.to_pickle(df_path)
 else:
     df_progress_total = pd.read_pickle(df_path)
 
@@ -2027,9 +1979,8 @@ plot_1d_singleinstance_list(
 # %%
 # Average across the experiments with the same R_budget, R_explor, and run_per_solve for evelope
 df_progress = df_progress_total[
-    ['schedule', 'experiment', 'cum_reads', 'R_budget', 'R_explor',
-        'run_per_solve', 'median_perf_ratio',
-     'mean_perf_ratio'
+    ['schedule', 'cum_reads', 'R_budget', 'R_explor',
+        'run_per_solve', 'experiment', 'median_perf_ratio', 'mean_perf_ratio'
      ]
 ].groupby(
     ['schedule', 'R_budget', 'R_explor', 'run_per_solve', 'cum_reads']
@@ -2505,31 +2456,6 @@ for stat_measure in stat_measures:
         colormap=plt.cm.get_cmap('viridis'),
         colors=['colormap'],
     )
-    # plot_1d_singleinstance_list(
-    #     df=df_progress,
-    #     x_axis='cum_reads',
-    #     # y_axis='mean_' + stat_measure + '_perf_ratio',
-    #     y_axis=stat_measure + '_median_perf_ratio',
-    #     ax=ax,
-    #     dict_fixed={'schedule': 'geometric',
-    #                 'R_budget': 5e4, 'run_per_solve': rs[0]},
-    #     # label_plot='Ordered exploration',
-    #     list_dicts=[{'frac_r_exploration': i}
-    #                 for i in frac_r_exploration],
-    #     labels=labels,
-    #     prefix=prefix,
-    #     log_x=True,
-    #     log_y=False,
-    #     colors=['colormap'],
-    #     colormap=plt.cm.get_cmap('tab10'),
-    #     use_colorbar=False,
-    #     use_conf_interval=False,
-    #     save_fig=False,
-    #     ylim=[0.975, 1.0025],
-    #     xlim=[None, 1e6],
-    #     linewidth=1.5,
-    #     markersize=1,
-    # )
     plot_1d_singleinstance_list(
         df=df_best_random,
         x_axis='cum_reads',
@@ -2549,8 +2475,6 @@ for stat_measure in stat_measures:
         use_colorbar=False,
         use_conf_interval=False,
         save_fig=False,
-        ylim=[0.975, 1.0025],
-        xlim=[None, 1e6],
         linewidth=1.5,
         markersize=1,
     )
@@ -2573,8 +2497,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        # ylim=[9e-11, 1e0],
-        # xlim=[None, 1e6],
+        xlim=[None, 1e6],
         linewidth=1.5,
         markersize=10,
         style='.-',
@@ -2637,32 +2560,6 @@ for stat_measure in stat_measures:
         colormap=plt.cm.get_cmap('viridis'),
         colors=['colormap'],
     )
-    # plot_1d_singleinstance_list(
-    #     df=df_progress,
-    #     x_axis='cum_reads',
-    #     # y_axis='mean_' + stat_measure + '_inv_perf_ratio',
-    #     y_axis=stat_measure + '_median_inv_perf_ratio',
-    #     ax=ax,
-    #     dict_fixed={'schedule': 'geometric',
-    #                 'R_budget': 1e6, 'run_per_solve': 10},
-    #     # label_plot='Ordered exploration',
-    #     list_dicts=[{'frac_r_exploration': i}
-    #                 for i in frac_r_exploration],
-    #     labels=labels,
-    #     prefix=prefix,
-    #     log_x=True,
-    #     log_y=True,
-    #     colors=['colormap'],
-    #     colormap=plt.cm.get_cmap('tab10'),
-    #     use_colorbar=False,
-    #     use_conf_interval=False,
-    #     save_fig=False,
-    #     # ylim=[0.975, 1.0025],
-    #     ylim=[9e-11, 1e0],
-    #     xlim=[None, 1e6],
-    #     linewidth=1.5,
-    #     markersize=1,
-    # )
     plot_1d_singleinstance_list(
         df=df_best_random,
         x_axis='cum_reads',
@@ -2703,11 +2600,10 @@ for stat_measure in stat_measures:
         use_colorbar=False,
         use_conf_interval=False,
         save_fig=False,
-        # ylim=[0.975, 1.0025],
-        ylim=[9e-11, 1e0],
-        xlim=[None, 1e6],
         linewidth=1.5,
         markersize=10,
         style='.-',
+        ylim=[9e-11, 1e0],
+        xlim=[None, 1e6],
     )
 # %%

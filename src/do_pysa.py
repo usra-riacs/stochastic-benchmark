@@ -1,3 +1,5 @@
+from retrieve_data import *
+
 # TODO This code needs to be functionalized for it to be imported into data analysis code
 # %%
 # Create all instances and save it into disk

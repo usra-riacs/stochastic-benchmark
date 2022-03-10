@@ -25,6 +25,7 @@ from scipy import sparse, stats
 
 from plotting import *
 from retrieve_data import *
+from do_dneal import *
 
 idx = pd.IndexSlice
 
@@ -72,59 +73,11 @@ if not(os.path.exists(plots_path)):
           ' does not exist. We will create it.')
     os.makedirs(plots_path)
 # %%
-# Create instance 42 and save it into disk
+# Create instance 42
 model_random = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
 
 prefix = "random_n_" + str(N) + "_inst_"
 instance_name = prefix + str(instance)
-instance_file_name = instance_name + ".txt"
-instance_file = os.path.join(instance_path, instance_file_name)
-if not os.path.exists(instance_file):
-    text_file = open(instance_file, "w")
-    text_file.write(model_random.to_coo())
-    text_file.close()
-
-# %%
-# Plot Q graph
-nx_graph = model_random.to_networkx_graph()
-edges, bias = zip(*nx.get_edge_attributes(nx_graph, 'bias').items())
-bias = np.array(bias)
-nx.draw(nx_graph, node_size=15, pos=nx.spring_layout(nx_graph),
-        alpha=0.25, edgelist=edges, edge_color=bias, edge_cmap=plt.cm.Blues)
-
-# %%
-# Define function to compute random sampled energy
-
-
-def randomEnergySampler(
-    model: dimod.BinaryQuadraticModel,
-    num_reads: int = 1000,
-    dwave_sampler: bool = False,
-) -> float:
-    '''
-    Computes the energy of a random sampling.
-
-    Args:
-        num_reads: The number of samples to use.
-        dwave_sampler: A boolean to use the D-Wave sampler or not.
-
-    Returns:
-        The energy of the random sampling.
-    '''
-    if dwave_sampler:
-        randomSampler = dimod.RandomSampler()
-        randomSample = randomSampler.sample(model, num_reads=num_reads)
-        energies = [datum.energy for datum in randomSample.data(
-            ['energy'], sorted_by='energy')]
-    else:
-        if model.vartype == Vartype.BINARY:
-            state = np.random.randint(2, size=(model.num_variables, num_reads))
-        else:
-            randomSample = np.random.randint(
-                2, size=(model.num_variables, num_reads)) * 2 - 1
-            energies = [model.energy(randomSample[:, i])
-                        for i in range(num_reads)]
-    return np.mean(energies), randomSample
 
 
 # %%
@@ -136,20 +89,12 @@ print('Average random energy = ' + str(random_energy))
 
 
 # %%
-# Plot of obtained energies
-# plotEnergyValuesDwaveSampleSet(random_sample,
-#    title='Random sampling')
-plotBarValues(df=df_random_sample, column_name='energy', sorted=True, skip=200,
-              xlabel='Solution', ylabel='Energy', title='Random Sampling', save_fig=False, rot=0)
-
-
-# %%
 # Run default Dwave-neal simulated annealing implementation
 sim_ann_sampler = dimod.SimulatedAnnealingSampler()
 default_sweeps = 1000
 total_reads = 1000
 default_reads = 1000
-default_boots = total_reads
+default_boots = default_reads
 default_name = prefix + str(instance) + '_geometric_' + \
     str(default_sweeps) + '.p'
 df_default_name = 'df_' + default_name + 'kl'
@@ -175,49 +120,6 @@ df_default_samples.to_pickle(os.path.join(dneal_pickle_path, df_default_name))
 min_energy = df_default_samples['energy'].min()
 print(min_energy)
 
-
-# %%
-# Generate plots from the default simulated annealing run
-# ax_enum = plotEnergyValuesDwaveSampleSet(sim_ann_sample_default,
-#                              title='Simulated annealing with default parameters')
-# ax_enum.set(ylim=[min_energy*(0.99)**np.sign(min_energy),
-#             min_energy*(1.1)**np.sign(min_energy)])
-plotBarValues(
-    df=df_default_samples,
-    column_name='energy',
-    sorted=True,
-    skip=200,
-    xlabel='Solution',
-    ylabel='Energy',
-    title='Simulated Annealing with default parameters',
-    save_fig=False,
-    rot=0,
-    ylim=[min_energy*(0.99)**np.sign(min_energy),
-          min_energy*(1.1)**np.sign(min_energy)],
-    legend=[],
-)
-# plot_energy_cfd(sim_ann_sample_default,
-#                 title='Simulated annealing with default parameters', skip=10)
-plotBarCounts(
-    df=df_default_samples,
-    column_name='energy',
-    sorted=True,
-    normalized=True,
-    skip=10,
-    xlabel='Energy',
-    title='Simulated Annealing with default parameters',
-    save_fig=False,
-)
-
-# %%
-# Default Dwave-neal schedule plot
-print(default_samples.info)
-beta_schedule = np.geomspace(*default_samples.info['beta_range'], num=1000)
-fig, ax = plt.subplots()
-ax.plot(beta_schedule, '.')
-ax.set_xlabel('Sweeps')
-ax.set_ylabel('beta=Inverse temperature')
-ax.set_title('Default Geometric temperature schedule')
 # %%
 # (Vectorized) Function to compute Resource to Target given a success_probability (array) float
 
@@ -257,36 +159,6 @@ computeRRT_vectorized = np.vectorize(computeRTT, excluded=(1, 2, 3, 4))
 # Load zipped results if using raw data
 overwrite_pickles = False
 use_raw_dataframes = False
-# zip_name = os.path.join(dneal_results_path, 'results.zip')
-# if os.path.exists(zip_name) and use_raw_dataframes:
-#     import zipfile
-#     with zipfile.ZipFile(zip_name, 'r') as zip_ref:
-#         zip_ref.extractall(dneal_pickle_path)
-#     print('Results zip file has been extrated to ' + dneal_pickle_path)
-
-# %%
-# Function to load ground state solutions from solution file gs_energies.txt
-
-
-def loadEnergyFromFile(data_file, instance_name):
-    '''
-    Loads the minimum energy of a given instance from file gs_energies.txt
-
-    Args:
-        data_file: The file to load the energies from.
-        instance_name: The name of the instance to load the energy for.
-
-    Returns:
-        The minimum energy of the instance.
-
-    '''
-    energies = []
-    with open(data_file, "r") as fin:
-        for line in fin:
-            if(line.split()[0] == instance_name):
-                energies.append(float(line.split()[1]))
-
-    return min(energies)
 
 # %%
 # Function to generate samples dataframes or load them otherwise
@@ -353,6 +225,15 @@ def createDnealSamplesDataframe(
             # df_samples = pd.read_pickle(df_path)
         # If it does not exist, generate the data
         else:
+            # TODO: We should be loading the data instead of regenerating it here
+            # Fixing the random seed to get the same result
+            np.random.seed(instance)
+            J = np.random.rand(N, N)
+            # We only consider upper triangular matrix ignoring the diagonal
+            J = np.triu(J, 1)
+            h = np.random.rand(N)
+            model_random = dimod.BinaryQuadraticModel.from_ising(
+                h, J, offset=0.0)
             start = time.time()
             samples = sim_ann_sampler.sample(
                 model_random,
@@ -421,6 +302,9 @@ def computeResultsList(
             boostrapped mean runtime,
             boostrapped mean runtime confidence interval lower bound,
             boostrapped mean runtime confidence interval upper bound,
+            bootstrapped inverse performance ratio,
+            bootstrapped inverse performance ratio confidence interval lower bound,
+            bootstrapped inverse performance ratio confidence interval upper bound,
         ]
 
     TODO: Here we assume the succes metric is the performance ratio, we can generalize that as any function of the parameters (use external function)
@@ -544,16 +428,17 @@ def cleanup_df(
         df_new['reads'] = df_new['sweeps'] * df_new['boots']
         df_new['sweeps'] = df_new['sweeps'].astype('int', errors='ignore')
     else:
-        df_new['reads'] = df_new['boots']
+        df_new['reads'] = df_new['boots'] * default_sweeps
     df_new['reads'] = df_new['reads'].astype('int', errors='ignore')
     df_new['boots'] = df_new['boots'].astype('int', errors='ignore')
+    # TODO this should also clean up the confidence intervals in case they are beyond the medium level
     return df_new
     # TODO Consider if we should change instance column to be categoric
 
 
 # %%
-# TODO Remove all the list_* variables and name them as plurals instead
 # Function to update the dataframes
+# TODO Remove all the list_* variables and name them as plurals instead
 def createDnealResultsDataframes(
     df: pd.DataFrame = None,
     instance_list: List[int] = [0],
@@ -648,7 +533,9 @@ def createDnealResultsDataframes(
                 for boots in boots_list:
 
                     # TODO Good place to replace with mask and isin1d()
-                    if (df is not None) and (boots in df[(df['schedule'] == schedule) & (df['sweeps'] == sweep)]['boots'].values):
+                    if (df is not None) and \
+                        (boots in df[(df['schedule'] == schedule)
+                                     & (df['sweeps'] == sweep)]['boots'].values):
                         continue
                     else:
                         # print("Generating results for instance:", instance,
@@ -674,7 +561,8 @@ def createDnealResultsDataframes(
             'success_prob', 'success_prob_conf_interval_lower', 'success_prob_conf_interval_upper',
             'tts', 'tts_conf_interval_lower', 'tts_conf_interval_upper',
             'mean_time', 'mean_time_conf_interval_lower', 'mean_time_conf_interval_upper',
-            'inv_perf_ratio', 'inv_perf_ratio_conf_interval_lower', 'inv_perf_ratio_conf_interval_upper'])
+            'inv_perf_ratio', 'inv_perf_ratio_conf_interval_lower', 'inv_perf_ratio_conf_interval_upper',
+        ])
         if df is not None:
             df_new = pd.concat(
                 [df, df_results_dneal], axis=0, ignore_index=True)
@@ -705,7 +593,10 @@ upper_bounds['perf_ratio'] = 1.0
 
 # Define default behavior for the solver
 total_reads = 1000
+# TODO rename this total_reads parameter, remove redundancy with above
+default_reads = 1000
 default_sweeps = 1000
+default_Tfactor = 1.0
 default_boots = total_reads
 # %%
 # Function to generate stats aggregated dataframe
@@ -907,7 +798,7 @@ labels = {
 
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples
-default_dict = {'instance': 42, 'schedule': 'geometric',
+default_dict = {'schedule': 'geometric',
                 'sweeps': 1000, 'boots': 1000}
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
@@ -922,7 +813,7 @@ ax = plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict=default_dict,
+    default_dict=default_dict.update({'instance': 42}),
     use_colorbar=False,
     ylim=[0.95, 1.005]
 )
@@ -1033,7 +924,8 @@ all_boots_list = list(range(1, 1001, 1))
 df_dneal_42 = createDnealResultsDataframes(
     df=df_dneal_42,
     instance_list=[instance],
-    parameters_dict={'schedule': schedules_list, 'sweeps': interesting_sweeps},
+    parameters_dict={'schedule': schedules_list,
+                     'sweeps': interesting_sweeps},
     boots_list=all_boots_list,
     dneal_results_path=dneal_results_path,
     dneal_pickle_path=dneal_pickle_path,
@@ -1072,31 +964,37 @@ ax = plot_1d_singleinstance_list(
     use_colorbar=False,
     colors=['colormap'],
     ylim=[0.95, 1.005],
-    xlim=[1e2, 5e5],
+    # xlim=[1e2, 5e5],
+)
+# %%
+# Plot with performance ratio vs reads for interesting sweeps
+f, ax = plt.subplots()
+ax = plot_1d_singleinstance_list(
+    df=df_dneal_42,
+    x_axis='reads',
+    y_axis='perf_ratio',
+    # instance=42,
+    dict_fixed={
+        'instance': 42,
+        'schedule': 'geometric'
+    },
+    ax=ax,
+    list_dicts=[{'sweeps': i} for i in interesting_sweeps + [20]],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=False,
+    save_fig=False,
+    default_dict=default_dict,
+    use_colorbar=False,
+    colors=['colormap'],
+    ylim=[0.95, 1.005],
+    # xlim=[1e2, 5e5],
 )
 # %%
 # Compute all instances with Dwave-neal
 instance_list = [i for i in range(20)] + [42]
 training_instance_list = [i for i in range(20)]
-# %%
-# Create all instances and save it into disk
-for instance in instance_list:
-    instance_file_name = prefix + str(instance) + ".txt"
-    instance_file_name = os.path.join(instance_path, instance_file_name)
-
-    if not os.path.exists(instance_file_name):
-        # Fixing the random seed to get the same result
-        np.random.seed(instance)
-        J = np.random.rand(N, N)
-        # We only consider upper triangular matrix ignoring the diagonal
-        J = np.triu(J, 1)
-        h = np.random.rand(N)
-        model_random = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
-
-        text_file = open(instance_file_name, "w")
-        text_file.write(model_random.to_coo())
-        text_file.close()
-
 # %%
 # Compute random energy file
 compute_random = False
@@ -1542,7 +1440,7 @@ for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
     df_results_all[metric + '_upper'] = df_results_all[metric] - \
         df_results_all[metric + '_conf_interval_upper']
 
-    # These following lineas can be extracted from the loop
+    # These following lines can be extracted from the loop
     df_default = df_results_all[(df_results_all['boots'] == default_boots) & (
         df_results_all['sweeps'] == default_sweeps)].set_index(['instance', 'schedule'])
     df_list = [df_default]
@@ -1621,14 +1519,13 @@ for instance in [3, 0, 19, 42]:
         log_x=True,
         log_y=False,
         save_fig=False,
-        default_dict={'schedule': 'geometric',
-                      'sweeps': default_sweeps, 'boots': default_boots, 'instance': instance},
+        default_dict=default_dict.update({'instance': instance}),
         use_colorbar=False,
-        ylim=[0.975, None],
+        ylim=[0.975, 1.0025],
     )
 
 # %%
-# Plot with performance ratio vs reads for interesting sweeps
+# Plot with inverse performance ratio vs reads for interesting sweeps
 for instance in [3, 0, 19, 42]:
 
     interesting_sweeps = [
@@ -1643,7 +1540,6 @@ for instance in [3, 0, 19, 42]:
         df=df_results_all,
         x_axis='reads',
         y_axis='inv_perf_ratio',
-        # instance=42,
         dict_fixed={
             'instance': instance,
             'schedule': 'geometric'
@@ -1656,13 +1552,9 @@ for instance in [3, 0, 19, 42]:
         log_x=True,
         log_y=True,
         save_fig=False,
-        default_dict={'schedule': 'geometric',
-                      'sweeps': default_sweeps, 'boots': default_boots, 'instance': instance},
+        default_dict=default_dict.update({'instance': instance}),
         use_colorbar=False,
-        # ylim=[0.975, None],
-        # xlim=[5e2, 5e4],
     )
-
 
 # %%
 # Regenerate the dataframe with the statistics to get the complete performance plot
@@ -1670,7 +1562,8 @@ df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
     instance_list=training_instance_list,
-    parameters_dict={'schedule': schedules_list, 'sweeps': sweeps_list},
+    parameters_dict={'schedule': schedules_list,
+                     'sweeps': sweeps_list},
     resource_list=boots_list,
     dneal_results_path=dneal_results_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
@@ -1702,8 +1595,6 @@ for stat_measure in stat_measures:
             log_x=True,
             log_y=False,
             save_fig=False,
-            ylim=[0.975, 1.0025],
-            xlim=[5e2, 5e4],
             use_colorbar=False,
             alpha=0.15,
             colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
@@ -1734,25 +1625,6 @@ for stat_measure in stat_measures:
 # Generate plots for inverse performance ratio of ensemble vs reads
 for stat_measure in stat_measures:
     f, ax = plt.subplots()
-    # for instance in instance_list:
-    #     plot_1d_singleinstance_list(
-    #         df=df_results_all,
-    #         x_axis='reads',
-    #         y_axis='inv_perf_ratio',
-    #         ax=ax,
-    #         dict_fixed={'schedule': 'geometric'},
-    #         list_dicts=[{'sweeps': i, 'instance': instance}
-    #                     for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
-    #         labels=labels,
-    #         prefix=prefix,
-    #         save_fig=False,
-    #         ylim=[0.975, 1.0025],
-    #         xlim=[5e2, 5e4],
-    #         use_colorbar=False,
-    #         alpha=0.15,
-    #         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
-    #                 u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
-    #     )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1960,8 +1832,6 @@ for stat_measure in stat_measures:
         log_x=True,
         log_y=True,
         save_fig=False,
-        # ylim=[0.975, None],
-        # xlim=[5e2, 5e4],
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
@@ -1975,7 +1845,6 @@ rs = [1, 5, 10]  # resources per parameter setting (runs)
 frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 R_budgets = [1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 experiments = rs * repetitions
-# R_budget = 550  # budget for exploitation (runs)
 df_name = "df_progress_total.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 use_raw_dataframes = False
@@ -2041,6 +1910,12 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     exploitation_step['median_perf_ratio'].clip(
                         lower=exploration_step['median_perf_ratio'].max(), inplace=True)
                     exploitation_step['median_perf_ratio'] = exploitation_step['median_perf_ratio'].expanding(
+                        min_periods=1).max()
+                    exploitation_step['mean_perf_ratio'].fillna(
+                        0, inplace=True)
+                    exploitation_step['mean_perf_ratio'].clip(
+                        lower=exploration_step['mean_perf_ratio'].max(), inplace=True)
+                    exploitation_step['mean_perf_ratio'] = exploitation_step['mean_perf_ratio'].expanding(
                         min_periods=1).max()
                     exploitation_step['experiment'] = experiment
                     exploitation_step['run_per_solve'] = r
@@ -2128,13 +2003,16 @@ df_progress['frac_r_exploration'] = df_progress['R_explor'] / \
 # f, ax = plt.subplots()
 # plot_1d_singleinstance_list(
 #     df=df_progress,
-#     x_axis='frac_r_exploration',
+#     x_axis='R_explor',
 #     y_axis='mean_median_inv_perf_ratio',
 #     ax=ax,
-#     # dict_fixed={'schedule': 'geometric'},
+#     dict_fixed={
+#         'R_budget': R_budgets[-1],
+#         'cum_reads': R_budgets[-1],
+#     },
 #     # label_plot='Ordered exploration',
-#     list_dicts=[{'R_budget': j, 'run_per_solve': i}
-#                 for i in rs for j in R_budgets],
+#     list_dicts=[{'run_per_solve': i}
+#                 for i in rs],
 #     labels=labels,
 #     prefix=prefix,
 #     log_x=True,
@@ -2155,6 +2033,25 @@ df_progress['frac_r_exploration'] = df_progress['R_explor'] / \
 # plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
 # TODO Translate all plots to seasborn, take special care to create fork to pass confidence intervals to plot
 # Near future v 0.12.0 of seaborn will implement errorbar keyword which would allow us to reload confidence intervals instead of recomputing them every time. Check https://github.com/mwaskom/seaborn/pull/2407 for details
+# %%
+# Compute best random exploration-exploitation strategy for each R_budget
+df_best_random_list = []
+for R_budget in R_budgets:
+    df_best_random_list.append(df_progress[
+        (df_progress['schedule'] == 'geometric') &
+        (df_progress['R_budget'] == R_budget)
+    ].sort_values(['cum_reads']
+                  ).nlargest(1, ['mean_median_perf_ratio', 'median_median_perf_ratio']
+                             )[
+        ['R_budget', 'frac_r_exploration', 'run_per_solve',
+            'median_median_perf_ratio', 'mean_median_perf_ratio']
+    ])
+df_best_random = df_progress.set_index(
+    ['R_budget', 'frac_r_exploration', 'run_per_solve']
+).loc[
+    pd.concat(df_best_random_list).set_index(
+        ['R_budget', 'frac_r_exploration', 'run_per_solve']).index
+].reset_index()
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance
 for stat_measure in stat_measures:
@@ -2305,7 +2202,7 @@ for stat_measure in stat_measures:
         y_axis=stat_measure + '_median_inv_perf_ratio',
         ax=ax,
         dict_fixed={'schedule': 'geometric',
-                    'R_budget': 1e5, 'run_per_solve': rs[0]},
+                    'R_budget': 5e3, 'run_per_solve': rs[0]},
         # label_plot='Ordered exploration',
         list_dicts=[{'frac_r_exploration': i}
                     for i in frac_r_exploration],
@@ -2324,35 +2221,6 @@ for stat_measure in stat_measures:
         linewidth=1.5,
         markersize=1,
     )
-
-# %%
-# ECDF plot
-# f,ax = plt.subplots()
-# sns.ecdfplot(data=df_results_all[(df_results_all['schedule'] == 'geometric') & (df_results_all['sweeps'] == default_sweeps)][['reads','inv_perf_ratio', 'perf_ratio', 'instance']], y='perf_ratio', hue='instance', color='gray', ax=ax)
-# sns.ecdfplot(data=df_results_all_stats[(df_results_all_stats['sweeps'] == default_sweeps)], y='mean_perf_ratio', ax=ax)
-# ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-# ax.set(ylim=[0.9,1.0025])
-
-# %%
-# Compute best random exploration-exploitation strategy for each R_budget
-df_best_random_list = []
-for R_budget in R_budgets:
-    df_best_random_list.append(df_progress[
-        (df_progress['schedule'] == 'geometric') &
-        (df_progress['R_budget'] == R_budget)
-    ].sort_values(['cum_reads']
-                  ).set_index(['R_budget']
-                              ).nlargest(1, ['mean_median_perf_ratio', 'median_median_perf_ratio']
-                                         )[
-        ['R_explor', 'run_per_solve',
-            'median_median_perf_ratio', 'mean_median_perf_ratio']
-    ])
-df_best_random = df_progress.set_index(
-    ['R_budget', 'R_explor', 'run_per_solve']
-).loc[
-    pd.concat(df_best_random_list).reset_index().set_index(
-        ['R_budget', 'R_explor', 'run_per_solve']).index
-].reset_index()
 
 # %%
 # Computing up ternary search across parameter
@@ -2476,8 +2344,7 @@ df_progress_ternary['median_inv_perf_ratio'] = 1 - \
 df_progress_ternary['mean_inv_perf_ratio'] = 1 - \
     df_progress_ternary['mean_perf_ratio'] + EPSILON
 # %%
-
-# Generate plots for performance ratio of ensemble vs reads with best and worst performance
+# Plots of ternary search together with the best performing schedule
 for stat_measure in stat_measures:
     f, ax = plt.subplots()
     plot_1d_singleinstance(
@@ -2532,9 +2399,9 @@ for stat_measure in stat_measures:
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
+        style='--',
         colormap=plt.cm.get_cmap('viridis'),
         colors=['colormap'],
-        style='--',
     )
     plot_1d_singleinstance_list(
         df=df_best_random,
@@ -2577,7 +2444,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        xlim=[1e2, R_budgets[-1]],
+        xlim=[1e2, 1e6],
         linewidth=1.5,
         markersize=10,
         style='.-',
@@ -2636,9 +2503,9 @@ for stat_measure in stat_measures:
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
+        style='--',
         colormap=plt.cm.get_cmap('viridis'),
         colors=['colormap'],
-        style='--',
     )
     plot_1d_singleinstance_list(
         df=df_best_random,
@@ -2682,8 +2549,14 @@ for stat_measure in stat_measures:
         save_fig=False,
         linewidth=1.5,
         markersize=10,
-        ylim=[1e-10, 1e0],
-        xlim=[1e2, R_budgets[-1]],
         style='.-',
+        ylim=[9e-11, 1e0],
+        xlim=[1e2, 1e6],
     )
 # %%
+# ECDF plot
+# f,ax = plt.subplots()
+# sns.ecdfplot(data=df_results_all[(df_results_all['schedule'] == 'geometric') & (df_results_all['sweeps'] == default_sweeps)][['reads','inv_perf_ratio', 'perf_ratio', 'instance']], y='perf_ratio', hue='instance', color='gray', ax=ax)
+# sns.ecdfplot(data=df_results_all_stats[(df_results_all_stats['sweeps'] == default_sweeps)], y='mean_perf_ratio', ax=ax)
+# ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+# ax.set(ylim=[0.9,1.0025])

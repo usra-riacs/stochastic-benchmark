@@ -77,6 +77,7 @@ if not(os.path.exists(plots_path)):
 model_random = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
 
 prefix = "random_n_" + str(N) + "_inst_"
+# TODO: this is prefix for file but we should get a nicer description for the plots
 instance_name = prefix + str(instance)
 
 
@@ -201,6 +202,7 @@ def createDnealSamplesDataframe(
         }
 
     # Gather instance names
+    # TODO: We need to adress renaming problems, one proposal is to be very judicious about the keys order in parameters and be consistent with naming, another idea is sorting them alphabetically before joining them
     dict_pickle_name = prefix + str(instance) + "_" + \
         '_'.join(str(vals) for vals in parameters.values()) + ".p"
     df_samples_name = 'df_' + dict_pickle_name + 'kl'
@@ -484,13 +486,16 @@ def createDnealResultsDataframes(
         overwrite_pickles: If we want to overwrite the pickle files
 
     '''
-    if parameters_dict is None:
+    # Remove repeated elements in the parameters_dict values (sets)
+    if parameters_dict is not None:
         for i, j in parameters_dict.items():
             parameters_dict[i] = set(j)
-
+    # Create list of parameters sorted alphabetically (ingoring uppercase)
+    params = list(parameters_dict.keys())
+    params.sort(key=str.lower)
     # Check that the parameters are columns in the dataframe
     if df is not None:
-        assert all([i in df.columns for i in parameters_dict.keys()])
+        assert all([i in df.columns for i in params])
         # In case that the data is already in the dataframe, return it
         if all([k in df[i].values for (i, j) in parameters_dict.items() for k in j]):
             print('The dataframe has some data for the parameters')
@@ -503,7 +508,7 @@ def createDnealResultsDataframes(
                 return df
 
     # Create filename
-    # TODO modify filenmaes inteligently to make it easier to work with
+    # TODO modify filenames inteligently to make it easier to work with
     if len(instance_list) > 1:
         df_name = "df_results.pkl"
     else:
@@ -530,10 +535,11 @@ def createDnealResultsDataframes(
                 schedule = combination[0]
                 sweep = combination[1]
 
-                parameters = {'schedule': schedule,
-                              'sweep': sweep,
-                              # 'Tfactor': 1.0,
-                              }
+                # parameters = {'schedule': schedule,
+                #               'sweep': sweep,
+                #               # 'Tfactor': 1.0,
+                #               }
+                parameters = dict(zip(params, combination))
                 df_samples = createDnealSamplesDataframe(
                     instance=instance,
                     parameters=parameters,
@@ -547,9 +553,9 @@ def createDnealResultsDataframes(
                 for boots in boots_list:
 
                     # TODO Good place to replace with mask and isin1d()
+                    # This generated the undersampling using bootstrapping, filtering by all the parameters values
                     if (df is not None) and \
-                        (boots in df[(df['schedule'] == schedule)
-                                     & (df['sweeps'] == sweep)]['boots'].values):
+                            (boots in df.loc[(df[list(parameters)] == pd.Series(parameters)).all(axis=1)]['boots'].values):
                         continue
                     else:
                         # print("Generating results for instance:", instance,
@@ -1927,6 +1933,8 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                         ['schedule', 'sweeps', 'boots'])
                     exploration_step['median_perf_ratio'] = exploration_step['median_perf_ratio'].expanding(
                         min_periods=1).max()
+                    exploration_step['mean_perf_ratio'] = exploration_step['mean_perf_ratio'].expanding(
+                        min_periods=1).max()
                     exploration_step.reset_index('boots', inplace=True)
                     exploration_step['experiment'] = experiment
                     exploration_step['run_per_solve'] = r
@@ -2146,16 +2154,18 @@ for stat_measure in stat_measures:
         style='--',
     )
     plot_1d_singleinstance_list(
-        df=df_progress,
+        df=df_best_random,
         x_axis='cum_reads',
         # y_axis='mean_' + stat_measure + '_perf_ratio',
         y_axis=stat_measure + '_median_perf_ratio',
         ax=ax,
         dict_fixed={'schedule': 'geometric',
-                    'R_budget': 1e5, 'run_per_solve': rs[0]},
+                    # 'frac_r_exploration': frac_r_exploration[-1],
+                    # 'run_per_solve': rs[0]
+                    },
         # label_plot='Ordered exploration',
-        list_dicts=[{'frac_r_exploration': i}
-                    for i in frac_r_exploration],
+        list_dicts=[{'R_budget': i}
+                    for i in R_budgets],
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -2229,16 +2239,18 @@ for stat_measure in stat_measures:
         style='--',
     )
     plot_1d_singleinstance_list(
-        df=df_progress,
+        df=df_best_random,
         x_axis='cum_reads',
         # y_axis='mean_' + stat_measure + '_inv_perf_ratio',
         y_axis=stat_measure + '_median_inv_perf_ratio',
         ax=ax,
         dict_fixed={'schedule': 'geometric',
-                    'R_budget': 5e3, 'run_per_solve': rs[0]},
+                    # 'frac_r_exploration': frac_r_exploration[-1],
+                    # 'run_per_solve': rs[0]
+                    },
         # label_plot='Ordered exploration',
-        list_dicts=[{'frac_r_exploration': i}
-                    for i in frac_r_exploration],
+        list_dicts=[{'R_budget': i}
+                    for i in R_budgets],
         labels=labels,
         prefix=prefix,
         log_x=True,

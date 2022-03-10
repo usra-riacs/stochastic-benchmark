@@ -346,7 +346,7 @@ def createDnealResultsDataframes(
                         list_inputs + list_outputs)
 
         df_results_dneal = pd.DataFrame(list_results_dneal, columns=[
-            'instance', 'schedule', 'Tfactor', 'boots',
+            'instance'] + params + ['boots',
             'min_energy', 'min_energy_conf_interval_lower', 'min_energy_conf_interval_upper',
             'perf_ratio', 'perf_ratio_conf_interval_lower', 'perf_ratio_conf_interval_upper',
             'success_prob', 'success_prob_conf_interval_lower', 'success_prob_conf_interval_upper',
@@ -976,29 +976,34 @@ plot_1d_singleinstance_list(
     x_axis='Tfactor',
     y_axis='tts',
     ax=ax,
-    dict_fixed={'schedule': 'geometric'},
-    list_dicts=[{'instance': 42, 'boots': j}
-                for j in [1000]],
+    dict_fixed={
+        'schedule': 'geometric',
+        'instance': 42,
+        },
+    list_dicts=[{
+        # 'instance': 42,
+        'boots': j}
+                for j in [1,5,10,100,1000]],
     labels=labels,
     prefix=prefix,
     log_x=True,
     log_y=True,
     colormap=plt.cm.Dark2,
 )
-plot_1d_singleinstance_list(
-    df=df_results_all_stats,
-    x_axis='Tfactor',
-    y_axis='median_tts',
-    ax=ax,
-    dict_fixed={'schedule': 'geometric'},
-    list_dicts=[{'boots': j}
-                for j in [1000]],
-    labels=labels,
-    prefix=prefix,
-    log_x=True,
-    log_y=True,
-    colors=['colormap']
-)
+# plot_1d_singleinstance_list(
+#     df=df_results_all_stats,
+#     x_axis='Tfactor',
+#     y_axis='median_tts',
+#     ax=ax,
+#     dict_fixed={'schedule': 'geometric'},
+#     list_dicts=[{'boots': j}
+#                 for j in [1,5,10,100,1000]],
+#     labels=labels,
+#     prefix=prefix,
+#     log_x=True,
+#     log_y=True,
+#     colors=['colormap']
+# )
 # %%
 # Generate plots for performance ratio of ensemble vs Tfactor
 f, ax = plt.subplots()
@@ -1577,27 +1582,26 @@ for stat_measure in stat_measures:
                 u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
     )
 # %%
-# %%
-# Defining which datapoints to take
+# Random search for the ensemble
 repetitions = 10  # Times to run the algorithm
 rs = [1, 5, 10]  # resources per parameter setting (runs)
 frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
+parameters = ['schedule', 'Tfactor']
 experiments = rs * repetitions
 df_name = "df_progress_totalT.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 use_raw_dataframes = False
 df_search = df_results_all_stats[
-    ['schedule', 'Tfactor', 'boots',
+    parameters + ['boots',
                             'median_perf_ratio', 'mean_perf_ratio', 'reads']
 ].set_index(
-    ['schedule', 'Tfactor', 'boots']
+    parameters + ['boots']
 )
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
         for frac_expl_total in frac_r_exploration:
-            # R_exploration = 50  # budget for exploration (runs)
             # budget for exploration (runs)
             R_exploration = int(R_budget*frac_expl_total)
             # budget for exploitation (runs)
@@ -1623,7 +1627,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                             converged = True
                             break
                     exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
-                        ['schedule', 'Tfactor', 'boots'])
+                        parameters + ['boots'])
                     exploration_step['median_perf_ratio'] = exploration_step['median_perf_ratio'].expanding(
                         min_periods=1).max()
                     exploration_step['mean_perf_ratio'] = exploration_step['mean_perf_ratio'].expanding(
@@ -1638,7 +1642,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     progress_list.append(exploration_step)
 
                     exploitation_step = df_search.reset_index().set_index(
-                        ['schedule', 'Tfactor']).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
+                        parameters).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
                     exploitation_step['cum_reads'] = exploitation_step['reads'] + \
                         exploration_step['cum_reads'].max()
                     exploitation_step.sort_values(['cum_reads'], inplace=True)
@@ -1669,7 +1673,187 @@ else:
 if 'R_budget' not in df_progress_total.columns:
     df_progress_total['R_budget'] = df_progress_total['R_explor'] + \
         df_progress_total['R_exploit']
+
+
+for stat_measure in stat_measures:
+    if 'best_' + stat_measure + '_perf_ratio' not in df_progress_total.columns:
+        df_progress_total[stat_measure + '_inv_perf_ratio'] = 1 - \
+            df_progress_total[stat_measure + '_perf_ratio'] + EPSILON
+        # df_progress_total['best_' + stat_measure + '_inv_perf_ratio'] = df_progress_total.sort_values(
+        # ['cum_reads', 'R_budget']
+        # ).groupby(['run_per_solve']
+        # ).expanding(min_periods=1).min().droplevel(-1).reset_index()[stat_measure + '_inv_perf_ratio']
+        df_progress_total['best_' + stat_measure + '_inv_perf_ratio'] = df_progress_total.sort_values(
+            ['cum_reads', 'R_budget']
+        ).expanding(min_periods=1).min()[stat_measure + '_inv_perf_ratio']
+        df_progress_total['best_' + stat_measure + '_perf_ratio'] = 1 - \
+            df_progress_total['best_' + stat_measure +
+                              '_inv_perf_ratio'] + EPSILON
 df_progress_total = cleanup_df(df_progress_total)
+df_progress_total.to_pickle(df_path)
+
+# %%
+# Trinary search in the ensemble
+rs = [1, 5, 10]  # resources per parameter setting (runs)
+frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
+R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
+parameters = ['schedule', 'Tfactor']
+experiments = rs * repetitions
+df_name = "df_progress_total_trinaryT.pkl"
+df_path = os.path.join(dneal_results_path, df_name)
+use_raw_dataframes = False
+df_search = df_results_all_stats[
+    parameters + ['boots',
+                            'median_perf_ratio', 'mean_perf_ratio', 'reads']
+].set_index(
+    parameters + ['boots']
+)
+if use_raw_dataframes or os.path.exists(df_path) is False:
+    progress_list = []
+    for R_budget in R_budgets:
+        for frac_expl_total in frac_r_exploration:
+            # budget for exploration (runs)
+            R_exploration = int(R_budget*frac_expl_total)
+            # budget for exploitation (runs)
+            R_exploitation = R_budget - R_exploration
+            for r in rs:
+                if r*default_sweeps*4 > R_exploration:
+                    print(
+                        "R_exploration must be larger than four exploration steps")
+                    continue
+                
+                
+                series_list = []
+                total_reads = 0
+                
+                lo = 0
+                val_lo = Tfactor_list[lo]
+                perf_lo = df_search.loc[
+                    idx[default_schedule, val_lo, r]]['median_perf_ratio']
+                series_list.append(df_search.loc[
+                    idx[default_schedule, val_lo, r]])
+
+                up = len(Tfactor_list) - 1
+                val_up = Tfactor_list[up]
+                perf_up = df_search.loc[
+                    idx[default_schedule, val_up, r]]['median_perf_ratio']
+                series_list.append(df_search.loc[
+                    idx[default_schedule, val_up, r]])
+
+
+
+                while lo <= up:
+                    x1 = int(lo + (up - lo) / 3)
+                    x2 = int(up - (up - lo) / 3)
+                    val_x1 = Tfactor_list[x1]
+                    perf_x1 = df_search.loc[
+                        idx[default_schedule, val_x1, r]]['median_perf_ratio']
+                    series_list.append(df_search.loc[
+                        idx[default_schedule, val_x1, r]])
+                    total_reads += r
+                    if total_reads > R_exploration:
+                        break
+                    val_x2 = Tfactor_list[x2]
+                    perf_x2 = df_search.loc[
+                        idx[default_schedule, val_x2, r]]['median_perf_ratio']
+                    series_list.append(df_search.loc[
+                        idx[default_schedule, val_x2, r]])
+                    total_reads += r
+                    if total_reads > R_exploration:
+                        break
+                    if perf_x2 == perf_up:
+                        up -= 1
+                        val_up = Tfactor_list[up]
+                        perf_up = df_search.loc[
+                            idx[default_schedule, val_up, r]]['median_perf_ratio']
+                        series_list.append(df_search.loc[
+                            idx[default_schedule, val_up, r]])
+                        total_reads += r
+                    elif perf_x1 == perf_lo:
+                        lo += 1
+                        val_lo = Tfactor_list[lo]
+                        perf_lo = df_search.loc[
+                            idx[default_schedule, val_lo, r]]['median_perf_ratio']
+                        series_list.append(df_search.loc[
+                            idx[default_schedule, val_lo, r]])
+                        total_reads += r
+                    elif perf_x1 > perf_x2:
+                        up = x2
+                        val_up = Tfactor_list[up]
+                        perf_up = df_search.loc[
+                            idx[default_schedule, val_up, r]]['median_perf_ratio']
+                    else:
+                        lo = x1
+                        val_lo = Tfactor_list[lo]
+                        perf_lo = df_search.loc[
+                            idx[default_schedule, val_lo, r]]['median_perf_ratio']
+
+                    if total_reads > R_exploration:
+                        break
+
+                exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
+                    parameters + ['boots'])
+                exploration_step['median_perf_ratio'] = exploration_step['median_perf_ratio'].expanding(
+                    min_periods=1).max()
+                exploration_step['mean_perf_ratio'] = exploration_step['mean_perf_ratio'].expanding(
+                    min_periods=1).max()
+                exploration_step.reset_index('boots', inplace=True)
+                exploration_step['run_per_solve'] = r
+                exploration_step['R_explor'] = R_exploration
+                exploration_step['R_exploit'] = R_exploitation
+                exploration_step['cum_reads'] = exploration_step.expanding(
+                    min_periods=1)['reads'].sum().reset_index(drop=True).values
+                progress_list.append(exploration_step)
+
+                exploitation_step = df_search.reset_index().set_index(
+                    parameters).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
+                exploitation_step['cum_reads'] = exploitation_step['reads'] + \
+                    exploration_step['cum_reads'].max()
+                exploitation_step.sort_values(['cum_reads'], inplace=True)
+                exploitation_step = exploitation_step[exploitation_step['cum_reads'] <= R_budget]
+                exploitation_step['median_perf_ratio'].fillna(
+                    0, inplace=True)
+                exploitation_step['median_perf_ratio'].clip(
+                    lower=exploration_step['median_perf_ratio'].max(), inplace=True)
+                exploitation_step['median_perf_ratio'] = exploitation_step['median_perf_ratio'].expanding(
+                    min_periods=1).max()
+                exploitation_step['mean_perf_ratio'].fillna(
+                    0, inplace=True)
+                exploitation_step['mean_perf_ratio'].clip(
+                    lower=exploration_step['mean_perf_ratio'].max(), inplace=True)
+                exploitation_step['mean_perf_ratio'] = exploitation_step['mean_perf_ratio'].expanding(
+                    min_periods=1).max()
+                exploitation_step['run_per_solve'] = r
+                exploitation_step['R_explor'] = R_exploration
+                exploitation_step['R_exploit'] = R_exploitation
+                progress_list.append(exploitation_step)
+    df_progress_total_trinary = pd.concat(progress_list, axis=0)
+    df_progress_total_trinary.reset_index(inplace=True)
+    df_progress_total_trinary.to_pickle(df_path)
+else:
+    df_progress_total_trinary = pd.read_pickle(df_path)
+
+if 'R_budget' not in df_progress_total_trinary.columns:
+    df_progress_total_trinary['R_budget'] = df_progress_total_trinary['R_explor'] + \
+        df_progress_total_trinary['R_exploit']
+
+
+for stat_measure in stat_measures:
+    if 'best_' + stat_measure + '_perf_ratio' not in df_progress_total_trinary.columns:
+        df_progress_total_trinary[stat_measure + '_inv_perf_ratio'] = 1 - \
+            df_progress_total_trinary[stat_measure + '_perf_ratio'] + EPSILON
+        # df_progress_total['best_' + stat_measure + '_inv_perf_ratio'] = df_progress_total.sort_values(
+        # ['cum_reads', 'R_budget']
+        # ).groupby(['run_per_solve']
+        # ).expanding(min_periods=1).min().droplevel(-1).reset_index()[stat_measure + '_inv_perf_ratio']
+        df_progress_total_trinary['best_' + stat_measure + '_inv_perf_ratio'] = df_progress_total_trinary.sort_values(
+            ['cum_reads', 'R_budget']
+        ).expanding(min_periods=1).min()[stat_measure + '_inv_perf_ratio']
+        df_progress_total_trinary['best_' + stat_measure + '_perf_ratio'] = 1 - \
+            df_progress_total_trinary['best_' + stat_measure +
+                              '_inv_perf_ratio'] + EPSILON
+df_progress_total_trinary = cleanup_df(df_progress_total_trinary)
+# df_progress_total_trinary.to_pickle(df_path)
 
 # %%
 # Plot for all the experiments trajectories
@@ -1677,16 +1861,18 @@ f, ax = plt.subplots()
 plot_1d_singleinstance_list(
     df=df_progress_total,
     x_axis='cum_reads',
-    y_axis='median_perf_ratio',
+    y_axis='best_median_perf_ratio',
     ax=ax,
     dict_fixed={
-        'R_budget': R_budgets[0],
-        'R_explor': R_budgets[0]*frac_r_exploration[-1],
-        'run_per_solve': rs[0],
+        'schedule': default_schedule,
+        # 'R_budget': R_budgets[0],
+        # 'R_explor': R_budgets[0]*frac_r_exploration[-1],
+        # 'run_per_solve': rs[0],
     },
-    # label_plot='Ordered exploration',
-    list_dicts=[{'experiment': i}
-                for i in range(repetitions)],
+    # list_dicts=[{'experiment': i}
+    #             for i in range(repetitions)],
+    list_dicts=[{'run_per_solve': i}
+                for i in rs],
     labels=labels,
     prefix=prefix,
     log_x=True,
@@ -1696,38 +1882,149 @@ plot_1d_singleinstance_list(
     use_colorbar=False,
     use_conf_interval=False,
     save_fig=False,
-    # ylim=[0.90, 1.0025],
-    xlim=[rs[0]*default_sweeps, R_budgets[0]],
+    # ylim=[0.98, 1.0025],
+    # xlim=[rs[0]*default_sweeps, R_budgets[0]],
+    linewidth=1.5,
+    marker=None,
+)
+plot_1d_singleinstance_list(
+    df=df_progress_total,
+    x_axis='cum_reads',
+    y_axis='median_perf_ratio',
+    ax=ax,
+    dict_fixed={
+        'schedule': default_schedule,
+        'R_budget': R_budgets[-1],
+        'R_explor': R_budgets[-1]*frac_r_exploration[0],
+        'run_per_solve': rs[-1],
+    },
+    list_dicts=[{'experiment': i}
+                for i in range(repetitions)],
+    # list_dicts=[{'run_per_solve': i}
+    #             for i in rs],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=False,
+    colors=['colormap'],
+    colormap=plt.cm.get_cmap('rainbow'),
+    use_colorbar=False,
+    use_conf_interval=False,
+    save_fig=False,
+    ylim=[0.98, 1.0025],
+    # xlim=[rs[0]*default_sweeps, R_budgets[0]],
+    linewidth=1.5,
+    marker=None,
+)
+plot_1d_singleinstance_list(
+    df=df_progress_total_trinary,
+    x_axis='cum_reads',
+    y_axis='best_median_perf_ratio',
+    ax=ax,
+    dict_fixed={
+        'schedule': default_schedule,
+        'R_budget': R_budgets[-1],
+        'R_explor': R_budgets[-1]*frac_r_exploration[0],
+        # 'run_per_solve': rs[0],
+    },
+    # list_dicts=[{'experiment': i}
+    #             for i in range(repetitions)],
+    list_dicts=[{'run_per_solve': i}
+                for i in rs],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=False,
+    colors=['colormap'],
+    colormap=plt.cm.get_cmap('viridis'),
+    use_colorbar=False,
+    use_conf_interval=False,
+    save_fig=False,
+    # ylim=[0.98, 1.0025],
+    # xlim=[rs[0]*default_sweeps, R_budgets[0]],
     linewidth=1.5,
     marker=None,
 )
 # %%
-# Average across the experiments with the same R_budget, R_explor, and run_per_solve for evelope
-df_progress = df_progress_total[
-    ['schedule', 'cum_reads', 'R_budget', 'R_explor',
-        'run_per_solve', 'experiment', 'median_perf_ratio', 'mean_perf_ratio'
-     ]
-].groupby(
-    ['schedule', 'R_budget', 'R_explor', 'run_per_solve', 'cum_reads']
-).apply(lambda s: pd.Series({
-        # 'mean_cum_reads': np.min(s['cum_reads']),
-        'median_median_perf_ratio': np.median(s['median_perf_ratio']),
-        'mean_median_perf_ratio': np.mean(s['median_perf_ratio']),
-        'median_mean_perf_ratio': np.median(s['mean_perf_ratio']),
-        'mean_mean_perf_ratio': np.mean(s['mean_perf_ratio'])
-        })
-        ).reset_index()
-df_progress['median_median_inv_perf_ratio'] = 1 - \
-    df_progress['median_median_perf_ratio'] + EPSILON
-df_progress['mean_median_inv_perf_ratio'] = 1 - \
-    df_progress['mean_median_perf_ratio'] + EPSILON
-df_progress['median_mean_inv_perf_ratio'] = 1 - \
-    df_progress['median_mean_perf_ratio'] + EPSILON
-df_progress['mean_mean_inv_perf_ratio'] = 1 - \
-    df_progress['mean_mean_perf_ratio'] + EPSILON
-df_progress['frac_r_exploration'] = df_progress['R_explor'] / \
-    df_progress['R_budget']
-df_progress = cleanup_df(df_progress)
+# Average across the experiments with the same R_budget, R_explor, and run_per_solve for envelope
+df_name = "df_progressT.pkl"
+df_path = os.path.join(dneal_results_path, df_name)
+use_raw_dataframes = False
+if use_raw_dataframes or os.path.exists(df_path) is False:
+    df_progress = df_progress_total[
+        ['schedule', 'cum_reads', 'R_budget', 'R_explor',
+            'run_per_solve', 'experiment', 'median_perf_ratio', 'mean_perf_ratio'
+        ]
+    ].groupby(
+        ['schedule', 'R_budget', 'R_explor', 'run_per_solve', 'cum_reads']
+    ).apply(lambda s: pd.Series({
+            # 'mean_cum_reads': np.min(s['cum_reads']),
+            'median_median_perf_ratio': np.median(s['median_perf_ratio']),
+            'mean_median_perf_ratio': np.mean(s['median_perf_ratio']),
+            'median_mean_perf_ratio': np.median(s['mean_perf_ratio']),
+            'mean_mean_perf_ratio': np.mean(s['mean_perf_ratio'])
+            })
+            ).reset_index()
+    for stat_measure in stat_measures:
+        for stat_measure_inv in stat_measures:
+            df_progress[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = 1 - \
+                df_progress[stat_measure + '_' +
+                            stat_measure_inv + '_perf_ratio'] + EPSILON
+
+            df_progress['best_' + stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = df_progress.sort_values(
+                ['cum_reads']
+            ).expanding(min_periods=1).min()[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio']
+            df_progress['best_' + stat_measure + '_' + stat_measure_inv + '_perf_ratio'] = 1 - \
+                df_progress['best_' + stat_measure + '_' +
+                            stat_measure_inv + '_inv_perf_ratio'] + EPSILON
+
+    df_progress['frac_r_exploration'] = df_progress['R_explor'] / \
+        df_progress['R_budget']
+
+    df_progress = cleanup_df(df_progress)
+    df_progress.to_pickle(df_path)
+else:
+    df_progress = pd.read_pickle(df_path)
+# %%
+# Average across the experiments with the same R_budget, R_explor, and run_per_solve for envelope
+df_name = "df_progress_trinaryT.pkl"
+df_path = os.path.join(dneal_results_path, df_name)
+use_raw_dataframes = False
+if use_raw_dataframes or os.path.exists(df_path) is False:
+    df_progress_trinary = df_progress_total_trinary[
+        ['schedule', 'cum_reads', 'R_budget', 'R_explor',
+            'run_per_solve', 'median_perf_ratio', 'mean_perf_ratio'
+        ]
+    ].groupby(
+        ['schedule', 'R_budget', 'R_explor', 'run_per_solve', 'cum_reads']
+    ).apply(lambda s: pd.Series({
+            # 'mean_cum_reads': np.min(s['cum_reads']),
+            'median_median_perf_ratio': np.median(s['median_perf_ratio']),
+            'mean_median_perf_ratio': np.mean(s['median_perf_ratio']),
+            'median_mean_perf_ratio': np.median(s['mean_perf_ratio']),
+            'mean_mean_perf_ratio': np.mean(s['mean_perf_ratio'])
+            })
+            ).reset_index()
+    for stat_measure in stat_measures:
+        for stat_measure_inv in stat_measures:
+            df_progress_trinary[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = 1 - \
+                df_progress_trinary[stat_measure + '_' +
+                            stat_measure_inv + '_perf_ratio'] + EPSILON
+
+            df_progress_trinary['best_' + stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = df_progress_trinary.sort_values(
+                ['cum_reads']
+            ).expanding(min_periods=1).min()[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio']
+            df_progress_trinary['best_' + stat_measure + '_' + stat_measure_inv + '_perf_ratio'] = 1 - \
+                df_progress_trinary['best_' + stat_measure + '_' +
+                            stat_measure_inv + '_inv_perf_ratio'] + EPSILON
+
+    df_progress_trinary['frac_r_exploration'] = df_progress_trinary['R_explor'] / \
+        df_progress_trinary['R_budget']
+
+    df_progress_trinary = cleanup_df(df_progress_trinary)
+    df_progress_trinary.to_pickle(df_path)
+else:
+    df_progress_trinary = pd.read_pickle(df_path)
 # %%
 # Experimental plot not considering that perf_ratio at the end is optimal
 # f, ax = plt.subplots()
@@ -1768,7 +2065,7 @@ df_progress = cleanup_df(df_progress)
 df_best_random_list = []
 for R_budget in R_budgets:
     df_best_random_list.append(df_progress[
-        (df_progress['schedule'] == 'geometric') &
+        (df_progress['schedule'] == default_schedule) &
         (df_progress['R_budget'] == R_budget)
     ].sort_values(['cum_reads']
                   ).nlargest(1, ['mean_median_perf_ratio', 'median_median_perf_ratio']
@@ -1783,6 +2080,26 @@ df_best_random = df_progress.set_index(
     ['R_budget', 'frac_r_exploration', 'run_per_solve']
 ).loc[best_random_search_idx].reset_index()
 df_best_random = cleanup_df(df_best_random)
+# %%
+# Compute best trinary exploration-exploitation strategy for each R_budget
+df_best_trinary_list = []
+for R_budget in R_budgets:
+    df_best_trinary_list.append(df_progress_trinary[
+        (df_progress_trinary['schedule'] == default_schedule) &
+        (df_progress_trinary['R_budget'] == R_budget)
+    ].sort_values(['cum_reads']
+                  ).nlargest(1, ['mean_median_perf_ratio', 'median_median_perf_ratio']
+                             )[
+        ['R_budget', 'frac_r_exploration', 'run_per_solve',
+            'median_median_perf_ratio', 'mean_median_perf_ratio']
+    ])
+
+best_trinary_search_idx = pd.concat(df_best_trinary_list).set_index(
+    ['R_budget', 'frac_r_exploration', 'run_per_solve']).index
+df_best_trinary = df_progress_trinary.set_index(
+    ['R_budget', 'frac_r_exploration', 'run_per_solve']
+).loc[best_trinary_search_idx].reset_index()
+df_best_trinary = cleanup_df(df_best_trinary)
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance
 for stat_measure in stat_measures:
@@ -1868,30 +2185,102 @@ for stat_measure in stat_measures:
     #     linewidth=1.5,
     #     markersize=1,
     # )
-    plot_1d_singleinstance_list(
-        df=df_best_random,
+    plot_1d_singleinstance(
+        df=df_progress,
         x_axis='cum_reads',
         # y_axis='mean_' + stat_measure + '_perf_ratio',
-        y_axis=stat_measure + '_median_perf_ratio',
+        # y_axis=stat_measure + '_median_perf_ratio',
+        y_axis='best_' + stat_measure + '_median_perf_ratio',
         ax=ax,
-        dict_fixed={'schedule': 'geometric'},
-        # label_plot='Ordered exploration',
-        list_dicts=[{'R_budget': i}
-                    for i in R_budgets],
+        dict_fixed={'schedule': default_schedule},
+        label_plot='Best random exploration exploitation',
+        # list_dicts=[{'R_budget': i}
+        #             for i in R_budgets],
+        # list_dicts=[{'run_per_solve': i}
+        #             for i in rs],
         labels=labels,
         prefix=prefix,
         log_x=True,
         log_y=False,
-        colors=['colormap'],
-        colormap=plt.cm.get_cmap('tab10'),
-        use_colorbar=False,
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
         xlim=[1e3, 1e6],
         linewidth=1.5,
         markersize=1,
+        color=['g'],
     )
+    plot_1d_singleinstance(
+        df=df_progress_trinary,
+        x_axis='cum_reads',
+        # y_axis='mean_' + stat_measure + '_perf_ratio',
+        # y_axis=stat_measure + '_median_perf_ratio',
+        y_axis='best_' + stat_measure + '_median_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': default_schedule},
+        label_plot='Best trinary exploration exploitation',
+        # list_dicts=[{'R_budget': i}
+        #             for i in R_budgets],
+        # list_dicts=[{'run_per_solve': i}
+        #             for i in rs],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        use_conf_interval=False,
+        save_fig=False,
+        ylim=[0.975, 1.0025],
+        xlim=[1e3, 1e6],
+        linewidth=1.5,
+        markersize=1,
+        color=['b'],
+    )
+    # plot_1d_singleinstance_list(
+    #     df=df_best_random,
+    #     x_axis='cum_reads',
+    #     # y_axis='mean_' + stat_measure + '_perf_ratio',
+    #     y_axis=stat_measure + '_median_perf_ratio',
+    #     ax=ax,
+    #     dict_fixed={'schedule': default_schedule},
+    #     list_dicts=[{'R_budget': i}
+    #                 for i in R_budgets],
+    #     labels=labels,
+    #     prefix=prefix,
+    #     log_x=True,
+    #     log_y=False,
+    #     colors=['colormap'],
+    #     colormap=plt.cm.get_cmap('tab10'),
+    #     use_colorbar=False,
+    #     use_conf_interval=False,
+    #     save_fig=False,
+    #     ylim=[0.975, 1.0025],
+    #     xlim=[1e3, 1e6],
+    #     linewidth=1.5,
+    #     markersize=1,
+    # )
+    # plot_1d_singleinstance_list(
+    #     df=df_best_trinary,
+    #     x_axis='cum_reads',
+    #     # y_axis='mean_' + stat_measure + '_perf_ratio',
+    #     y_axis=stat_measure + '_median_perf_ratio',
+    #     ax=ax,
+    #     dict_fixed={'schedule': default_schedule},
+    #     list_dicts=[{'R_budget': i}
+    #                 for i in R_budgets],
+    #     labels=labels,
+    #     prefix=prefix,
+    #     log_x=True,
+    #     log_y=False,
+    #     colors=['colormap'],
+    #     colormap=plt.cm.get_cmap('Dark2'),
+    #     use_colorbar=False,
+    #     use_conf_interval=False,
+    #     save_fig=False,
+    #     ylim=[0.975, 1.0025],
+    #     xlim=[1e3, 1e6],
+    #     linewidth=1.5,
+    #     markersize=1,
+    # )
 # %%
 # Generate plots for inverse performance ratio of ensemble vs reads with best and worst performance
 for stat_measure in stat_measures:
@@ -1929,6 +2318,56 @@ for stat_measure in stat_measures:
         marker=None,
         color=['r'],
     )
+    plot_1d_singleinstance(
+        df=df_progress,
+        x_axis='cum_reads',
+        # y_axis='mean_' + stat_measure + '_perf_ratio',
+        # y_axis=stat_measure + '_median_perf_ratio',
+        y_axis='best_' + stat_measure + '_median_inv_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': 'geometric'},
+        label_plot='Best random exploration exploitation',
+        # list_dicts=[{'R_budget': i}
+        #             for i in R_budgets],
+        # list_dicts=[{'run_per_solve': i}
+        #             for i in rs],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=True,
+        use_conf_interval=False,
+        save_fig=False,
+        ylim=[1e-10, 1e0],
+        xlim=[1e3, R_budgets[-1]],
+        linewidth=1.5,
+        markersize=1,
+        color=['g'],
+    )
+    plot_1d_singleinstance(
+        df=df_progress_trinary,
+        x_axis='cum_reads',
+        # y_axis='mean_' + stat_measure + '_perf_ratio',
+        # y_axis=stat_measure + '_median_perf_ratio',
+        y_axis='best_' + stat_measure + '_median_inv_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': 'geometric'},
+        label_plot='Best trinary exploration exploitation',
+        # list_dicts=[{'R_budget': i}
+        #             for i in R_budgets],
+        # list_dicts=[{'run_per_solve': i}
+        #             for i in rs],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=True,
+        use_conf_interval=False,
+        save_fig=False,
+        ylim=[1e-10, 1e0],
+        xlim=[1e3, R_budgets[-1]],
+        linewidth=1.5,
+        markersize=1,
+        color=['b'],
+    )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1949,35 +2388,37 @@ for stat_measure in stat_measures:
         colormap=plt.cm.get_cmap('viridis'),
         colors=['colormap'],
         style='--',
-    )
-    plot_1d_singleinstance_list(
-        df=df_best_random,
-        x_axis='cum_reads',
-        # y_axis='mean_' + stat_measure + '_inv_perf_ratio',
-        y_axis=stat_measure + '_median_inv_perf_ratio',
-        ax=ax,
-        dict_fixed={'schedule': 'geometric',
-                    # 'frac_r_exploration': frac_r_exploration[-1],
-                    # 'run_per_solve': rs[0]
-                    },
-        # label_plot='Ordered exploration',
-        list_dicts=[{'R_budget': i}
-                    for i in R_budgets],
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=True,
-        colors=['colormap'],
-        colormap=plt.cm.get_cmap('tab10'),
-        use_colorbar=False,
-        use_conf_interval=False,
-        save_fig=False,
-        # ylim=[0.975, 1.0025],
         ylim=[1e-10, 1e0],
         xlim=[1e3, R_budgets[-1]],
-        linewidth=1.5,
-        markersize=1,
     )
+    # plot_1d_singleinstance_list(
+    #     df=df_best_random,
+    #     x_axis='cum_reads',
+    #     # y_axis='mean_' + stat_measure + '_inv_perf_ratio',
+    #     y_axis=stat_measure + '_median_inv_perf_ratio',
+    #     ax=ax,
+    #     dict_fixed={'schedule': 'geometric',
+    #                 # 'frac_r_exploration': frac_r_exploration[-1],
+    #                 # 'run_per_solve': rs[0]
+    #                 },
+    #     # label_plot='Ordered exploration',
+    #     list_dicts=[{'R_budget': i}
+    #                 for i in R_budgets],
+    #     labels=labels,
+    #     prefix=prefix,
+    #     log_x=True,
+    #     log_y=True,
+    #     colors=['colormap'],
+    #     colormap=plt.cm.get_cmap('tab10'),
+    #     use_colorbar=False,
+    #     use_conf_interval=False,
+    #     save_fig=False,
+    #     # ylim=[0.975, 1.0025],
+    #     ylim=[1e-10, 1e0],
+    #     xlim=[1e3, R_budgets[-1]],
+    #     linewidth=1.5,
+    #     markersize=1,
+    # )
 
 # %%
 # Computing up ternary search across parameter
@@ -1988,10 +2429,10 @@ rs = [1, 5, 10]
 df_name = "df_progress_ternaryT.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_search = df_results_all_stats[
-    ['schedule', 'Tfactor', 'boots',
+    parameters + ['boots',
      'median_perf_ratio', 'mean_perf_ratio', 'reads']
 ].set_index(
-    ['schedule', 'Tfactor', 'boots']
+    parameters + ['boots']
 )
 use_raw_dataframes = False
 if use_raw_dataframes or os.path.exists(df_path) is False:
@@ -2049,7 +2490,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     idx['geometric', val_lo, r]]['median_perf_ratio']
 
         exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
-            ['schedule', 'Tfactor', 'boots'])
+            parameters + ['boots'])
         exploration_step['median_perf_ratio'] = exploration_step['median_perf_ratio'].expanding(
             min_periods=1).max()
         exploration_step['mean_perf_ratio'] = exploration_step['mean_perf_ratio'].expanding(
@@ -2061,10 +2502,10 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
         progress_list.append(exploration_step)
 
         exploitation_step = df_results_all_stats[
-            ['schedule', 'Tfactor', 'boots',
+            parameters + ['boots',
                 'median_perf_ratio', 'mean_perf_ratio', 'reads']
         ].set_index(
-            ['schedule', 'Tfactor']).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
+            parameters).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
         exploitation_step['cum_reads'] = exploitation_step['reads'] + \
             exploration_step['cum_reads'].max()
         exploitation_step = exploitation_step[exploitation_step['cum_reads']
@@ -2261,25 +2702,49 @@ for stat_measure in stat_measures:
         colormap=plt.cm.get_cmap('viridis'),
         colors=['colormap'],
     )
-    plot_1d_singleinstance_list(
-        df=df_best_random,
+    # plot_1d_singleinstance_list(
+    #     df=df_best_random,
+    #     x_axis='cum_reads',
+    #     # y_axis='mean_' + stat_measure + '_inv_perf_ratio',
+    #     y_axis=stat_measure + '_median_inv_perf_ratio',
+    #     ax=ax,
+    #     dict_fixed={'schedule': 'geometric'},
+    #     # label_plot='Ordered exploration',
+    #     list_dicts=[{'R_budget': i}
+    #                 for i in R_budgets],
+    #     labels=labels,
+    #     prefix=prefix,
+    #     log_x=True,
+    #     log_y=True,
+    #     colors=['colormap'],
+    #     colormap=plt.cm.get_cmap('tab10'),
+    #     use_colorbar=False,
+    #     use_conf_interval=False,
+    #     save_fig=False,
+    #     linewidth=1.5,
+    #     markersize=1,
+    # )
+    plot_1d_singleinstance(
+        df=df_progress,
         x_axis='cum_reads',
-        # y_axis='mean_' + stat_measure + '_inv_perf_ratio',
-        y_axis=stat_measure + '_median_inv_perf_ratio',
+        # y_axis='mean_' + stat_measure + '_perf_ratio',
+        # y_axis=stat_measure + '_median_perf_ratio',
+        y_axis='best_' + stat_measure + '_median_inv_perf_ratio',
         ax=ax,
         dict_fixed={'schedule': 'geometric'},
-        # label_plot='Ordered exploration',
-        list_dicts=[{'R_budget': i}
-                    for i in R_budgets],
+        label_plot='Best random exploration exploitation',
+        # list_dicts=[{'R_budget': i}
+        #             for i in R_budgets],
+        # list_dicts=[{'run_per_solve': i}
+        #             for i in rs],
         labels=labels,
         prefix=prefix,
         log_x=True,
         log_y=True,
-        colors=['colormap'],
-        colormap=plt.cm.get_cmap('tab10'),
-        use_colorbar=False,
         use_conf_interval=False,
         save_fig=False,
+        ylim=[1e-10, 1e0],
+        xlim=[1e3, R_budgets[-1]],
         linewidth=1.5,
         markersize=1,
     )
@@ -2322,12 +2787,12 @@ if search_metric == 'tts':
 else:
     search_direction = 1
 df_search = df_dneal_42[
-    ['schedule', 'Tfactor', 'boots', 'reads'] +
+    parameters + ['boots', 'reads'] +
     list(set([compute_metric, search_metric]))
 ].set_index(
-    ['schedule', 'Tfactor', 'boots']
+    parameters + ['boots']
 )
-use_raw_dataframes = False
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for r in rs:
@@ -2383,7 +2848,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     idx[default_schedule, val_lo, r]][search_metric]
 
         exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
-            ['schedule', 'Tfactor', 'boots'])
+            parameters + ['boots'])
         exploration_step[compute_metric] = exploration_step[compute_metric].expanding(
             min_periods=1).max()
         exploration_step.reset_index('boots', inplace=True)
@@ -2395,10 +2860,10 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
         # TODO: This can be further generalized, seach over df_search with indices now being the parameters
         if search_direction == 1:
             exploitation_step = df_search.reset_index().set_index(
-                ['schedule', 'Tfactor']).loc[exploration_step.nlargest(1, search_metric).index]
+                parameters).loc[exploration_step.nlargest(1, search_metric).index]
         else:
             exploitation_step = df_search.reset_index().set_index(
-                ['schedule', 'Tfactor']).loc[exploration_step.nsmallest(1, search_metric).index]
+                parameters).loc[exploration_step.nsmallest(1, search_metric).index]
         exploitation_step['cum_reads'] = exploitation_step['reads'] + \
             exploration_step['cum_reads'].max()
         exploitation_step = exploitation_step[exploitation_step['cum_reads']
@@ -2434,7 +2899,6 @@ repetitions = 10  # Times to run the algorithm
 df_name = "df_progress_42T.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 compute_metric = 'perf_ratio'
-parameters = ['schedule', 'Tfactor']
 df_search = df_dneal_42[
     parameters + ['boots', 'reads'] + [compute_metric]
 ].set_index(
@@ -2618,19 +3082,19 @@ plot_1d_singleinstance_list(
 # Evaluate instance 42 with strategies learned from ensemble anaylsis
 # Plot with inverse performance ratio vs reads for interesting sweeps
 f, ax = plt.subplots()
-# random_plot = sns.lineplot(
-#     data=df_progress_total_42,
-#     x='cum_reads',
-#     y='inv_perf_ratio',
-#     hue='R_budget',
-#     estimator='median',
-#     ci='sd',
-#     ax=ax,
-#     palette=sns.color_palette('rainbow', len(R_budgets)),
-#     legend=None,
-#     linewidth=2,
-# )
-# random_plot.legend(labels=['R_bu'+str(i) for i in R_budgets])
+random_plot = sns.lineplot(
+    data=df_progress_total_42,
+    x='cum_reads',
+    y='inv_perf_ratio',
+    hue='R_budget',
+    estimator='median',
+    ci='sd',
+    ax=ax,
+    palette=sns.color_palette('rainbow', len(R_budgets)),
+    legend=None,
+    linewidth=2,
+)
+random_plot.legend(labels=['R_bu'+str(i) for i in R_budgets])
 plot_1d_singleinstance(
     df=df_progress_total_42,
     x_axis='cum_reads',
@@ -2671,28 +3135,28 @@ plot_1d_singleinstance_list(
     # ylim=[0.975, 1.0025],
     xlim=[1e3, 1e6*1.1],
 )
-plot_1d_singleinstance_list(
-    df=df_progress_ternary_42,
-    x_axis='cum_reads',
-    y_axis='inv_perf_ratio',
-    ax=ax,
-    dict_fixed={'schedule': default_schedule},
-    # label_plot='Ordered exploration',
-    list_dicts=[{'run_per_solve': i}
-                for i in rs],
-    labels=labels,
-    prefix=prefix,
-    log_x=True,
-    log_y=True,
-    colors=['colormap'],
-    colormap=plt.cm.get_cmap('tab10'),
-    use_colorbar=False,
-    use_conf_interval=False,
-    save_fig=False,
-    linewidth=1.5,
-    markersize=10,
-    style='.-',
-    # ylim=[0.975, 1.0025],
-    xlim=[1e3, 1e6*1.1],
-)
+# plot_1d_singleinstance_list(
+#     df=df_progress_ternary_42,
+#     x_axis='cum_reads',
+#     y_axis='inv_perf_ratio',
+#     ax=ax,
+#     dict_fixed={'schedule': default_schedule},
+#     # label_plot='Ordered exploration',
+#     list_dicts=[{'run_per_solve': i}
+#                 for i in rs],
+#     labels=labels,
+#     prefix=prefix,
+#     log_x=True,
+#     log_y=True,
+#     colors=['colormap'],
+#     colormap=plt.cm.get_cmap('tab10'),
+#     use_colorbar=False,
+#     use_conf_interval=False,
+#     save_fig=False,
+#     linewidth=1.5,
+#     markersize=10,
+#     style='.-',
+#     # ylim=[0.975, 1.0025],
+#     xlim=[1e3, 1e6*1.1],
+# )
 # %%

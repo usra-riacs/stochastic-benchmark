@@ -449,6 +449,14 @@ def cleanup_df(
             df_new.drop(column, axis=1, inplace=True)
         elif column == 'schedule':
             df_new[column] = df_new[column].astype('category')
+        elif column.endswith('_conf_interval_lower'):
+            # df_new[column] = np.nanmin(df_new[[column, column.removesuffix('_conf_interval_lower')]], axis=1)
+            # Only valid for Python 3.9+ PEP-616
+            df_new[column] = np.nanmin(df_new[[column, column[:-20]]], axis=1)
+        elif column.endswith('_conf_interval_upper'):
+            # df_new[column] = np.nanmax(df_new[[column, column.removesuffix('_conf_interval_upper')]], axis=1)
+            # Only valid for Python 3.9+ PEP-616
+            df_new[column] = np.nanmax(df_new[[column, column[:-20]]], axis=1)
     if 'sweeps' in df_new.columns:
         df_new['reads'] = df_new['sweeps'] * df_new['boots']
         df_new['sweeps'] = df_new['sweeps'].astype('int', errors='ignore')
@@ -456,7 +464,6 @@ def cleanup_df(
         df_new['reads'] = df_new['boots'] * default_sweeps
     df_new['reads'] = df_new['reads'].astype('int', errors='ignore')
     df_new['boots'] = df_new['boots'].astype('int', errors='ignore')
-    # TODO this should also clean up the confidence intervals in case they are beyond the medium level
     return df_new
     # TODO Consider if we should change instance column to be categoric
 
@@ -853,7 +860,7 @@ ax = plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    default_dict=default_dict,
+    default_dict=default_dict.update({'reads': default_sweeps*default_boots}),
     use_colorbar=False,
     ylim=[0.95, 1.005]
 )
@@ -920,7 +927,7 @@ plot_1d_singleinstance_list(
     ax=ax,
     dict_fixed={'schedule': 'geometric', 'instance': 42},
     list_dicts=[{'boots': j}
-                for j in [10, 100, 1000]],
+                for j in [1, 10, 100, 1000]],
     labels=labels,
     prefix=prefix,
     log_x=True,
@@ -1011,6 +1018,31 @@ ax = plot_1d_singleinstance_list(
     use_colorbar=False,
     colors=['colormap'],
     ylim=[0.95, 1.005],
+    # xlim=[1e2, 5e5],
+)
+# %%
+# Plot with inverse performance ratio vs reads for interesting sweeps
+f, ax = plt.subplots()
+ax = plot_1d_singleinstance_list(
+    df=df_dneal_42,
+    x_axis='reads',
+    y_axis='inv_perf_ratio',
+    # instance=42,
+    dict_fixed={
+        'instance': 42,
+        'schedule': 'geometric'
+    },
+    ax=ax,
+    list_dicts=[{'Tfactor': i} for i in interesting_Tfactors],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=True,
+    save_fig=False,
+    default_dict=default_dict,
+    use_colorbar=False,
+    colors=['colormap'],
+    # ylim=[0.95, 1.005],
     # xlim=[1e2, 5e5],
 )
 # %%

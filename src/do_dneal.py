@@ -80,3 +80,21 @@ def createRandomSKModel(
             text_file = open(instance_file_name, "w")
             text_file.write(model_random.to_coo())
             text_file.close()
+
+# %%
+# Compute random energy file
+compute_random = False
+if compute_random:
+    for instance in instance_list:
+        # Load problem instance
+        np.random.seed(instance)
+        J = np.random.rand(N, N)
+        # We only consider upper triangular matrix ignoring the diagonal
+        J = np.triu(J, 1)
+        h = np.random.rand(N)
+        ising_model = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
+        random_energy, _ = randomEnergySampler(
+            ising_model, dwave_sampler=False)
+        with open(os.path.join(results_path, "random_energies.txt"), "a") as gs_file:
+            gs_file.write(prefix + str(instance) + " " +
+                          str(random_energy) + " " + "best_found pysa\n")

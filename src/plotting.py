@@ -341,6 +341,10 @@ def plot_1d_singleinstance(
             ax.axhline(default_val,
                        label='Default',
                        linestyle='--')
+            if x_axis in default_dict.keys():
+                ax.axvline(default_dict[x_axis],
+                           label='Default',
+                           linestyle='--')
 
     ax.legend()
     if y_axis in labels.keys():
@@ -506,6 +510,9 @@ def plot_1d_singleinstance_list(
             ax.axhline(default_val,
                        label='Default',
                        linestyle='--')
+            if x_axis in default_dict.keys():
+                ax.axvline(default_dict[x_axis],
+                           linestyle='--')
 
     if not single_instance:
         if use_colorbar:

@@ -267,3 +267,28 @@ def createDnealExperimentFileList(
             fileList, key=lambda x: getInstanceDnealExperiment(x))
     return fileList
 
+
+
+# %%
+# Function to load ground state solutions from solution file gs_energies.txt
+
+
+def loadEnergyFromFile(data_file, instance_name):
+    '''
+    Loads the minimum energy of a given instance from file gs_energies.txt
+
+    Args:
+        data_file: The file to load the energies from.
+        instance_name: The name of the instance to load the energy for.
+
+    Returns:
+        The minimum energy of the instance.
+
+    '''
+    energies = []
+    with open(data_file, "r") as fin:
+        for line in fin:
+            if(line.split()[0] == instance_name):
+                energies.append(float(line.split()[1]))
+
+    return min(energies)

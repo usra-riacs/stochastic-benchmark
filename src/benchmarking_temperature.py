@@ -8,7 +8,6 @@ import pickle as pkl
 import time
 from ctypes.wintypes import DWORD
 from gc import collect
-from turtle import width
 from typing import List, Union
 from unicodedata import category
 
@@ -389,6 +388,7 @@ total_reads = 1000
 default_reads = 1000
 default_sweeps = 1000
 default_Tfactor = 1.0
+default_schedule = 'geometric'
 default_boots = total_reads
 # %%
 # Function to generate stats aggregated dataframe
@@ -589,7 +589,7 @@ labels = {
 
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples
-default_dict = {'schedule': 'geometric',
+default_dict = {'schedule': default_schedule,
                 'Tfactor': default_Tfactor, 'boots': default_boots}
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
@@ -946,91 +946,6 @@ df_results_all = createDnealResultsDataframes(
     save_pickle=True,
 )
 # %%
-# Define function for ensemble averaging
-
-
-def mean_conf_interval(
-    x: pd.Series,
-    key_string: str,
-):
-    '''
-    Compute the mean and confidence interval of a series
-
-    Args:
-        x (pd.Series): Series to compute the mean and confidence interval
-        key_string (str): String to use as key for the output dataframe
-
-    Returns:
-        pd.Series: Series with mean and confidence interval
-    '''
-    key_mean_string = 'mean_' + key_string
-    result = {
-        key_mean_string: x[key_string].mean(),
-        key_mean_string + '_conf_interval_lower': x[key_string].mean() - np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))),
-        key_mean_string + '_conf_interval_upper': x[key_string].mean() + np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string])))}
-    return pd.Series(result)
-
-# Define function for ensemble median
-
-
-def median_conf_interval(
-    x: pd.Series,
-    key_string: str,
-):
-    '''
-    Compute the median and confidence interval of a series (see http://mathworld.wolfram.com/StatisticalMedian.html for uncertainty propagation)
-
-    Args:
-        x (pd.Series): Series to compute the median and confidence interval
-        key_string (str): String to use as key for the output dataframe
-
-    Returns:
-        pd.Series: Series with median and confidence interval
-    '''
-    key_median_string = 'median_' + key_string
-    result = {
-        key_median_string: x[key_string].median(),
-        key_median_string + '_conf_interval_lower': x[key_string].median() - np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))) * np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1)),
-        key_median_string + '_conf_interval_upper': x[key_string].median() + np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))) * np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1))}
-    return pd.Series(result)
-
-# Define function for ensemble metrics
-
-
-def conf_interval(
-    x: pd.Series,
-    key_string: str,
-    stat_measure: str = 'mean',
-):
-    '''
-    Compute the mean or median and confidence interval of a series (see http://mathworld.wolfram.com/StatisticalMedian.html for uncertainty propagation)
-
-    Args:
-        x (pd.Series): Series to compute the median and confidence interval
-        key_string (str): String to use as key for the output dataframe
-        stat_measure (str): String to use as key for the output dataframe
-
-    Returns:
-        pd.Series: Series with median and confidence interval
-    '''
-    key_median_string = stat_measure + '_' + key_string
-    deviation = np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(
-        x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string])))
-    if stat_measure == 'mean':
-        center = x[key_string].mean()
-    else:
-        center = x[key_string].median()
-        deviation = deviation * \
-            np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1))
-
-    result = {
-        key_median_string: center,
-        key_median_string + '_conf_interval_lower': center - deviation,
-        key_median_string + '_conf_interval_upper': center + deviation}
-    return pd.Series(result)
-
-
-# %%
 # Generate stats results
 use_raw_full_dataframe = False
 use_raw_dataframes = False
@@ -1345,7 +1260,7 @@ for instance in [3, 0, 7, 42]:
 # Plot with inverse performance ratio vs reads for interesting sweeps
 for instance in [3, 0, 7, 42]:
 
-    interesting_Tfactors = [
+    interesting_Tfactors = list(set([
         df_results_all[(df_results_all['boots'] == default_boots) & (df_results_all['instance'] == instance)].nsmallest(1, 'tts')[
             'Tfactor'].values[0],
         0.1,
@@ -1353,7 +1268,7 @@ for instance in [3, 0, 7, 42]:
         100,
         1000,
         1
-    ] + list(set(best_ensemble_Tfactor))
+    ] + best_ensemble_Tfactor))
     f, ax = plt.subplots()
     ax = plot_1d_singleinstance_list(
         df=df_results_all,
@@ -1861,6 +1776,7 @@ for R_budget in R_budgets:
         ['R_budget', 'frac_r_exploration', 'run_per_solve',
             'median_median_perf_ratio', 'mean_median_perf_ratio']
     ])
+
 best_random_search_idx = pd.concat(df_best_random_list).set_index(
     ['R_budget', 'frac_r_exploration', 'run_per_solve']).index
 df_best_random = df_progress.set_index(
@@ -2399,7 +2315,7 @@ df_name = "df_progress_ternary_42T.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 # TODO: check that 'geometric' is replaced accross the code with default_schedule
 default_schedule = 'geometric'
-search_metric = 'tts'
+search_metric = 'perf_ratio'
 compute_metric = 'perf_ratio'
 if search_metric == 'tts':
     search_direction = -1  # -1 for decreasing, 1 for increasing
@@ -2503,7 +2419,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
 else:
     df_progress_ternary_42 = pd.read_pickle(df_path)
 
-if 'perf_ratio' in df_progress_ternary_42.columns:
+if 'inv_perf_ratio' not in df_progress_ternary_42.columns:
     df_progress_ternary_42['inv_perf_ratio'] = 1 - \
         df_progress_ternary_42['perf_ratio'] + EPSILON
 
@@ -2518,10 +2434,11 @@ repetitions = 10  # Times to run the algorithm
 df_name = "df_progress_42T.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 compute_metric = 'perf_ratio'
+parameters = ['schedule', 'Tfactor']
 df_search = df_dneal_42[
-    ['schedule', 'Tfactor', 'boots', 'reads'] + [compute_metric]
+    parameters + ['boots', 'reads'] + [compute_metric]
 ].set_index(
-    ['schedule', 'Tfactor', 'boots']
+    parameters + ['boots']
 )
 use_raw_dataframes = False
 if use_raw_dataframes or os.path.exists(df_path) is False:
@@ -2556,7 +2473,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     converged = True
                     break
             exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
-                ['schedule', 'Tfactor', 'boots'])
+                parameters + ['boots'])
             exploration_step[compute_metric] = exploration_step[compute_metric].expanding(
                 min_periods=1).max()
             exploration_step.reset_index('boots', inplace=True)
@@ -2569,7 +2486,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
             progress_list.append(exploration_step)
 
             exploitation_step = df_search.reset_index().set_index(
-                ['schedule', 'Tfactor']).loc[exploration_step.nlargest(1, compute_metric).index]
+                parameters).loc[exploration_step.nlargest(1, compute_metric).index]
             exploitation_step['cum_reads'] = exploitation_step['reads'] + \
                 exploration_step['cum_reads'].max()
             exploitation_step.sort_values(['cum_reads'], inplace=True)
@@ -2619,19 +2536,19 @@ interesting_Tfactors = list(set([
 
 ] + best_ensemble_Tfactor))
 f, ax = plt.subplots()
-random_plot = sns.lineplot(
-    data=df_progress_total_42,
-    x='cum_reads',
-    y='perf_ratio',
-    hue='R_budget',
-    estimator='median',
-    ci=None,
-    ax=ax,
-    palette=sns.color_palette('rainbow', len(R_budgets)),
-    # legend=[str(i) for i in R_budgets],
-    linewidth=1.5,
-)
-random_plot.legend(labels=['R_bu'+str(i) for i in R_budgets])
+# random_plot = sns.lineplot(
+#     data=df_progress_total_42,
+#     x='cum_reads',
+#     y='perf_ratio',
+#     hue='R_budget',
+#     estimator='median',
+#     ci=None,
+#     ax=ax,
+#     palette=sns.color_palette('rainbow', len(R_budgets)),
+#     # legend=[str(i) for i in R_budgets],
+#     linewidth=1.5,
+# )
+# random_plot.legend(labels=['R_bu'+str(i) for i in R_budgets])
 plot_1d_singleinstance(
     df=df_progress_total_42,
     x_axis='cum_reads',
@@ -2667,6 +2584,7 @@ plot_1d_singleinstance_list(
     save_fig=False,
     log_x=True,
     log_y=False,
+    use_conf_interval=False,
     default_dict=default_dict.update({'instance': instance}),
     use_colorbar=False,
     ylim=[0.975, 1.0025],
@@ -2700,19 +2618,19 @@ plot_1d_singleinstance_list(
 # Evaluate instance 42 with strategies learned from ensemble anaylsis
 # Plot with inverse performance ratio vs reads for interesting sweeps
 f, ax = plt.subplots()
-random_plot = sns.lineplot(
-    data=df_progress_total_42,
-    x='cum_reads',
-    y='inv_perf_ratio',
-    hue='R_budget',
-    estimator='median',
-    ci='sd',
-    ax=ax,
-    palette=sns.color_palette('rainbow', len(R_budgets)),
-    legend=None,
-    linewidth=2,
-)
-random_plot.legend(labels=['R_bu'+str(i) for i in R_budgets])
+# random_plot = sns.lineplot(
+#     data=df_progress_total_42,
+#     x='cum_reads',
+#     y='inv_perf_ratio',
+#     hue='R_budget',
+#     estimator='median',
+#     ci='sd',
+#     ax=ax,
+#     palette=sns.color_palette('rainbow', len(R_budgets)),
+#     legend=None,
+#     linewidth=2,
+# )
+# random_plot.legend(labels=['R_bu'+str(i) for i in R_budgets])
 plot_1d_singleinstance(
     df=df_progress_total_42,
     x_axis='cum_reads',
@@ -2732,85 +2650,49 @@ plot_1d_singleinstance(
     xlim=[1e3, 1e6*1.1],
     linewidth=2.5,
 )
-# plot_1d_singleinstance_list(
-#     df=df_results_all,
-#     x_axis='reads',
-#     y_axis='inv_perf_ratio',
-#     dict_fixed={
-#         'instance': instance,
-#         'schedule': 'geometric'
-#     },
-#     ax=ax,
-#     list_dicts=[{'Tfactor': i}
-#                 for i in [1,1000]],
-#     labels=labels,
-#     prefix=prefix,
-#     log_x=True,
-#     log_y=True,
-#     save_fig=False,
-#     default_dict=default_dict.update({'instance': instance}),
-#     use_colorbar=False,
-#     # ylim=[0.975, 1.0025],
-#     xlim=[1e3, 1e6*1.1],
-# )
-# plot_1d_singleinstance_list(
-#     df=df_progress_ternary_42,
-#     x_axis='cum_reads',
-#     y_axis='inv_perf_ratio',
-#     ax=ax,
-#     dict_fixed={'schedule': default_schedule},
-#     # label_plot='Ordered exploration',
-#     list_dicts=[{'run_per_solve': i}
-#                 for i in rs],
-#     labels=labels,
-#     prefix=prefix,
-#     log_x=True,
-#     log_y=True,
-#     colors=['colormap'],
-#     colormap=plt.cm.get_cmap('tab10'),
-#     use_colorbar=False,
-#     use_conf_interval=False,
-#     save_fig=False,
-#     linewidth=1.5,
-#     markersize=10,
-#     style='.-',
-#     # ylim=[0.975, 1.0025],
-#     xlim=[1e3, 1e6*1.1],
-# )
-
-# %%
-
-# %%
-
-# Plot for all the experiments trajectories
-f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_progress_total_42,
-    x_axis='cum_reads',
-    y_axis='perf_ratio',
-    ax=ax,
+    df=df_results_all,
+    x_axis='reads',
+    y_axis='inv_perf_ratio',
     dict_fixed={
-        'R_budget': R_budgets[-1],
-        # 'R_explor': R_budgets[0]*frac_r_exploration[-1],
-        # 'run_per_solve': rs[0],
+        'instance': instance,
+        'schedule': 'geometric'
     },
-    # label_plot='Ordered exploration',
-    list_dicts=[{'experiment': i}
-                for i in range(repetitions)],
+    ax=ax,
+    list_dicts=[{'Tfactor': i}
+                for i in [1, 1000]],
     labels=labels,
     prefix=prefix,
     log_x=True,
-    log_y=False,
-    # colors=['colormap'],
-    colormap=plt.cm.get_cmap('rainbow'),
+    log_y=True,
+    save_fig=False,
+    default_dict=default_dict.update({'instance': instance}),
+    use_colorbar=False,
+    # ylim=[0.975, 1.0025],
+    xlim=[1e3, 1e6*1.1],
+)
+plot_1d_singleinstance_list(
+    df=df_progress_ternary_42,
+    x_axis='cum_reads',
+    y_axis='inv_perf_ratio',
+    ax=ax,
+    dict_fixed={'schedule': default_schedule},
+    # label_plot='Ordered exploration',
+    list_dicts=[{'run_per_solve': i}
+                for i in rs],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=True,
+    colors=['colormap'],
+    colormap=plt.cm.get_cmap('tab10'),
     use_colorbar=False,
     use_conf_interval=False,
     save_fig=False,
-    # ylim=[0.90, 1.0025],
-    xlim=[1e3, R_budgets[-1]],
     linewidth=1.5,
-    marker=None,
-    colors=['gray']*len(range(repetitions)),
-    alpha=0.2,
+    markersize=10,
+    style='.-',
+    # ylim=[0.975, 1.0025],
+    xlim=[1e3, 1e6*1.1],
 )
 # %%

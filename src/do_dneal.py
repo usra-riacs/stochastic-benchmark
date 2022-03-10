@@ -98,3 +98,32 @@ if compute_random:
         with open(os.path.join(results_path, "random_energies.txt"), "a") as gs_file:
             gs_file.write(prefix + str(instance) + " " +
                           str(random_energy) + " " + "best_found pysa\n")
+
+
+
+# %%
+# Compute preliminary ground state file with best found solution by Dwave-neal
+compute_dneal_gs = False
+if compute_dneal_gs:
+    for instance in instance_list:
+        # List all the pickled filed for an instance files
+        pickle_list = createDnealExperimentFileList(
+            directory=dneal_pickle_path,
+            instance_list=[instance],
+            prefix='df_' + prefix,
+            suffix='.pkl'
+        )
+        min_energies = []
+        min_energy = np.inf
+        for file in pickle_list:
+            df_samples = pd.read_pickle(file)
+            if min_energy > df_samples['energy'].min():
+                min_energy = df_samples['energy'].min()
+                print(file)
+                print(min_energy)
+                min_energies.append(min_energy)
+                min_df_samples = df_samples.copy()
+
+        with open(os.path.join(results_path, "gs_energies.txt"), "a") as gs_file:
+            gs_file.write(prefix + str(instance) + " " +
+                          str(np.nanmin(min_energies)) + "  best_found dneal\n")

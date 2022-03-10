@@ -242,3 +242,89 @@ def cleanup_df(
             df_new[column] = df_new[column].astype('category')
 
     return df_new
+
+
+# %%
+# Define function for ensemble averaging
+
+
+def mean_conf_interval(
+    x: pd.Series,
+    key_string: str,
+):
+    '''
+    Compute the mean and confidence interval of a series
+
+    Args:
+        x (pd.Series): Series to compute the mean and confidence interval
+        key_string (str): String to use as key for the output dataframe
+
+    Returns:
+        pd.Series: Series with mean and confidence interval
+    '''
+    key_mean_string = 'mean_' + key_string
+    result = {
+        key_mean_string: x[key_string].mean(),
+        key_mean_string + '_conf_interval_lower': x[key_string].mean() - np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))),
+        key_mean_string + '_conf_interval_upper': x[key_string].mean() + np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string])))}
+    return pd.Series(result)
+
+# Define function for ensemble median
+
+
+def median_conf_interval(
+    x: pd.Series,
+    key_string: str,
+):
+    '''
+    Compute the median and confidence interval of a series (see http://mathworld.wolfram.com/StatisticalMedian.html for uncertainty propagation)
+
+    Args:
+        x (pd.Series): Series to compute the median and confidence interval
+        key_string (str): String to use as key for the output dataframe
+
+    Returns:
+        pd.Series: Series with median and confidence interval
+    '''
+    key_median_string = 'median_' + key_string
+    result = {
+        key_median_string: x[key_string].median(),
+        key_median_string + '_conf_interval_lower': x[key_string].median() - np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))) * np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1)),
+        key_median_string + '_conf_interval_upper': x[key_string].median() + np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))) * np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1))}
+    return pd.Series(result)
+
+# Define function for ensemble metrics
+
+
+def conf_interval(
+    x: pd.Series,
+    key_string: str,
+    stat_measure: str = 'mean',
+):
+    '''
+    Compute the mean or median and confidence interval of a series (see http://mathworld.wolfram.com/StatisticalMedian.html for uncertainty propagation)
+
+    Args:
+        x (pd.Series): Series to compute the median and confidence interval
+        key_string (str): String to use as key for the output dataframe
+        stat_measure (str): String to use as key for the output dataframe
+
+    Returns:
+        pd.Series: Series with median and confidence interval
+    '''
+    key_median_string = stat_measure + '_' + key_string
+    deviation = np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(
+        x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string])))
+    if stat_measure == 'mean':
+        center = x[key_string].mean()
+    else:
+        center = x[key_string].median()
+        deviation = deviation * \
+            np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1))
+
+    result = {
+        key_median_string: center,
+        key_median_string + '_conf_interval_lower': center - deviation,
+        key_median_string + '_conf_interval_upper': center + deviation}
+    return pd.Series(result)
+

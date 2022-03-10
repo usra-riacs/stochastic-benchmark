@@ -388,6 +388,7 @@ total_reads = 1000
 default_reads = 1000
 default_sweeps = 1000
 default_Tfactor = 1.0
+default_schedule = 'geometric'
 default_boots = total_reads
 # %%
 # Function to generate stats aggregated dataframe
@@ -589,7 +590,7 @@ labels = {
 
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples
-default_dict = {'schedule': 'geometric',
+default_dict = {'schedule': default_schedule,
                 'sweeps': default_sweeps, 'boots': default_boots}
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
@@ -944,91 +945,6 @@ df_results_all = createDnealResultsDataframes(
     save_pickle=True,
 )
 # %%
-# Define function for ensemble averaging
-
-
-def mean_conf_interval(
-    x: pd.Series,
-    key_string: str,
-):
-    '''
-    Compute the mean and confidence interval of a series
-
-    Args:
-        x (pd.Series): Series to compute the mean and confidence interval
-        key_string (str): String to use as key for the output dataframe
-
-    Returns:
-        pd.Series: Series with mean and confidence interval
-    '''
-    key_mean_string = 'mean_' + key_string
-    result = {
-        key_mean_string: x[key_string].mean(),
-        key_mean_string + '_conf_interval_lower': x[key_string].mean() - np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))),
-        key_mean_string + '_conf_interval_upper': x[key_string].mean() + np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string])))}
-    return pd.Series(result)
-
-# Define function for ensemble median
-
-
-def median_conf_interval(
-    x: pd.Series,
-    key_string: str,
-):
-    '''
-    Compute the median and confidence interval of a series (see http://mathworld.wolfram.com/StatisticalMedian.html for uncertainty propagation)
-
-    Args:
-        x (pd.Series): Series to compute the median and confidence interval
-        key_string (str): String to use as key for the output dataframe
-
-    Returns:
-        pd.Series: Series with median and confidence interval
-    '''
-    key_median_string = 'median_' + key_string
-    result = {
-        key_median_string: x[key_string].median(),
-        key_median_string + '_conf_interval_lower': x[key_string].median() - np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))) * np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1)),
-        key_median_string + '_conf_interval_upper': x[key_string].median() + np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string]))) * np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1))}
-    return pd.Series(result)
-
-# Define function for ensemble metrics
-
-
-def conf_interval(
-    x: pd.Series,
-    key_string: str,
-    stat_measure: str = 'mean',
-):
-    '''
-    Compute the mean or median and confidence interval of a series (see http://mathworld.wolfram.com/StatisticalMedian.html for uncertainty propagation)
-
-    Args:
-        x (pd.Series): Series to compute the median and confidence interval
-        key_string (str): String to use as key for the output dataframe
-        stat_measure (str): String to use as key for the output dataframe
-
-    Returns:
-        pd.Series: Series with median and confidence interval
-    '''
-    key_median_string = stat_measure + '_' + key_string
-    deviation = np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(
-        x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string])))
-    if stat_measure == 'mean':
-        center = x[key_string].mean()
-    else:
-        center = x[key_string].median()
-        deviation = deviation * \
-            np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1))
-
-    result = {
-        key_median_string: center,
-        key_median_string + '_conf_interval_lower': center - deviation,
-        key_median_string + '_conf_interval_upper': center + deviation}
-    return pd.Series(result)
-
-
-# %%
 # Generate stats results
 use_raw_full_dataframe = False
 use_raw_dataframes = False
@@ -1341,13 +1257,13 @@ for instance in [3, 0, 7, 42]:
 # Plot with inverse performance ratio vs reads for interesting sweeps
 for instance in [3, 0, 7, 42]:
 
-    interesting_sweeps = [
+    interesting_sweeps = list(set([
         int(df_results_all[(df_results_all['boots'] == default_boots) & (df_results_all['instance'] == instance)].nsmallest(1, 'tts')[
             'sweeps'].values[0]),
         10,
         default_sweeps//2,
         default_sweeps,
-    ] + list(set(best_ensemble_sweeps))
+    ] + best_ensemble_sweeps))
     f, ax = plt.subplots()
     ax = plot_1d_singleinstance_list(
         df=df_results_all,
@@ -1664,6 +1580,11 @@ experiments = rs * repetitions
 df_name = "df_progress_total.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 use_raw_dataframes = False
+df_search = df_results_all_stats[
+                                ['schedule', 'sweeps', 'boots',
+                                    'median_perf_ratio', 'mean_perf_ratio', 'reads']
+].set_index(
+    ['schedule', 'sweeps', 'boots'])
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
@@ -1688,12 +1609,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     total_reads = 0
                     for sweep in random_sweeps:
                         series_list.append(
-                            df_results_all_stats[
-                                ['schedule', 'sweeps', 'boots',
-                                    'median_perf_ratio', 'mean_perf_ratio', 'reads']
-                            ].set_index(
-                                ['schedule', 'sweeps', 'boots']
-                            ).loc[
+                            df_search.loc[
                                 idx['geometric', sweep, r]]
                         )
                         total_reads += sweep*r
@@ -1715,15 +1631,12 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                         min_periods=1)['reads'].sum().reset_index(drop=True).values
                     progress_list.append(exploration_step)
 
-                    exploitation_step = df_results_all_stats[
-                        ['schedule', 'sweeps', 'boots',
-                            'median_perf_ratio', 'mean_perf_ratio', 'reads']
-                    ].set_index(
+                    exploitation_step = df_search.reset_index().set_index(
                         ['schedule', 'sweeps']).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
                     exploitation_step['cum_reads'] = exploitation_step['reads'] + \
                         exploration_step['cum_reads'].max()
-                    exploitation_step = exploitation_step[exploitation_step['cum_reads'] <= R_budget]
                     exploitation_step.sort_values(['cum_reads'], inplace=True)
+                    exploitation_step = exploitation_step[exploitation_step['cum_reads'] <= R_budget]
                     exploitation_step['median_perf_ratio'].fillna(
                         0, inplace=True)
                     exploitation_step['median_perf_ratio'].clip(
@@ -1809,7 +1722,7 @@ df_progress['mean_mean_inv_perf_ratio'] = 1 - \
     df_progress['mean_mean_perf_ratio'] + EPSILON
 df_progress['frac_r_exploration'] = df_progress['R_explor'] / \
     df_progress['R_budget']
-
+df_progress = cleanup_df(df_progress)
 # %%
 # Experimental plot not considering that perf_ratio at the end is optimal
 # f, ax = plt.subplots()
@@ -1863,9 +1776,7 @@ best_random_search_idx = pd.concat(df_best_random_list).set_index(
     ['R_budget', 'frac_r_exploration', 'run_per_solve']).index
 df_best_random = df_progress.set_index(
     ['R_budget', 'frac_r_exploration', 'run_per_solve']
-).loc[
-    best_random_search_idx
-].reset_index()
+).loc[best_random_search_idx].reset_index()
 df_best_random = cleanup_df(df_best_random)
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance
@@ -2152,10 +2063,12 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
 else:
     df_progress_ternary = pd.read_pickle(df_path)
 
-df_progress_ternary['median_inv_perf_ratio'] = 1 - \
-    df_progress_ternary['median_perf_ratio'] + EPSILON
-df_progress_ternary['mean_inv_perf_ratio'] = 1 - \
-    df_progress_ternary['mean_perf_ratio'] + EPSILON
+if 'median_inv_perf_ratio' not in df_progress_ternary.columns:
+    df_progress_ternary['median_inv_perf_ratio'] = 1 - \
+        df_progress_ternary['median_perf_ratio'] + EPSILON
+if 'mean_inv_perf_ratio' not in df_progress_ternary.columns:
+    df_progress_ternary['mean_inv_perf_ratio'] = 1 - \
+        df_progress_ternary['mean_perf_ratio'] + EPSILON
 # %%
 # Plots of ternary search together with the best performing schedule
 for stat_measure in stat_measures:
@@ -2599,8 +2512,6 @@ instance = 42
 interesting_sweeps = list(set([
     int(df_results_all[(df_results_all['boots'] == default_boots) & (df_results_all['instance'] == instance)].nsmallest(1, 'tts')[
         'sweeps'].values[0]),
-    10,
-    default_sweeps//2,
     default_sweeps,
 ] + best_ensemble_sweeps))
 f, ax = plt.subplots()
@@ -2652,6 +2563,7 @@ plot_1d_singleinstance_list(
     save_fig=False,
     log_x=True,
     log_y=False,
+    use_conf_interval=False,
     default_dict=default_dict.update({'instance': instance}),
     use_colorbar=False,
     ylim=[0.975, 1.0025],
@@ -2727,11 +2639,12 @@ plot_1d_singleinstance_list(
     },
     ax=ax,
     list_dicts=[{'sweeps': i}
-                for i in [180, 1000]],
+                for i in interesting_sweeps],
     labels=labels,
     prefix=prefix,
     log_x=True,
     log_y=True,
+    use_conf_interval=False,
     save_fig=False,
     default_dict=default_dict.update({'instance': instance}),
     use_colorbar=False,
@@ -2762,5 +2675,4 @@ plot_1d_singleinstance_list(
     # ylim=[0.975, 1.0025],
     xlim=[1e3, 1e6],
 )
-
 # %%

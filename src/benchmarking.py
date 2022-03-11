@@ -174,6 +174,7 @@ def createDnealSamplesDataframe(
     df_samples_name = 'df_' + dict_pickle_name + 'kl'
     df_path = os.path.join(dneal_pickle_path, df_samples_name)
     if os.path.exists(df_path):
+        # TODO: This loop is wrong as it never forces to rerun the solver
         try:
             df_samples = pd.read_pickle(df_path)
             return df_samples

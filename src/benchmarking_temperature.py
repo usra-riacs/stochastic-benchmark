@@ -271,8 +271,8 @@ def createDnealResultsDataframes(
         if all([k in df[i].values for (i, j) in parameters_dict.items() for k in j]):
             print('The dataframe has some data for the parameters')
             # The parameters dictionary has lists as values as the loop below makes the concatenation faster than running the loop for each parameter
-            cond = [df[k].apply(lambda k: k == i).astype(bool)
-                    for k, v in parameters_dict.items() for i in v]
+            cond = [df[k].isin(v).astype(bool)
+                    for k, v in parameters_dict.items()]
             cond_total = functools.reduce(lambda x, y: x & y, cond)
             if all(boots in df[cond_total]['boots'].values for boots in boots_list):
                 print('The dataframe already has all the data')

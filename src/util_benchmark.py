@@ -212,7 +212,7 @@ def cleanup_df(
     '''
     df_new = df.copy()
     int_columns = ['reads', 'boots', 'sweeps',
-                   'R_budget', 'R_exploit', 'R_explore', 'cum_reads']
+                   'R_budget', 'R_exploit', 'R_explore', 'cum_reads', 'swe', 'rep']
     cat_columns = ['schedule', 'instance']
     for column in df_new.columns:
         if column.endswith('conf_interval'):
@@ -232,6 +232,8 @@ def cleanup_df(
     if 'boots' in df_new.columns:
         if 'sweeps' in df_new.columns:
             df_new['reads'] = df_new['sweeps'] * df_new['boots']
+        elif 'swe' in df_new.columns and 'rep' in df_new.columns:
+            df_new['reads'] = df_new['swe'] * df_new['rep'] * df_new['boots']
         else:
             df_new['reads'] = default_sweeps * df_new['boots']
 

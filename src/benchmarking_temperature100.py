@@ -125,7 +125,7 @@ print(min_energy)
 # %%
 # Load zipped results if using raw data
 overwrite_pickles = False
-use_raw_dataframes = True
+use_raw_dataframes = False
 
 # %%
 # Function to generate samples dataframes or load them otherwise
@@ -206,7 +206,7 @@ def createDnealSamplesDataframeTemp(
             samples = sim_ann_sampler.sample(
                 model_random,
                 num_reads=total_reads,
-                num_sweeps=parameters['sweep'],
+                num_sweeps=parameters['sweeps'],
                 beta_schedule_type=parameters['schedule'],
                 beta_range=(default_samples.info['beta_range'][0]*parameters['Tfactor'],
                             default_samples.info['beta_range'][1]),
@@ -499,7 +499,7 @@ def generateStatsDataframe(
 
 # %%
 # Compute results for instance 42 using D-Wave Neal
-use_raw_dataframes = True
+use_raw_dataframes = False
 use_raw_dneal_pickles = False
 overwrite_pickles = False
 instance = 42
@@ -525,11 +525,11 @@ if os.path.exists(df_path) and False:
     df_dneal_42 = pd.read_pickle(df_path)
 else:
     df_dneal_42 = None
-
+parameters_dict = {'schedule': schedules_list, 'sweeps': [default_sweeps], 'Tfactor': Tfactor_list}
 df_dneal_42 = createDnealResultsDataframes(
     df=df_dneal_42,
     instance_list=[instance],
-    parameters_dict={'schedule': schedules_list, 'Tfactor': Tfactor_list},
+    parameters_dict=parameters_dict,
     boots_list=boots_list,
     dneal_results_path=dneal_results_path,
     dneal_pickle_path=dneal_pickle_path,
@@ -749,13 +749,15 @@ interesting_Tfactors = [
 ]
 
 # Iterating for all values of bootstrapping downsampling proves to be very expensive, rather use steps of 10
-all_boots_list = list(range(1, 1001, 1))
-
+# all_boots_list = list(range(1, 1001, 1))
+all_boots_list = [i*10**j for j in [0, 1, 2] for i in [1,2,3,5] ] + [1000]
+detailed_parameters_dict = {'schedule': schedules_list,
+                     'sweeps': [default_sweeps],
+                     'Tfactor': interesting_Tfactors}
 df_dneal_42 = createDnealResultsDataframes(
     df=df_dneal_42,
     instance_list=[instance],
-    parameters_dict={'schedule': schedules_list,
-                     'Tfactor': interesting_Tfactors},
+    parameters_dict=detailed_parameters_dict,
     boots_list=all_boots_list,
     dneal_results_path=dneal_results_path,
     dneal_pickle_path=dneal_pickle_path,
@@ -854,9 +856,9 @@ training_instance_list = [i for i in range(20)]
 # Merge all results dataframes in a single one
 schedules_list = ['geometric']
 df_list = []
-use_raw_dataframes = True
+use_raw_dataframes = False
 use_raw_dneal_pickles = False
-all_boots_list = list(range(1, 1001, 1))
+parameters_dict = {'schedule': schedules_list, 'sweeps': [default_sweeps], 'Tfactor': Tfactor_list}
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + "t.pkl"
     df_path = os.path.join(dneal_results_path, df_name)
@@ -867,7 +869,7 @@ for instance in instance_list:
     df_results_dneal = createDnealResultsDataframes(
         df=df_results_dneal,
         instance_list=[instance],
-        parameters_dict={'schedule': schedules_list, 'Tfactor': Tfactor_list},
+        parameters_dict=parameters_dict,
         boots_list=boots_list,
         dneal_results_path=dneal_results_path,
         dneal_pickle_path=dneal_pickle_path,
@@ -893,11 +895,13 @@ for instance in instance_list:
         1,
     ]
 
+    detailed_parameters_dict = {'schedule': schedules_list,
+                        'sweeps': [default_sweeps],
+                        'Tfactor': interesting_Tfactors}
     df_results_dneal = createDnealResultsDataframes(
         df=df_results_dneal,
         instance_list=[instance],
-        parameters_dict={'schedule': schedules_list,
-                         'Tfactor': interesting_Tfactors},
+        parameters_dict=detailed_parameters_dict,
         boots_list=all_boots_list,
         dneal_results_path=dneal_results_path,
         dneal_pickle_path=dneal_pickle_path,
@@ -923,7 +927,7 @@ df_results_all.to_pickle(df_path)
 # %%
 # Run all the instances with Dwave-neal
 overwrite_pickles = False
-use_raw_dataframes = True
+use_raw_dataframes = False
 use_raw_dneal_pickles = False
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
@@ -931,7 +935,7 @@ schedules_list = ['geometric']
 df_results_all = createDnealResultsDataframes(
     df=df_results_all,
     instance_list=instance_list,
-    parameters_dict={'schedule': schedules_list, 'Tfactor': Tfactor_list},
+    parameters_dict=parameters_dict,
     boots_list=boots_list,
     dneal_results_path=dneal_results_path,
     dneal_pickle_path=dneal_pickle_path,
@@ -954,7 +958,7 @@ df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
     instance_list=training_instance_list,
-    parameters_dict={'schedule': schedules_list, 'Tfactor': Tfactor_list},
+    parameters_dict=parameters_dict,
     resource_list=boots_list,
     dneal_results_path=dneal_results_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
@@ -1085,11 +1089,18 @@ plot_1d_singleinstance_list(
 best_ensemble_Tfactor = []
 df_list = []
 stat_measures = ['mean', 'median']
-use_raw_dataframes = True
+use_raw_dataframes = False
 for stat_measure in stat_measures:
     best_Tfactor = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
         1, stat_measure + '_tts')['Tfactor'].values[0]
     best_ensemble_Tfactor.append(best_Tfactor)
+
+best_ensemble_parameters_dict = {
+    'schedule': schedules_list,
+    'sweeps': [default_sweeps],
+    'Tfactor': best_ensemble_Tfactor}
+
+
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + "t.pkl"
     df_path = os.path.join(dneal_results_path, df_name)
@@ -1097,8 +1108,7 @@ for instance in instance_list:
     df_results_dneal = createDnealResultsDataframes(
         df=df_results_dneal,
         instance_list=[instance],
-        parameters_dict={'schedule': schedules_list,
-                         'Tfactor': best_ensemble_Tfactor},
+        parameters_dict=best_ensemble_parameters_dict,
         boots_list=all_boots_list,
         dneal_results_path=dneal_results_path,
         dneal_pickle_path=dneal_pickle_path,
@@ -1125,8 +1135,7 @@ df_results_all.to_pickle(df_path)
 df_results_all = createDnealResultsDataframes(
     df=df_results_all,
     instance_list=instance_list,
-    parameters_dict={'schedule': schedules_list,
-                     'Tfactor': best_ensemble_Tfactor},
+    parameters_dict=best_ensemble_parameters_dict,
     boots_list=all_boots_list,
     dneal_results_path=dneal_results_path,
     dneal_pickle_path=dneal_pickle_path,
@@ -1303,8 +1312,7 @@ df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
     instance_list=training_instance_list,
-    parameters_dict={'schedule': schedules_list,
-                     'Tfactor': Tfactor_list},
+    parameters_dict=parameters_dict,
     resource_list=boots_list,
     dneal_results_path=dneal_results_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
@@ -1586,9 +1594,9 @@ for stat_measure in stat_measures:
 # %%
 # Random search for the ensemble
 repetitions = 10  # Times to run the algorithm
-rs = [1, 5, 10]  # resources per parameter setting (runs)
-frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
-R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
+rs = [5, 20, 50, 100]  # resources per parameter setting (runs)
+frac_r_exploration = [0.05, 0.1, 0.2, 0.5, 0.75]
+R_budgets = [1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 parameters = ['schedule', 'Tfactor']
 experiments = rs * repetitions
 df_name = "df_progress_totalt.pkl"
@@ -1695,13 +1703,10 @@ df_progress_total = cleanup_df(df_progress_total)
 df_progress_total.to_pickle(df_path)
 
 # %%
-# Trinary search in the ensemble
-rs = [1, 5, 10]  # resources per parameter setting (runs)
-frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
-R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
+# Ternary search in the ensemble
 parameters = ['schedule', 'Tfactor']
 experiments = rs * repetitions
-df_name = "df_progress_total_trinaryt.pkl"
+df_name = "df_progress_total_ternaryt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 use_raw_dataframes = True
 df_search = df_results_all_stats[
@@ -1829,33 +1834,33 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                 exploitation_step['R_explor'] = R_exploration
                 exploitation_step['R_exploit'] = R_exploitation
                 progress_list.append(exploitation_step)
-    df_progress_total_trinary = pd.concat(progress_list, axis=0)
-    df_progress_total_trinary.reset_index(inplace=True)
-    df_progress_total_trinary.to_pickle(df_path)
+    df_progress_total_ternary = pd.concat(progress_list, axis=0)
+    df_progress_total_ternary.reset_index(inplace=True)
+    df_progress_total_ternary.to_pickle(df_path)
 else:
-    df_progress_total_trinary = pd.read_pickle(df_path)
+    df_progress_total_ternary = pd.read_pickle(df_path)
 
-if 'R_budget' not in df_progress_total_trinary.columns:
-    df_progress_total_trinary['R_budget'] = df_progress_total_trinary['R_explor'] + \
-        df_progress_total_trinary['R_exploit']
+if 'R_budget' not in df_progress_total_ternary.columns:
+    df_progress_total_ternary['R_budget'] = df_progress_total_ternary['R_explor'] + \
+        df_progress_total_ternary['R_exploit']
 
 
 for stat_measure in stat_measures:
-    if 'best_' + stat_measure + '_perf_ratio' not in df_progress_total_trinary.columns:
-        df_progress_total_trinary[stat_measure + '_inv_perf_ratio'] = 1 - \
-            df_progress_total_trinary[stat_measure + '_perf_ratio'] + EPSILON
+    if 'best_' + stat_measure + '_perf_ratio' not in df_progress_total_ternary.columns:
+        df_progress_total_ternary[stat_measure + '_inv_perf_ratio'] = 1 - \
+            df_progress_total_ternary[stat_measure + '_perf_ratio'] + EPSILON
         # df_progress_total['best_' + stat_measure + '_inv_perf_ratio'] = df_progress_total.sort_values(
         # ['cum_reads', 'R_budget']
         # ).groupby(['run_per_solve']
         # ).expanding(min_periods=1).min().droplevel(-1).reset_index()[stat_measure + '_inv_perf_ratio']
-        df_progress_total_trinary['best_' + stat_measure + '_inv_perf_ratio'] = df_progress_total_trinary.sort_values(
+        df_progress_total_ternary['best_' + stat_measure + '_inv_perf_ratio'] = df_progress_total_ternary.sort_values(
             ['cum_reads', 'R_budget']
         ).expanding(min_periods=1).min()[stat_measure + '_inv_perf_ratio']
-        df_progress_total_trinary['best_' + stat_measure + '_perf_ratio'] = 1 - \
-            df_progress_total_trinary['best_' + stat_measure +
+        df_progress_total_ternary['best_' + stat_measure + '_perf_ratio'] = 1 - \
+            df_progress_total_ternary['best_' + stat_measure +
                               '_inv_perf_ratio'] + EPSILON
-df_progress_total_trinary = cleanup_df(df_progress_total_trinary)
-# df_progress_total_trinary.to_pickle(df_path)
+df_progress_total_ternary = cleanup_df(df_progress_total_ternary)
+# df_progress_total_ternary.to_pickle(df_path)
 
 # %%
 # Plot for all the experiments trajectories
@@ -1919,7 +1924,7 @@ plot_1d_singleinstance_list(
     marker=None,
 )
 plot_1d_singleinstance_list(
-    df=df_progress_total_trinary,
+    df=df_progress_total_ternary,
     x_axis='cum_reads',
     y_axis='best_median_perf_ratio',
     ax=ax,
@@ -1989,11 +1994,11 @@ else:
     df_progress = pd.read_pickle(df_path)
 # %%
 # Average across the experiments with the same R_budget, R_explor, and run_per_solve for envelope
-df_name = "df_progress_trinaryt.pkl"
+df_name = "df_progress_ternaryt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
-    df_progress_trinary = df_progress_total_trinary[
+    df_progress_ternary = df_progress_total_ternary[
         ['schedule', 'cum_reads', 'R_budget', 'R_explor',
             'run_per_solve', 'median_perf_ratio', 'mean_perf_ratio'
         ]
@@ -2009,24 +2014,24 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
             ).reset_index()
     for stat_measure in stat_measures:
         for stat_measure_inv in stat_measures:
-            df_progress_trinary[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = 1 - \
-                df_progress_trinary[stat_measure + '_' +
+            df_progress_ternary[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = 1 - \
+                df_progress_ternary[stat_measure + '_' +
                             stat_measure_inv + '_perf_ratio'] + EPSILON
 
-            df_progress_trinary['best_' + stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = df_progress_trinary.sort_values(
+            df_progress_ternary['best_' + stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = df_progress_ternary.sort_values(
                 ['cum_reads']
             ).expanding(min_periods=1).min()[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio']
-            df_progress_trinary['best_' + stat_measure + '_' + stat_measure_inv + '_perf_ratio'] = 1 - \
-                df_progress_trinary['best_' + stat_measure + '_' +
+            df_progress_ternary['best_' + stat_measure + '_' + stat_measure_inv + '_perf_ratio'] = 1 - \
+                df_progress_ternary['best_' + stat_measure + '_' +
                             stat_measure_inv + '_inv_perf_ratio'] + EPSILON
 
-    df_progress_trinary['frac_r_exploration'] = df_progress_trinary['R_explor'] / \
-        df_progress_trinary['R_budget']
+    df_progress_ternary['frac_r_exploration'] = df_progress_ternary['R_explor'] / \
+        df_progress_ternary['R_budget']
 
-    df_progress_trinary = cleanup_df(df_progress_trinary)
-    df_progress_trinary.to_pickle(df_path)
+    df_progress_ternary = cleanup_df(df_progress_ternary)
+    df_progress_ternary.to_pickle(df_path)
 else:
-    df_progress_trinary = pd.read_pickle(df_path)
+    df_progress_ternary = pd.read_pickle(df_path)
 # %%
 # Experimental plot not considering that perf_ratio at the end is optimal
 # f, ax = plt.subplots()
@@ -2083,12 +2088,12 @@ df_best_random = df_progress.set_index(
 ).loc[best_random_search_idx].reset_index()
 df_best_random = cleanup_df(df_best_random)
 # %%
-# Compute best trinary exploration-exploitation strategy for each R_budget
-df_best_trinary_list = []
+# Compute best ternary exploration-exploitation strategy for each R_budget
+df_best_ternary_list = []
 for R_budget in R_budgets:
-    df_best_trinary_list.append(df_progress_trinary[
-        (df_progress_trinary['schedule'] == default_schedule) &
-        (df_progress_trinary['R_budget'] == R_budget)
+    df_best_ternary_list.append(df_progress_ternary[
+        (df_progress_ternary['schedule'] == default_schedule) &
+        (df_progress_ternary['R_budget'] == R_budget)
     ].sort_values(['cum_reads']
                   ).nlargest(1, ['mean_median_perf_ratio', 'median_median_perf_ratio']
                              )[
@@ -2096,12 +2101,12 @@ for R_budget in R_budgets:
             'median_median_perf_ratio', 'mean_median_perf_ratio']
     ])
 
-best_trinary_search_idx = pd.concat(df_best_trinary_list).set_index(
+best_ternary_search_idx = pd.concat(df_best_ternary_list).set_index(
     ['R_budget', 'frac_r_exploration', 'run_per_solve']).index
-df_best_trinary = df_progress_trinary.set_index(
+df_best_ternary = df_progress_ternary.set_index(
     ['R_budget', 'frac_r_exploration', 'run_per_solve']
-).loc[best_trinary_search_idx].reset_index()
-df_best_trinary = cleanup_df(df_best_trinary)
+).loc[best_ternary_search_idx].reset_index()
+df_best_ternary = cleanup_df(df_best_ternary)
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance
 for stat_measure in stat_measures:
@@ -2213,14 +2218,14 @@ for stat_measure in stat_measures:
         color=['g'],
     )
     plot_1d_singleinstance(
-        df=df_progress_trinary,
+        df=df_progress_ternary,
         x_axis='cum_reads',
         # y_axis='mean_' + stat_measure + '_perf_ratio',
         # y_axis=stat_measure + '_median_perf_ratio',
         y_axis='best_' + stat_measure + '_median_perf_ratio',
         ax=ax,
         dict_fixed={'schedule': default_schedule},
-        label_plot='Best trinary exploration exploitation',
+        label_plot='Best ternary exploration exploitation',
         # list_dicts=[{'R_budget': i}
         #             for i in R_budgets],
         # list_dicts=[{'run_per_solve': i}
@@ -2261,7 +2266,7 @@ for stat_measure in stat_measures:
     #     markersize=1,
     # )
     # plot_1d_singleinstance_list(
-    #     df=df_best_trinary,
+    #     df=df_best_ternary,
     #     x_axis='cum_reads',
     #     # y_axis='mean_' + stat_measure + '_perf_ratio',
     #     y_axis=stat_measure + '_median_perf_ratio',
@@ -2346,14 +2351,14 @@ for stat_measure in stat_measures:
         color=['g'],
     )
     plot_1d_singleinstance(
-        df=df_progress_trinary,
+        df=df_progress_ternary,
         x_axis='cum_reads',
         # y_axis='mean_' + stat_measure + '_perf_ratio',
         # y_axis=stat_measure + '_median_perf_ratio',
         y_axis='best_' + stat_measure + '_median_inv_perf_ratio',
         ax=ax,
         dict_fixed={'schedule': 'geometric'},
-        label_plot='Best trinary exploration exploitation',
+        label_plot='Best ternary exploration exploitation',
         # list_dicts=[{'R_budget': i}
         #             for i in R_budgets],
         # list_dicts=[{'run_per_solve': i}
@@ -2426,8 +2431,6 @@ for stat_measure in stat_measures:
 # Computing up ternary search across parameter
 # We assume that the performance of the parameter is unimodal (in decreases and the increases)
 # r = 1  # resource per parameter setting (runs)
-rs = [1, 5, 10]
-# R_budget = 550  # budget for exploitation (runs)
 df_name = "df_progress_ternaryt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_search = df_results_all_stats[
@@ -2777,7 +2780,6 @@ for stat_measure in stat_measures:
 # %%
 # Computing up ternary search across parameter for instance 42
 # We assume that the performance of the parameter is unimodal (in decreases and the increases)
-rs = [1, 5, 10]
 df_name = "df_progress_ternary_42t.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 # TODO: check that 'geometric' is replaced accross the code with default_schedule

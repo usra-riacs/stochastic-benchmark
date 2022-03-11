@@ -58,11 +58,11 @@ if not(os.path.exists(dneal_results_path)):
           ' does not exist. We will create it.')
     os.makedirs(dneal_results_path)
 
-dneal_pickle_path = os.path.join(dneal_results_path, 'pickles/')
-if not(os.path.exists(dneal_pickle_path)):
-    print('Dwave-neal pickles directory' + dneal_pickle_path +
+dneal_pickles_path = os.path.join(dneal_results_path, 'pickles/')
+if not(os.path.exists(dneal_pickles_path)):
+    print('Dwave-neal pickles directory' + dneal_pickles_path +
           ' does not exist. We will create it.')
-    os.makedirs(dneal_pickle_path)
+    os.makedirs(dneal_pickles_path)
 
 pysa_results_path = os.path.join(data_path, 'pysa/')
 if not(os.path.exists(pysa_results_path)):
@@ -70,11 +70,11 @@ if not(os.path.exists(pysa_results_path)):
           ' does not exist. We will create it.')
     os.makedirs(pysa_results_path)
 
-pysa_pickle_path = os.path.join(pysa_results_path, 'pickles/')
-if not(os.path.exists(pysa_pickle_path)):
-    print('PySA pickles directory' + pysa_pickle_path +
+pysa_pickles_path = os.path.join(pysa_results_path, 'pickles/')
+if not(os.path.exists(pysa_pickles_path)):
+    print('PySA pickles directory' + pysa_pickles_path +
           ' does not exist. We will create it.')
-    os.makedirs(pysa_pickle_path)
+    os.makedirs(pysa_pickles_path)
 
 instance_path = os.path.join(data_path, 'instances/')
 if not(os.path.exists(instance_path)):
@@ -107,6 +107,7 @@ parameters_list = ['swe', 'rep', 'pcold', 'phot']
 suffix = 'P'
 ocean_df_flag = False
 results_path = pysa_results_path
+pickles_path = pysa_pickles_path
 
 # %%
 # Create instance 42
@@ -129,7 +130,7 @@ def createPySASamplesDataframe(
     instance: int = 42,
     parameters: dict = None,
     total_reads: int = 1000,
-    pickle_path: str = None,
+    pickles_path: str = None,
     use_raw_sample_pickles: bool = False,
     overwrite_pickles: bool = False,
 ) -> pd.DataFrame:
@@ -140,7 +141,7 @@ def createPySASamplesDataframe(
         instance: The instance to load/create the samples for.
         parameters: The parameters to use for PySA.
         total_reads: The total number of reads to use in PySA.
-        pysa_pickle_path: The path to the pickle files.
+        pickles_path: The path to the pickle files.
         use_raw_sample_pickles: Whether to use the raw pickles or not.
         overwrite_pickles: Whether to overwrite the pickles or not.
 
@@ -164,7 +165,7 @@ def createPySASamplesDataframe(
     df_samples_name = instance_name + "_" + \
         '_'.join(str(keys) + '_' + str(vals)
                  for keys, vals in parameters.items()) + ".pkl"
-    df_path = os.path.join(pysa_pickle_path, df_samples_name)
+    df_path = os.path.join(pickles_path, df_samples_name)
     if os.path.exists(df_path) and not use_raw_sample_pickles:
         try:
             df_samples = pd.read_pickle(df_path)
@@ -226,7 +227,7 @@ def createPySAResultsDataframes(
     boots_list: List[int] = [1000],
     data_path: str = None,
     results_path: str = None,
-    pickle_path: str = None,
+    pickles_path: str = None,
     use_raw_dataframes: bool = False,
     use_raw_sample_pickles: bool = False,
     overwrite_pickles: bool = False,
@@ -248,7 +249,7 @@ def createPySAResultsDataframes(
         boots: The number of bootstraps
         parameters_dict: The parameters dictionary with values as lists
         results_path: The path to the results
-        pickle_path: The path to the pickle files
+        pickles_path: The path to the pickle files
         use_raw_dataframes: If we want to use the raw data
         use_raw_sample_pickles: If we want to use the raw sample pickles
         overwrite_pickles: If we want to overwrite the pickle files
@@ -280,8 +281,8 @@ def createPySAResultsDataframes(
         if all([k in df[i].values for (i, j) in parameters_dict.items() for k in j]):
             print('The dataframe has some data for the parameters')
             # The parameters dictionary has lists as values as the loop below makes the concatenation faster than running the loop for each parameter
-            cond = [df[k].apply(lambda k: k == i).astype(bool)
-                    for k, v in parameters_dict.items() for i in v]
+            cond = [df[k].isin(v).astype(bool)
+                    for k, v in parameters_dict.items()]
             cond_total = functools.reduce(lambda x, y: x & y, cond)
             if all(boots in df[cond_total]['boots'].values for boots in boots_list):
                 print('The dataframe already has all the data')
@@ -315,7 +316,7 @@ def createPySAResultsDataframes(
                     instance=instance,
                     parameters=parameters,
                     total_reads=total_reads,
-                    pickle_path=pickle_path,
+                    pickles_path=pickles_path,
                     use_raw_sample_pickles=use_raw_sample_pickles,
                     overwrite_pickles=overwrite_pickles,
                 )
@@ -399,7 +400,7 @@ def generateStatsDataframe(
     pickles_path: str = None,
     use_raw_full_dataframe: bool = False,
     use_raw_dataframes: bool = False,
-    use_raw_samples_pickles: bool = False,
+    use_raw_sample_pickles: bool = False,
     overwrite_pickles: bool = False,
     s: float = 0.99,
     confidence_level: float = 0.68,
@@ -440,9 +441,9 @@ def generateStatsDataframe(
         boots_list=resource_list,
         data_path=data_path,
         results_path=results_path,
-        pickle_path=pickles_path,
+        pickles_path=pickles_path,
         use_raw_dataframes=use_raw_dataframes,
-        use_raw_sample_pickles=use_raw_samples_pickles,
+        use_raw_sample_pickles=use_raw_sample_pickles,
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=confidence_level,
@@ -539,7 +540,7 @@ parameters_dict = {
     'pcold': p_cold_list,
     'phot': p_hot_list,
 }
-use_raw_dataframes = True
+use_raw_dataframes = False
 use_raw_sample_pickles = False
 overwrite_pickles = False
 
@@ -550,7 +551,7 @@ df_42 = createPySAResultsDataframes(
     boots_list=boots_list,
     data_path=data_path,
     results_path=results_path,
-    pickle_path=pysa_pickle_path,
+    pickles_path=pickles_path,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
@@ -679,7 +680,7 @@ ax = plot_1d_singleinstance_list(
     colors=['colormap'],
 )
 # %%
-# Performance ratio vs runs for different bootstrap downsamples
+# Inverse performance ratio vs runs for different bootstrap downsamples
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
     df=df_42,
@@ -800,7 +801,7 @@ parameters_detailed_dict = {
     'phot': p_hot_list,
 }
 
-use_raw_dataframes = True
+use_raw_dataframes = False
 use_raw_sample_pickles = False
 df_42 = createPySAResultsDataframes(
     df=df_42,
@@ -809,7 +810,7 @@ df_42 = createPySAResultsDataframes(
     boots_list=all_boots_list,
     data_path=data_path,
     results_path=results_path,
-    pickle_path=pysa_pickle_path,
+    pickles_path=pickles_path,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
@@ -906,7 +907,7 @@ training_instance_list = [i for i in range(20)]
 # %%
 # Merge all results dataframes in a single one
 df_list = []
-use_raw_dataframes = True
+use_raw_dataframes = False
 use_raw_sample_pickles = False
 # all_boots_list = list(range(1, 1001, 1))
 for instance in instance_list:
@@ -929,7 +930,7 @@ for instance in instance_list:
         boots_list=boots_list,
         data_path=data_path,
         results_path=results_path,
-        pickle_path=pysa_pickle_path,
+        pickles_path=pickles_path,
         use_raw_dataframes=use_raw_dataframes,
         use_raw_sample_pickles=use_raw_sample_pickles,
         overwrite_pickles=overwrite_pickles,
@@ -974,7 +975,7 @@ for instance in instance_list:
         boots_list=all_boots_list,
         data_path=data_path,
         results_path=results_path,
-        pickle_path=pysa_pickle_path,
+        pickles_path=pickles_path,
         use_raw_dataframes=use_raw_dataframes,
         use_raw_sample_pickles=use_raw_sample_pickles,
         overwrite_pickles=overwrite_pickles,
@@ -997,7 +998,7 @@ df_results_all = cleanup_df(df_results_all)
 df_results_all.to_pickle(df_path)
 
 # %%
-# Run all the instances with Dwave-neal
+# Run all the instances with solver
 overwrite_pickles = False
 use_raw_dataframes = False
 use_raw_sample_pickles = False
@@ -1009,7 +1010,7 @@ df_results_all = createPySAResultsDataframes(
     boots_list=boots_list,
     data_path=data_path,
     results_path=results_path,
-    pickle_path=pysa_pickle_path,
+    pickles_path=pickles_path,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
@@ -1036,6 +1037,7 @@ df_results_all_stats = generateStatsDataframe(
     resource_list=boots_list,
     data_path=data_path,
     results_path=results_path,
+    pickles_path=pickles_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
@@ -1187,7 +1189,7 @@ for instance in instance_list:
         boots_list=all_boots_list,
         data_path=data_path,
         results_path=results_path,
-        pickle_path=pysa_pickle_path,
+        pickles_path=pickles_path,
         use_raw_dataframes=use_raw_dataframes,
         use_raw_sample_pickles=use_raw_sample_pickles,
         overwrite_pickles=overwrite_pickles,
@@ -1217,7 +1219,7 @@ df_results_all = createPySAResultsDataframes(
     boots_list=all_boots_list,
     data_path=data_path,
     results_path=results_path,
-    pickle_path=pysa_pickle_path,
+    pickles_path=pickles_path,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,

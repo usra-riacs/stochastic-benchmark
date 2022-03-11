@@ -46,13 +46,13 @@ h = np.random.rand(N)
 # %%
 # Specify and if non-existing, create directories for results
 current_path = os.getcwd()
-results_path = os.path.join(current_path, '../data/sk/')
-if not(os.path.exists(results_path)):
-    print('Results directory ' + results_path +
+data_path = os.path.join(current_path, '../data/sk/')
+if not(os.path.exists(data_path)):
+    print('Data directory ' + data_path +
           ' does not exist. We will create it.')
-    os.makedirs(results_path)
+    os.makedirs(data_path)
 
-dneal_results_path = os.path.join(results_path, 'dneal/')
+dneal_results_path = os.path.join(data_path, 'dneal/')
 if not(os.path.exists(dneal_results_path)):
     print('Dwave-neal results directory ' + dneal_results_path +
           ' does not exist. We will create it.')
@@ -64,7 +64,7 @@ if not(os.path.exists(dneal_pickle_path)):
           ' does not exist. We will create it.')
     os.makedirs(dneal_pickle_path)
 
-pysa_results_path = os.path.join(results_path, 'pysa/')
+pysa_results_path = os.path.join(data_path, 'pysa/')
 if not(os.path.exists(pysa_results_path)):
     print('PySA results directory ' + pysa_results_path +
           ' does not exist. We will create it.')
@@ -76,13 +76,13 @@ if not(os.path.exists(pysa_pickle_path)):
           ' does not exist. We will create it.')
     os.makedirs(pysa_pickle_path)
 
-instance_path = os.path.join(results_path, 'instances/')
+instance_path = os.path.join(data_path, 'instances/')
 if not(os.path.exists(instance_path)):
     print('Instances directory ' + instance_path +
           ' does not exist. We will create it.')
     os.makedirs(instance_path)
 
-plots_path = os.path.join(results_path, 'plots/')
+plots_path = os.path.join(data_path, 'plots/')
 if not(os.path.exists(plots_path)):
     print('Plots directory ' + plots_path +
           ' does not exist. We will create it.')
@@ -106,6 +106,7 @@ default_p_cold = 1.0
 parameters_list = ['swe', 'rep', 'pcold', 'phot']
 suffix = 'P'
 ocean_df_flag = False
+results_path = pysa_results_path
 
 # %%
 # Create instance 42
@@ -128,7 +129,7 @@ def createPySASamplesDataframe(
     instance: int = 42,
     parameters: dict = None,
     total_reads: int = 1000,
-    pysa_pickle_path: str = None,
+    pickle_path: str = None,
     use_raw_sample_pickles: bool = False,
     overwrite_pickles: bool = False,
 ) -> pd.DataFrame:
@@ -223,6 +224,7 @@ def createPySAResultsDataframes(
     instance_list: List[int] = [0],
     parameters_dict: dict = None,
     boots_list: List[int] = [1000],
+    data_path: str = None,
     results_path: str = None,
     pickle_path: str = None,
     use_raw_dataframes: bool = False,
@@ -299,9 +301,9 @@ def createPySAResultsDataframes(
         list_results = []
         for instance in instance_list:
             random_energy = loadEnergyFromFile(os.path.join(
-                results_path, 'random_energies.txt'), prefix + str(instance))
+                data_path, 'random_energies.txt'), prefix + str(instance))
             min_energy = loadEnergyFromFile(os.path.join(
-                results_path, 'gs_energies.txt'), prefix + str(instance))
+                data_path, 'gs_energies.txt'), prefix + str(instance))
             # We will assume that the insertion order in the keys is preserved (hence Python3.7+ only) and is sorted alphabetically
             parameter_sets = itertools.product(
                 *(parameters_dict[Name] for Name in parameters_dict))
@@ -392,6 +394,7 @@ def generateStatsDataframe(
     instance_list: List[str] = None,
     parameters_dict: dict = None,
     resource_list: List[int] = [default_boots],
+    data_path: str = None,
     results_path: str = None,
     pickles_path: str = None,
     use_raw_full_dataframe: bool = False,
@@ -435,6 +438,7 @@ def generateStatsDataframe(
         instance_list=instance_list,
         parameters_dict=parameters_dict,
         boots_list=resource_list,
+        data_path=data_path,
         results_path=results_path,
         pickle_path=pickles_path,
         use_raw_dataframes=use_raw_dataframes,
@@ -523,7 +527,7 @@ boots_list = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
 # TODO there should be an attribute to the parameters and if they vary logarithmically, have a function that generates the list of values "equally" spaced in logarithmic space
 
 df_name = "df_results_" + str(instance) + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 if os.path.exists(df_path):
     df_42 = pd.read_pickle(df_path)
 else:
@@ -544,7 +548,8 @@ df_42 = createPySAResultsDataframes(
     instance_list=[instance],
     parameters_dict=parameters_dict,
     boots_list=boots_list,
-    results_path=pysa_results_path,
+    data_path=data_path,
+    results_path=results_path,
     pickle_path=pysa_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
@@ -802,7 +807,8 @@ df_42 = createPySAResultsDataframes(
     instance_list=[instance],
     parameters_dict=parameters_detailed_dict,
     boots_list=all_boots_list,
-    results_path=pysa_results_path,
+    data_path=data_path,
+    results_path=results_path,
     pickle_path=pysa_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
@@ -905,7 +911,7 @@ use_raw_sample_pickles = False
 # all_boots_list = list(range(1, 1001, 1))
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + suffix + ".pkl"
-    df_path = os.path.join(pysa_results_path, df_name)
+    df_path = os.path.join(results_path, df_name)
     if os.path.exists(df_path):
         df_results_instance = pd.read_pickle(df_path)
     else:
@@ -921,7 +927,8 @@ for instance in instance_list:
         instance_list=[instance],
         parameters_dict=parameters_dict,
         boots_list=boots_list,
-        results_path=pysa_results_path,
+        data_path=data_path,
+        results_path=results_path,
         pickle_path=pysa_pickle_path,
         use_raw_dataframes=use_raw_dataframes,
         use_raw_sample_pickles=use_raw_sample_pickles,
@@ -965,7 +972,8 @@ for instance in instance_list:
         instance_list=[instance],
         parameters_dict=parameters_detailed_dict,
         boots_list=all_boots_list,
-        results_path=pysa_results_path,
+        data_path=data_path,
+        results_path=results_path,
         pickle_path=pysa_pickle_path,
         use_raw_dataframes=use_raw_dataframes,
         use_raw_sample_pickles=use_raw_sample_pickles,
@@ -984,7 +992,7 @@ for instance in instance_list:
 
 df_results_all = pd.concat(df_list, ignore_index=True)
 df_name = "df_results" + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 df_results_all = cleanup_df(df_results_all)
 df_results_all.to_pickle(df_path)
 
@@ -999,7 +1007,8 @@ df_results_all = createPySAResultsDataframes(
     instance_list=instance_list,
     parameters_dict=parameters_dict,
     boots_list=boots_list,
-    results_path=pysa_results_path,
+    data_path=data_path,
+    results_path=results_path,
     pickle_path=pysa_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
@@ -1025,7 +1034,8 @@ df_results_all_stats = generateStatsDataframe(
     instance_list=training_instance_list,
     parameters_dict=parameters_dict,
     resource_list=boots_list,
-    results_path=pysa_results_path,
+    data_path=data_path,
+    results_path=results_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
@@ -1168,14 +1178,15 @@ parameters_best_ensemble_dict = {
 }
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + suffix + ".pkl"
-    df_path = os.path.join(pysa_results_path, df_name)
+    df_path = os.path.join(results_path, df_name)
     df_results_instance = pd.read_pickle(df_path)
     df_results_instance = createPySAResultsDataframes(
         df=df_results_instance,
         instance_list=[instance],
         parameters_dict=parameters_best_ensemble_dict,
         boots_list=all_boots_list,
-        results_path=pysa_results_path,
+        data_path=data_path,
+        results_path=results_path,
         pickle_path=pysa_pickle_path,
         use_raw_dataframes=use_raw_dataframes,
         use_raw_sample_pickles=use_raw_sample_pickles,
@@ -1194,7 +1205,7 @@ for instance in instance_list:
 df_results_all = pd.concat(df_list, ignore_index=True)
 df_results_all = cleanup_df(df_results_all)
 df_name = "df_results" + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 df_results_all.to_pickle(df_path)
 
 # %%
@@ -1204,7 +1215,8 @@ df_results_all = createPySAResultsDataframes(
     instance_list=instance_list,
     parameters_dict=parameters_best_ensemble_dict,
     boots_list=all_boots_list,
-    results_path=pysa_results_path,
+    data_path=data_path,
+    results_path=results_path,
     pickle_path=pysa_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
@@ -1229,7 +1241,7 @@ if 'inv_perf_ratio' not in df_results_all.columns:
         df_results_all['perf_ratio_conf_interval_lower'] + EPSILON
 df_results_all = cleanup_df(df_results_all)
 df_name = "df_results" + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 df_results_all.to_pickle(df_path)
 
 if 'inv_perf_ratio' not in df_42.columns:
@@ -1240,7 +1252,7 @@ if 'inv_perf_ratio' not in df_42.columns:
         df_42['perf_ratio_conf_interval_lower'] + EPSILON
 df_42 = cleanup_df(df_42)
 df_name = "df_results_42" + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 df_42.to_pickle(df_path)
 # %%
 # Obtain the tts for each instance in the median and the mean of the ensemble accross the sweeps
@@ -1322,7 +1334,7 @@ for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
 
 df_results_all = cleanup_df(df_results_all)
 df_name = "df_results" + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 df_results_all.to_pickle(df_path)
 # %%
 # Plot with performance ratio vs reads for interesting sweeps
@@ -1408,7 +1420,8 @@ df_results_all_stats = generateStatsDataframe(
     instance_list=training_instance_list,
     parameters_dict=parameters_dict,
     resource_list=boots_list,
-    results_path=pysa_results_path,
+    data_path=data_path,
+    results_path=results_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
     use_raw_dataframes=use_raw_dataframes,
     use_raw_sample_pickles=use_raw_sample_pickles,
@@ -1503,7 +1516,7 @@ for stat_measure in stat_measures:
 stale_parameters = ['pcold', 'phot']
 
 df_name = "df_results_virt" + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 if use_raw_dataframes or os.path.exists(df_path) is False:
     df_virtual_all = df_results_all.groupby(
         stale_parameters + ['reads']
@@ -1706,7 +1719,7 @@ frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 R_budgets = [1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 experiments = rs * repetitions
 df_name = "df_progress_total" + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 df_search = df_results_all_stats[
     parameters_list + ['boots',
                   'median_perf_ratio', 'mean_perf_ratio', 'reads']
@@ -2093,7 +2106,7 @@ for stat_measure in stat_measures:
 rs = [1, 5, 10]
 # R_budget = 550  # budget for exploitation (runs)
 df_name = "df_progress_ternary" + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 df_search = df_results_all_stats[
     ['schedule', 'swe', 'boots',
      'median_perf_ratio', 'mean_perf_ratio', 'reads']
@@ -2426,7 +2439,7 @@ for stat_measure in stat_measures:
 # We assume that the performance of the parameter is unimodal (in decreases and the increases)
 rs = [1, 5, 10]
 df_name = "df_progress_ternary_42" + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 # TODO: check that 'geometric' is replaced accross the code with default_schedule
 default_schedule = 'geometric'
 search_metric = 'perf_ratio'
@@ -2548,7 +2561,7 @@ repetitions = 10  # Times to run the algorithm
 # frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 # R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 df_name = "df_progress_42" + suffix + ".pkl"
-df_path = os.path.join(pysa_results_path, df_name)
+df_path = os.path.join(results_path, df_name)
 compute_metric = 'perf_ratio'
 parameters = ['schedule', 'swe']
 df_search = df_42[

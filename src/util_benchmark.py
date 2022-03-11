@@ -62,6 +62,7 @@ def computeResultsList(
     s: float = 0.99,
     fail_value: float = np.inf,
     overwrite_pickles: bool = False,
+    ocean_df_flag: bool = True,
 ) -> list:
     '''
     Compute a list of the results computed for analysis given a dataframe from a solver.
@@ -76,6 +77,7 @@ def computeResultsList(
         gap: The threshold for the considering a read successful w.r.t the performance ratio [%].
         s: The success factor (usually said as RTT within s% probability).
         overwrite_pickles: If True, the pickles will be overwritten.
+        ocean_df_flag: If True, the dataframe is from ocean sdk.
 
     Returns:
         A list of the results computed for analysis. Organized as follows
@@ -109,7 +111,11 @@ def computeResultsList(
 
     aggregated_df_flag = False
     if min_energy is None:
-        min_energy = df['energy'].min()
+        if ocean_df_flag:
+            min_energy = df['energy'].min()
+        else:  # Assume it is a PySA dataframe
+            min_energy = df['best_energy'].min()
+
 
     success_val = random_energy - \
         (1.0 - gap/100.0)*(random_energy - min_energy)
@@ -117,7 +123,10 @@ def computeResultsList(
     resamples = np.random.randint(0, len(df), size=(
         downsample, bootstrap_iterations)).astype(int)
 
-    energies = df['energy'].values
+    if ocean_df_flag:
+        energies = df['energy'].values
+    else:
+        energies = df['best_energy'].values
     times = df['runtime (us)'].values
     # TODO Change this to be general for PySA dataframes
     if 'num_occurrences' in df.columns and not np.all(df['num_occurrences'].values == 1):

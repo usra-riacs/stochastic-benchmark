@@ -176,20 +176,40 @@ def getMinPySAEnergy(
 
 
 # %%
+# Create directories for the PySA results
+pysa_results_path = os.path.join(results_path, 'pysa/')
+if not(os.path.exists(pysa_results_path)):
+    print('PySA results directory ' + pysa_results_path +
+          ' does not exist. We will create it.')
+    os.makedirs(pysa_results_path)
+
+pysa_pickle_path = os.path.join(pysa_results_path, 'pickles/')
+if not(os.path.exists(pysa_pickle_path)):
+    print('PySA pickles directory' + pysa_pickle_path +
+          ' does not exist. We will create it.')
+    os.makedirs(pysa_pickle_path)
+
+# %%
 # Create intermediate .data files with main information and unique_gs with unique groundstates information
 
 # Set up directory for intermediate .data files
-pysa_data_path = os.path.join(pysa_path, "data/")
+pysa_data_path = os.path.join(pysa_results_path, "data/")
 # Create directory for intermediate .data files
 if not os.path.exists(pysa_data_path):
+    print('PySA data directory ' + pysa_data_path +
+          ' does not exist. We will create it.')
     os.makedirs(pysa_data_path)
 
 
 # Setup directory for unique ground states
-pysa_gs_path = os.path.join(pysa_path, "unique_gs/")
+pysa_gs_path = os.path.join(pysa_results_path, "unique_gs/")
 # Create directory for unique ground states
 if not os.path.exists(pysa_gs_path):
+    print('PySA ground states directory ' + pysa_gs_path +
+          ' does not exist. We will create it.')
     os.makedirs(pysa_gs_path)
+
+
 
 # Percentual tolerance to consider succesful runs
 tol = 1

@@ -125,7 +125,7 @@ print(min_energy)
 # %%
 # Load zipped results if using raw data
 overwrite_pickles = False
-use_raw_dataframes = False
+use_raw_dataframes = True
 
 # %%
 # Function to generate samples dataframes or load them otherwise
@@ -499,7 +499,7 @@ def generateStatsDataframe(
 
 # %%
 # Compute results for instance 42 using D-Wave Neal
-use_raw_dataframes = False
+use_raw_dataframes = True
 use_raw_dneal_pickles = False
 overwrite_pickles = False
 instance = 42
@@ -521,7 +521,7 @@ sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
 df_name = "df_results_" + str(instance) + "T.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-if os.path.exists(df_path):
+if os.path.exists(df_path) and False:
     df_dneal_42 = pd.read_pickle(df_path)
 else:
     df_dneal_42 = None
@@ -854,13 +854,13 @@ training_instance_list = [i for i in range(20)]
 # Merge all results dataframes in a single one
 schedules_list = ['geometric']
 df_list = []
-use_raw_dataframes = False
+use_raw_dataframes = True
 use_raw_dneal_pickles = False
 all_boots_list = list(range(1, 1001, 1))
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + "T.pkl"
     df_path = os.path.join(dneal_results_path, df_name)
-    if os.path.exists(df_path):
+    if os.path.exists(df_path) and False:
         df_results_dneal = pd.read_pickle(df_path)
     else:
         df_results_dneal = None
@@ -923,7 +923,7 @@ df_results_all.to_pickle(df_path)
 # %%
 # Run all the instances with Dwave-neal
 overwrite_pickles = False
-use_raw_dataframes = False
+use_raw_dataframes = True
 use_raw_dneal_pickles = False
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
@@ -947,7 +947,7 @@ df_results_all = createDnealResultsDataframes(
 )
 # %%
 # Generate stats results
-use_raw_full_dataframe = False
+use_raw_full_dataframe = True
 use_raw_dataframes = False
 use_raw_dneal_pickles = False
 df_results_all_stats = generateStatsDataframe(
@@ -1085,7 +1085,7 @@ plot_1d_singleinstance_list(
 best_ensemble_Tfactor = []
 df_list = []
 stat_measures = ['mean', 'median']
-use_raw_dataframes = False
+use_raw_dataframes = True
 for stat_measure in stat_measures:
     best_Tfactor = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
         1, stat_measure + '_tts')['Tfactor'].values[0]
@@ -1297,6 +1297,8 @@ for instance in [3, 0, 7, 42]:
 
 # %%
 # Regenerate the dataframe with the statistics to get the complete performance plot
+use_raw_full_dataframe = True
+use_raw_dataframes = False
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
@@ -1591,7 +1593,7 @@ parameters = ['schedule', 'Tfactor']
 experiments = rs * repetitions
 df_name = "df_progress_totalT.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-use_raw_dataframes = False
+use_raw_dataframes = True
 df_search = df_results_all_stats[
     parameters + ['boots',
                             'median_perf_ratio', 'mean_perf_ratio', 'reads']
@@ -1701,7 +1703,7 @@ parameters = ['schedule', 'Tfactor']
 experiments = rs * repetitions
 df_name = "df_progress_total_trinaryT.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-use_raw_dataframes = False
+use_raw_dataframes = True
 df_search = df_results_all_stats[
     parameters + ['boots',
                             'median_perf_ratio', 'mean_perf_ratio', 'reads']
@@ -1949,7 +1951,7 @@ plot_1d_singleinstance_list(
 # Average across the experiments with the same R_budget, R_explor, and run_per_solve for envelope
 df_name = "df_progressT.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-use_raw_dataframes = False
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     df_progress = df_progress_total[
         ['schedule', 'cum_reads', 'R_budget', 'R_explor',
@@ -1989,7 +1991,7 @@ else:
 # Average across the experiments with the same R_budget, R_explor, and run_per_solve for envelope
 df_name = "df_progress_trinaryT.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-use_raw_dataframes = False
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     df_progress_trinary = df_progress_total_trinary[
         ['schedule', 'cum_reads', 'R_budget', 'R_explor',
@@ -2434,7 +2436,7 @@ df_search = df_results_all_stats[
 ].set_index(
     parameters + ['boots']
 )
-use_raw_dataframes = False
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for r in rs:
@@ -2904,7 +2906,7 @@ df_search = df_dneal_42[
 ].set_index(
     parameters + ['boots']
 )
-use_raw_dataframes = False
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for index, row in best_random_search_idx.to_frame(index=False).iterrows():

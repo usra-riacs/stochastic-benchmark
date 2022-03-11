@@ -94,7 +94,7 @@ print('Average random energy = ' + str(random_energy))
 # %%
 # Run default Dwave-neal simulated annealing implementation
 sim_ann_sampler = dimod.SimulatedAnnealingSampler()
-default_sweeps = 1000
+default_sweeps = 100
 total_reads = 1000
 default_reads = 1000
 default_boots = default_reads
@@ -163,14 +163,14 @@ def createDnealSamplesDataframeTemp(
     if parameters is None:
         parameters = {
             'schedule': 'geometric',
-            'sweep': 1000,
+            'sweep': 100,
             'Tfactor': 1.0,
         }
 
     # Gather instance names
     # TODO: We need to adress renaming problems, one proposal is to be very judicious about the keys order in parameters and be consistent with naming, another idea is sorting them alphabetically before joining them
     dict_pickle_name = prefix + str(instance) + "_" + \
-        '_'.join(str(vals) for vals in parameters.values()) + "T.p"
+        '_'.join(str(vals) for vals in parameters.values()) + "t.p"
     df_samples_name = 'df_' + dict_pickle_name + 'kl'
     df_path = os.path.join(dneal_pickle_path, df_samples_name)
     if os.path.exists(df_path):
@@ -281,9 +281,9 @@ def createDnealResultsDataframes(
     # Create filename
     # TODO modify filenames inteligently to make it easier to work with
     if len(instance_list) > 1:
-        df_name = "df_resultsT.pkl"
+        df_name = "df_resultst.pkl"
     else:
-        df_name = "df_results_" + str(instance_list[0]) + "T.pkl"
+        df_name = "df_results_" + str(instance_list[0]) + "t.pkl"
     df_path = os.path.join(dneal_results_path, df_name)
 
     # If use_raw_dataframes compute the row
@@ -386,7 +386,7 @@ upper_bounds['perf_ratio'] = 1.0
 total_reads = 1000
 # TODO rename this total_reads parameter, remove redundancy with above
 default_reads = 1000
-default_sweeps = 1000
+default_sweeps = 100
 default_Tfactor = 1.0
 default_schedule = 'geometric'
 default_boots = total_reads
@@ -519,7 +519,7 @@ boots_list = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
 # TODO there should be an attribute to the parameters and if they vary logarithmically, have a function that generates the list of values "equally" spaced in logarithmic space
 sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
-df_name = "df_results_" + str(instance) + "T.pkl"
+df_name = "df_results_" + str(instance) + "t.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 if os.path.exists(df_path) and False:
     df_dneal_42 = pd.read_pickle(df_path)
@@ -858,7 +858,7 @@ use_raw_dataframes = True
 use_raw_dneal_pickles = False
 all_boots_list = list(range(1, 1001, 1))
 for instance in instance_list:
-    df_name = "df_results_" + str(instance) + "T.pkl"
+    df_name = "df_results_" + str(instance) + "t.pkl"
     df_path = os.path.join(dneal_results_path, df_name)
     if os.path.exists(df_path) and False:
         df_results_dneal = pd.read_pickle(df_path)
@@ -915,7 +915,7 @@ for instance in instance_list:
     df_list.append(df_results_dneal)
 
 df_results_all = pd.concat(df_list, ignore_index=True)
-df_name = "df_resultsT.pkl"
+df_name = "df_resultst.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all = cleanup_df(df_results_all)
 df_results_all.to_pickle(df_path)
@@ -1091,7 +1091,7 @@ for stat_measure in stat_measures:
         1, stat_measure + '_tts')['Tfactor'].values[0]
     best_ensemble_Tfactor.append(best_Tfactor)
 for instance in instance_list:
-    df_name = "df_results_" + str(instance) + "T.pkl"
+    df_name = "df_results_" + str(instance) + "t.pkl"
     df_path = os.path.join(dneal_results_path, df_name)
     df_results_dneal = pd.read_pickle(df_path)
     df_results_dneal = createDnealResultsDataframes(
@@ -1116,7 +1116,7 @@ for instance in instance_list:
 
 df_results_all = pd.concat(df_list, ignore_index=True)
 df_results_all = cleanup_df(df_results_all)
-df_name = "df_resultsT.pkl"
+df_name = "df_resultst.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all.to_pickle(df_path)
 
@@ -1150,7 +1150,7 @@ if 'inv_perf_ratio' not in df_results_all.columns:
     df_results_all['inv_perf_ratio_conf_interval_upper'] = 1 - \
         df_results_all['perf_ratio_conf_interval_lower'] + EPSILON
 df_results_all = cleanup_df(df_results_all)
-df_name = "df_resultsT.pkl"
+df_name = "df_resultst.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all.to_pickle(df_path)
 
@@ -1161,7 +1161,7 @@ if 'inv_perf_ratio' not in df_dneal_42.columns:
     df_dneal_42['inv_perf_ratio_conf_interval_upper'] = 1 - \
         df_dneal_42['perf_ratio_conf_interval_lower'] + EPSILON
 df_dneal_42 = cleanup_df(df_dneal_42)
-df_name = "df_results_42T.pkl"
+df_name = "df_results_42t.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_dneal_42.to_pickle(df_path)
 # %%
@@ -1223,7 +1223,7 @@ for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
         ax.set(yscale='log')
 
 df_results_all = cleanup_df(df_results_all)
-df_name = "df_resultsT.pkl"
+df_name = "df_resultst.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all.to_pickle(df_path)
 # %%
@@ -1392,7 +1392,7 @@ for stat_measure in stat_measures:
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
 
-df_name = "df_results_virtT.pkl"
+df_name = "df_results_virtt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 if use_raw_dataframes or os.path.exists(df_path) is False:
     df_virtual_all = df_results_all.groupby(
@@ -1591,7 +1591,7 @@ frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 parameters = ['schedule', 'Tfactor']
 experiments = rs * repetitions
-df_name = "df_progress_totalT.pkl"
+df_name = "df_progress_totalt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 use_raw_dataframes = True
 df_search = df_results_all_stats[
@@ -1701,7 +1701,7 @@ frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 parameters = ['schedule', 'Tfactor']
 experiments = rs * repetitions
-df_name = "df_progress_total_trinaryT.pkl"
+df_name = "df_progress_total_trinaryt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 use_raw_dataframes = True
 df_search = df_results_all_stats[
@@ -1949,7 +1949,7 @@ plot_1d_singleinstance_list(
 )
 # %%
 # Average across the experiments with the same R_budget, R_explor, and run_per_solve for envelope
-df_name = "df_progressT.pkl"
+df_name = "df_progresst.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
@@ -1989,7 +1989,7 @@ else:
     df_progress = pd.read_pickle(df_path)
 # %%
 # Average across the experiments with the same R_budget, R_explor, and run_per_solve for envelope
-df_name = "df_progress_trinaryT.pkl"
+df_name = "df_progress_trinaryt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
@@ -2428,7 +2428,7 @@ for stat_measure in stat_measures:
 # r = 1  # resource per parameter setting (runs)
 rs = [1, 5, 10]
 # R_budget = 550  # budget for exploitation (runs)
-df_name = "df_progress_ternaryT.pkl"
+df_name = "df_progress_ternaryt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_search = df_results_all_stats[
     parameters + ['boots',
@@ -2778,7 +2778,7 @@ for stat_measure in stat_measures:
 # Computing up ternary search across parameter for instance 42
 # We assume that the performance of the parameter is unimodal (in decreases and the increases)
 rs = [1, 5, 10]
-df_name = "df_progress_ternary_42T.pkl"
+df_name = "df_progress_ternary_42t.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 # TODO: check that 'geometric' is replaced accross the code with default_schedule
 default_schedule = 'geometric'
@@ -2898,7 +2898,7 @@ repetitions = 10  # Times to run the algorithm
 # rs = [1, 5, 10]  # resources per parameter setting (runs)
 # frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 # R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
-df_name = "df_progress_42T.pkl"
+df_name = "df_progress_42t.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 compute_metric = 'perf_ratio'
 df_search = df_dneal_42[

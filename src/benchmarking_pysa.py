@@ -52,17 +52,17 @@ if not(os.path.exists(results_path)):
           ' does not exist. We will create it.')
     os.makedirs(results_path)
 
-pysa_results_path = os.path.join(results_path, 'pysa/')
-if not(os.path.exists(pysa_results_path)):
-    print('Dwave-neal results directory ' + pysa_results_path +
+dneal_results_path = os.path.join(results_path, 'dneal/')
+if not(os.path.exists(dneal_results_path)):
+    print('Dwave-neal results directory ' + dneal_results_path +
           ' does not exist. We will create it.')
-    os.makedirs(pysa_results_path)
+    os.makedirs(dneal_results_path)
 
-pysa_pickle_path = os.path.join(pysa_results_path, 'pickles/')
-if not(os.path.exists(pysa_pickle_path)):
-    print('Dwave-neal pickles directory' + pysa_pickle_path +
+dneal_pickle_path = os.path.join(dneal_results_path, 'pickles/')
+if not(os.path.exists(dneal_pickle_path)):
+    print('Dwave-neal pickles directory' + dneal_pickle_path +
           ' does not exist. We will create it.')
-    os.makedirs(pysa_pickle_path)
+    os.makedirs(dneal_pickle_path)
 
 pysa_results_path = os.path.join(results_path, 'pysa/')
 if not(os.path.exists(pysa_results_path)):
@@ -88,32 +88,25 @@ if not(os.path.exists(plots_path)):
           ' does not exist. We will create it.')
     os.makedirs(plots_path)
 
-
 # %%
-# Create intermediate .data files with main information and unique_gs with unique groundstates information
-
-# Set up directory for intermediate .data files
-pysa_data_path = os.path.join(pysa_results_path, "data/")
-# Create directory for intermediate .data files
-if not os.path.exists(pysa_data_path):
-    print('PySA data directory ' + pysa_data_path +
-          ' does not exist. We will create it.')
-    os.makedirs(pysa_data_path)
-
-
-# Setup directory for unique ground states
-pysa_gs_path = os.path.join(pysa_results_path, "unique_gs/")
-# Create directory for unique ground states
-if not os.path.exists(pysa_gs_path):
-    print('PySA ground states directory ' + pysa_gs_path +
-          ' does not exist. We will create it.')
-    os.makedirs(pysa_gs_path)
+# Define default values
 
 default_sweeps = 1000
 total_reads = 1000
-default_reads = 1000
 default_boots = default_reads
 float_type = 'float32'
+default_reads = 1000
+total_reads = 1000
+# TODO rename this total_reads parameter, remove redundancy with above
+default_Tfactor = 1.0
+default_schedule = 'geometric'
+default_replicas = 1
+default_p_hot = 50.0
+default_p_cold = 1.0
+parameters_list = ['swe', 'rep', 'pcold', 'phot']
+suffix = 'P'
+ocean_df_flag = False
+
 # %%
 # Create instance 42
 model_random = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
@@ -136,7 +129,7 @@ def createPySASamplesDataframe(
     parameters: dict = None,
     total_reads: int = 1000,
     pysa_pickle_path: str = None,
-    use_raw_pysa_pickles: bool = False,
+    use_raw_sample_pickles: bool = False,
     overwrite_pickles: bool = False,
 ) -> pd.DataFrame:
     '''
@@ -147,7 +140,7 @@ def createPySASamplesDataframe(
         parameters: The parameters to use for PySA.
         total_reads: The total number of reads to use in PySA.
         pysa_pickle_path: The path to the pickle files.
-        use_raw_pysa_pickles: Whether to use the raw pickles or not.
+        use_raw_sample_pickles: Whether to use the raw pickles or not.
         overwrite_pickles: Whether to overwrite the pickles or not.
 
     Returns:
@@ -171,7 +164,7 @@ def createPySASamplesDataframe(
         '_'.join(str(keys) + '_' + str(vals)
                  for keys, vals in parameters.items()) + ".pkl"
     df_path = os.path.join(pysa_pickle_path, df_samples_name)
-    if os.path.exists(df_path) and not use_raw_pysa_pickles:
+    if os.path.exists(df_path) and not use_raw_sample_pickles:
         try:
             df_samples = pd.read_pickle(df_path)
         except (pickle.UnpicklingError, EOFError):
@@ -223,158 +216,6 @@ def createPySASamplesDataframe(
 
 
 # %%
-# Function to retrieve results from Dataframes
-def computePySAResultsList(
-    df: pd.DataFrame,
-    random_energy: float = 0.0,
-    min_energy: float = None,
-    downsample: int = 10,
-    bootstrap_iterations: int = 1000,
-    confidence_level: float = 68,
-    gap: float = 1.0,
-    s: float = 0.99,
-    fail_value: float = np.inf,
-    overwrite_pickles: bool = False,
-    ocean_df_flag: bool = True,
-) -> list:
-    '''
-    Compute a list of the results computed for analysis given a dataframe from a solver.
-
-    Args:
-        df: The dataframe from the solver.
-        random_energy: The mean energy of the random sample.
-        min_energy: The minimum energy of the samples.
-        downsample: The downsampling sample for bootstrapping.
-        bootstrap_iterations: The number of bootstrap samples.
-        confidence_level: The confidence level for the bootstrap.
-        gap: The threshold for the considering a read successful w.r.t the performance ratio [%].
-        s: The success factor (usually said as RTT within s% probability).
-        overwrite_pickles: If True, the pickles will be overwritten.
-        ocean_df: If true, the dataframe is from Ocean dneal.
-
-    Returns:
-        A list of the results computed for analysis. Organized as follows
-        [
-            number of downsamples,
-            bootstrapped mean minimum energy,
-            boostrapped mean minimum energy confidence interval lower bound,
-            boostrapped mean minimum energy confidence interval upper bound,
-            bootstrapped performance ratio,
-            bootstrapped performance ratio confidence interval lower bound,
-            bootstrapped performance ratio confidence interval upper bound,
-            bootstrapped success probability,
-            boostrapped success probability confidence interval lower bound,
-            boostrapped success probability confidence interval upper bound,
-            boostrapped resource to target,
-            boostrapped resource to target confidence interval lower bound,
-            boostrapped resource to target confidence interval upper bound,
-            boostrapped mean runtime,
-            boostrapped mean runtime confidence interval lower bound,
-            boostrapped mean runtime confidence interval upper bound,
-            bootstrapped inverse performance ratio,
-            bootstrapped inverse performance ratio confidence interval lower bound,
-            bootstrapped inverse performance ratio confidence interval upper bound,
-        ]
-
-    TODO: Here we assume the succes metric is the performance ratio, we can generalize that as any function of the parameters (use external function)
-    TODO: Here we assume the energy is the response of the solver, we can generalize that as any column in the dataframe
-    TODO: Here we only return a few parameters with confidence intervals w.r.t. the bootstrapping. We can generalize that as any possible outcome (use function)
-    TODO: Since we are minimizing, computing the performance ratio gets the order of the minimum energy confidence interval inverted. Add parameter for maximization. Need to think what else should we change.
-    '''
-
-    aggregated_df_flag = False
-    if min_energy is None:
-        if ocean_df_flag:
-            min_energy = df['energy'].min()
-        else:  # Assume it is a PySA dataframe
-            min_energy = df['best_energy'].min()
-
-    success_val = random_energy - \
-        (1.0 - gap/100.0)*(random_energy - min_energy)
-
-    resamples = np.random.randint(0, len(df), size=(
-        downsample, bootstrap_iterations)).astype(int)
-
-    if ocean_df_flag:
-        energies = df['energy'].values
-    else:
-        energies = df['best_energy'].values
-
-    times = df['runtime (us)'].values
-
-    # TODO Change this to be general for PySA dataframes
-    if 'num_occurrences' in df.columns and not np.all(df['num_occurrences'].values == 1):
-        print('The input dataframe is aggregated')
-        occurrences = df['num_occurrences'].values
-        aggregated_df_flag = True
-
-    # Compute the minimum value of each bootstrap samples and its corresponding confidence interval based on the resamples
-    min_boot_dist = np.apply_along_axis(
-        func1d=np.min, axis=0, arr=energies[resamples])
-    min_boot = np.mean(min_boot_dist)
-    min_boot_conf_interval_lower = stats.scoreatpercentile(
-        min_boot_dist, 50-confidence_level/2)
-    min_boot_conf_interval_upper = stats.scoreatpercentile(
-        min_boot_dist, 50+confidence_level/2)
-
-    # Compute the mean time of each bootstrap samples and its corresponding confidence interval based on the resamples
-    times_dist = np.apply_along_axis(
-        func1d=np.mean, axis=0, arr=times[resamples])
-    mean_time = np.mean(times_dist)
-    mean_time_conf_interval_lower = stats.scoreatpercentile(
-        times_dist, 50-confidence_level/2)
-    mean_time_conf_interval_upper = stats.scoreatpercentile(
-        times_dist, 50+confidence_level/2)
-
-    # Compute the performance ratio of each bootstrap samples and its corresponding confidence interval based on the resamples
-    perf_ratio = (random_energy - min_boot) / (random_energy - min_energy)
-    perf_ratio_conf_interval_lower = (random_energy - min_boot_conf_interval_upper) / (
-        random_energy - min_energy)
-    perf_ratio_conf_interval_upper = (
-        random_energy - min_boot_conf_interval_lower) / (random_energy - min_energy)
-
-    # Compute the inverse performance ratio of each bootstrap samples and its corresponding confidence interval based on the resamples
-    inv_perf_ratio = 1 - (random_energy - min_boot) / \
-        (random_energy - min_energy) + EPSILON
-    inv_perf_ratio_conf_interval_lower = 1 - (random_energy - min_boot_conf_interval_lower) / (
-        random_energy - min_energy) + EPSILON
-    inv_perf_ratio_conf_interval_upper = 1 - (
-        random_energy - min_boot_conf_interval_upper) / (random_energy - min_energy) + EPSILON
-
-    # Compute the success probability of each bootstrap samples and its corresponding confidence interval based on the resamples
-    if aggregated_df_flag:
-        return []
-        # TODO: One can think about deaggregating the dataframe here. Maybe check Dwave's code for this.
-    else:
-        success_prob_dist = np.apply_along_axis(func1d=lambda x: np.sum(
-            x < success_val)/downsample, axis=0, arr=energies[resamples])
-    success_prob = np.mean(success_prob_dist)
-    success_prob_conf_interval_lower = stats.scoreatpercentile(
-        success_prob_dist, 50-confidence_level/2)
-    success_prob_conf_interval_upper = stats.scoreatpercentile(
-        success_prob_dist, 50+confidence_level/2)
-
-    # Compute the TTT within certain threshold of each bootstrap samples and its corresponding confidence interval based on the resamples
-    tts_dist = computeRRT_vectorized(
-        success_prob_dist, s=s, scale=1e-6*df['runtime (us)'].sum(), fail_value=fail_value)
-    # Question: should we scale the TTS with the number of bootstrapping we do, intuition says we don't need to
-    tts = np.mean(tts_dist)
-    if np.isinf(tts) or np.isnan(tts) or tts == fail_value:
-        tts_conf_interval_lower = fail_value
-        tts_conf_interval_upper = fail_value
-    else:
-        # tts_conf_interval = computeRRT_vectorized(
-        #     success_prob_conf_interval, s=0.99, scale=1e-6*df_default_samples['runtime (us)'].sum())
-        tts_conf_interval_lower = stats.scoreatpercentile(
-            tts_dist, 50-confidence_level/2)
-        tts_conf_interval_upper = stats.scoreatpercentile(
-            tts_dist, 50+confidence_level/2)
-    # Question: How should we compute the confidence interval of the TTS? Should we compute the function on the confidence interval of the probability or compute the confidence interval over the tts distribution?
-
-    return [downsample, min_boot, min_boot_conf_interval_lower, min_boot_conf_interval_upper, perf_ratio, perf_ratio_conf_interval_lower, perf_ratio_conf_interval_upper, success_prob, success_prob_conf_interval_lower, success_prob_conf_interval_upper, tts, tts_conf_interval_lower, tts_conf_interval_upper, mean_time, mean_time_conf_interval_lower, mean_time_conf_interval_upper, inv_perf_ratio, inv_perf_ratio_conf_interval_lower, inv_perf_ratio_conf_interval_upper]
-
-
-# %%
 # Function to update the dataframes
 # TODO Remove all the list_* variables and name them as plurals instead
 def createPySAResultsDataframes(
@@ -382,10 +223,10 @@ def createPySAResultsDataframes(
     instance_list: List[int] = [0],
     parameters_dict: dict = None,
     boots_list: List[int] = [1000],
-    pysa_results_path: str = None,
-    pysa_pickle_path: str = None,
+    results_path: str = None,
+    pickle_path: str = None,
     use_raw_dataframes: bool = False,
-    use_raw_pysa_pickles: bool = False,
+    use_raw_sample_pickles: bool = False,
     overwrite_pickles: bool = False,
     confidence_level: float = 68,
     gap: float = 1.0,
@@ -394,6 +235,7 @@ def createPySAResultsDataframes(
     fail_value: float = np.inf,
     save_pickle: bool = True,
     ocean_df_flag: bool = True,
+    suffix: str = '',
 ) -> pd.DataFrame:
     '''
     Function to create the dataframes for the experiments
@@ -403,9 +245,10 @@ def createPySAResultsDataframes(
         instance: The instance number
         boots: The number of bootstraps
         parameters_dict: The parameters dictionary with values as lists
-        pysa_results_path: The path to the results
-        pysa_pickle_path: The path to the pickle files
+        results_path: The path to the results
+        pickle_path: The path to the pickle files
         use_raw_dataframes: If we want to use the raw data
+        use_raw_sample_pickles: If we want to use the raw sample pickles
         overwrite_pickles: If we want to overwrite the pickle files
         confidence_level: The confidence level
         gap: The gap
@@ -414,6 +257,7 @@ def createPySAResultsDataframes(
         fail_value: The fail value
         save_pickle: If we want to save the pickle files
         ocean_df_flag: If we want to use the ocean dataframe
+        suffix: The suffix to add to the dataframe name
 
     Returns:
         The results dataframe
@@ -444,15 +288,15 @@ def createPySAResultsDataframes(
     # Create filename
     # TODO modify filenames inteligently to make it easier to work with
     if len(instance_list) > 1:
-        df_name = "df_resultsP.pkl"
+        df_name = 'df_results' + suffix + '.pkl'
     else:
-        df_name = "df_results_" + str(instance_list[0]) + "P.pkl"
-    df_path = os.path.join(pysa_results_path, df_name)
+        df_name = 'df_results_' + str(instance_list[0]) + suffix + '.pkl'
+    df_path = os.path.join(results_path, df_name)
 
     # If use_raw_dataframes compute the row
     if use_raw_dataframes or not os.path.exists(df_path):
         # TODO Remove all the list_* variables and name them as plurals instead
-        list_results_pysa = []
+        list_results = []
         for instance in instance_list:
             random_energy = loadEnergyFromFile(os.path.join(
                 results_path, 'random_energies.txt'), prefix + str(instance))
@@ -469,8 +313,8 @@ def createPySAResultsDataframes(
                     instance=instance,
                     parameters=parameters,
                     total_reads=total_reads,
-                    pysa_pickle_path=pysa_pickle_path,
-                    use_raw_pysa_pickles=use_raw_pysa_pickles,
+                    pickle_path=pickle_path,
+                    use_raw_sample_pickles=use_raw_sample_pickles,
                     overwrite_pickles=overwrite_pickles,
                 )
 
@@ -484,7 +328,7 @@ def createPySAResultsDataframes(
                     else:
                         # print("Generating results for instance:", instance,
                         #   "schedule:", schedule, "sweep:", sweep, "boots:", boots)
-                        list_outputs = computePySAResultsList(
+                        list_outputs = computeResultsList(
                             df=df_samples,
                             random_energy=random_energy,
                             min_energy=min_energy,
@@ -496,11 +340,10 @@ def createPySAResultsDataframes(
                             fail_value=fail_value,
                             ocean_df_flag=ocean_df_flag,
                         )
-                    list_results_pysa.append(
+                    list_results.append(
                         list_inputs + list_outputs)
-
         # TODO: Organize these column names to be created automatically from metric list
-        df_results_pysa = pd.DataFrame(list_results_pysa,
+        df_results = pd.DataFrame(list_results,
                                        columns=[
                                            'instance'] + params + ['boots',
                                                                    'min_energy', 'min_energy_conf_interval_lower', 'min_energy_conf_interval_upper',
@@ -512,9 +355,9 @@ def createPySAResultsDataframes(
                                                                    ])
         if df is not None:
             df_new = pd.concat(
-                [df, df_results_pysa], axis=0, ignore_index=True)
+                [df, df_results], axis=0, ignore_index=True)
         else:
-            df_new = df_results_pysa.copy()
+            df_new = df_results.copy()
 
     else:
         print("Loading the dataframe")
@@ -538,16 +381,120 @@ upper_bounds = {key: None for key in metrics_list}
 upper_bounds['success_prob'] = 1.0
 upper_bounds['perf_ratio'] = 1.0
 
-# Define default behavior for the solver
-total_reads = 1000
-# TODO rename this total_reads parameter, remove redundancy with above
-default_reads = 1000
-default_sweeps = 1000
-default_boots = total_reads
-default_replicas = 1
-default_p_hot = 50.0
-default_p_cold = 1.0
-parameters_list = ['swe', 'rep', 'pcold', 'phot']
+# %%
+# Function to generate stats aggregated dataframe
+# TODO: this can be generalized by acknowledging that the boots are the resource R
+
+
+def generateStatsDataframe(
+    df_all: List[dict] = None,
+    stat_measures: List[str] = ['mean', 'median'],
+    instance_list: List[str] = None,
+    parameters_dict: dict = None,
+    resource_list: List[int] = [default_boots],
+    results_path: str = None,
+    pickles_path: str = None,
+    use_raw_full_dataframe: bool = False,
+    use_raw_dataframes: bool = False,
+    use_raw_samples_pickles: bool = False,
+    overwrite_pickles: bool = False,
+    s: float = 0.99,
+    confidence_level: float = 0.68,
+    bootstrap_iterations: int = 1000,
+    gap: float = 1.0,
+    fail_value: float = None,
+    save_pickle: bool = True,
+    ocean_df_flag: bool = False,
+    suffix: str = '',
+) -> pd.DataFrame:
+    '''
+    Function to generate statistics from the aggregated dataframe
+
+    Args:
+        df_all: List of dictionaries containing the aggregated dataframe
+        stat_measures: List of statistics to be calculated
+        instance_list: List of instances to be considered
+        parameters_dict: Dictionary of parameters to be considered, with list as values
+        resource_list: List of resources to be considered
+        results_path: Path to the directory containing the results
+        use_raw_full_dataframe: If True, the full dataframe is used
+        use_raw_dataframes: Boolean indicating whether to use the raw data for generating the aggregated dataframe
+        use_raw_samples_pickles: Boolean indicating whether to use the raw pickles for generating the aggregated pickles
+        overwrite_pickles: Boolean indicating whether to overwrite the pickles
+        s: The success factor (usually said as RTT within s% probability).
+        confidence_level: Confidence level for the confidence intervals in bootstrapping
+        bootstrap_iterations: Number of bootstrap iterations
+        gap: The threshold for the considering a read successful w.r.t the performance ratio [%].
+        fail_value: Value to be used for failed runs
+        save_pickle: Boolean indicating whether to save the aggregated pickle
+        ocean_df_flag: Boolean indicating whether to use the ocean dataframe
+        suffix: Suffix to be added to the pickle name
+    '''
+    df_all = createPySAResultsDataframes(
+        df=df_all,
+        instance_list=instance_list,
+        parameters_dict=parameters_dict,
+        boots_list=resource_list,
+        results_path=results_path,
+        pickle_path=pickles_path,
+        use_raw_dataframes=use_raw_dataframes,
+        use_raw_sample_pickles=use_raw_samples_pickles,
+        overwrite_pickles=overwrite_pickles,
+        s=s,
+        confidence_level=confidence_level,
+        bootstrap_iterations=bootstrap_iterations,
+        gap=gap,
+        fail_value=fail_value,
+        save_pickle=True,
+        ocean_df_flag=ocean_df_flag,
+    )
+    # Split large dataframe such that we can compute the statistics and confidence interval for each metric across the instances
+    # TODO This can be improved by the lambda function version of the approach defining an input parameter for the function as a dictionary. Currently this is too slow
+    # Not succesful reimplementation of the operation above
+    # df_stats_all = df_results_all.set_index(
+    #     'instance').groupby(parameters + ['boots']
+    #     ).apply(lambda s: pd.Series({
+    #         stat_measure + '_' + metric : conf_interval(s,metric, stat_measure) for metric in metrics_list for stat_measure in stat_measures})
+    #     ).reset_index()
+
+    parameters = list(parameters_dict.keys())
+    resources = ['boots']
+    df_name = 'df_results_stats'
+    df_path = os.path.join(results_path, df_name + suffix + '.pkl')
+    if os.path.exists(df_path):
+        df_all_stats = pd.read_pickle(df_path)
+    else:
+        df_all_stats = pd.DataFrame()
+    if all([stat_measure + '_' + metric + '_conf_interval_' + limit in df_all_stats.columns for stat_measure in stat_measures for metric in metrics_list for limit in ['lower', 'upper']]) and not use_raw_full_dataframe:
+        pass
+    else:
+        df_all_groups = df_all[df_all['instance'].isin(instance_list)].set_index(
+            'instance').groupby(parameters + resources)
+        dataframes = []
+        for metric in metrics_list:
+            df_all_mean = df_all_groups.apply(
+                mean_conf_interval, key_string=metric)
+            df_all_median = df_all_groups.apply(
+                median_conf_interval, key_string=metric)
+            dataframes.append(df_all_mean)
+            dataframes.append(df_all_median)
+
+        df_all_stats = pd.concat(dataframes, axis=1).reset_index()
+
+    df_stats = df_all_stats.copy()
+
+    for stat_measure in stat_measures:
+        for key, value in lower_bounds.items():
+            df_stats[stat_measure + '_' + key + '_conf_interval_lower'].clip(
+                lower=value, inplace=True)
+        for key, value in upper_bounds.items():
+            df_stats[stat_measure + '_' + key + '_conf_interval_upper'].clip(
+                upper=value, inplace=True)
+    if save_pickle:
+        df_stats = cleanup_df(df_stats)
+        df_stats.to_pickle(df_path)
+
+    return df_stats
 
 
 # %%
@@ -560,7 +507,6 @@ sweeps_list = [i for i in range(1, 21, 1)] + [
     i for i in range(200, 501, 20)] + [
     i for i in range(500, 1001, 100)]
 n_replicas_list = [1, 2, 4, 8]
-# n_replicas_list = [4]
 # sweeps = [i for i in range(
 #     1, 21, 1)] + [i for i in range(
 #         21, 101, 10)]
@@ -573,17 +519,15 @@ conf_int = 68  #
 fail_value = np.inf
 # Confidence interval for bootstrapping, value used to get standard deviation
 confidence_level = 68
-# boots_list = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
-# boots_list = [1, 2, 10, 20, 100, 200, 1000]
-boots_list = [1, 10, 100, 1000]
+boots_list = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
 # TODO there should be an attribute to the parameters and if they vary logarithmically, have a function that generates the list of values "equally" spaced in logarithmic space
 
-df_name = "df_results_" + str(instance) + "P.pkl"
+df_name = "df_results_" + str(instance) + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
 if os.path.exists(df_path):
-    df_pysa_42 = pd.read_pickle(df_path)
+    df_42 = pd.read_pickle(df_path)
 else:
-    df_pysa_42 = None
+    df_42 = None
 
 parameters_dict = {
     'swe': sweeps_list,
@@ -591,19 +535,19 @@ parameters_dict = {
     'pcold': p_cold_list,
     'phot': p_hot_list,
 }
-
 use_raw_dataframes = True
-use_raw_pysa_pickles = False
+use_raw_sample_pickles = False
 overwrite_pickles = False
-df_pysa_42 = createPySAResultsDataframes(
-    df=df_pysa_42,
+
+df_42 = createPySAResultsDataframes(
+    df=df_42,
     instance_list=[instance],
     parameters_dict=parameters_dict,
     boots_list=boots_list,
-    pysa_results_path=pysa_results_path,
-    pysa_pickle_path=pysa_pickle_path,
+    results_path=pysa_results_path,
+    pickle_path=pysa_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_pysa_pickles=use_raw_pysa_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -611,7 +555,8 @@ df_pysa_42 = createPySAResultsDataframes(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
-    ocean_df_flag=False,
+    ocean_df_flag=ocean_df_flag,
+    suffix=suffix,
 )
 
 # %%
@@ -619,6 +564,8 @@ df_pysa_42 = createPySAResultsDataframes(
 labels = {
     'N': 'Number of variables',
     'instance': 'Random instance',
+    'replicas': 'Number of replicas',
+    'sweeps': 'Number of sweeps',
     'rep': 'Number of replicas',
     'swe': 'Number of sweeps',
     'swe': 'Number of sweeps',
@@ -667,7 +614,7 @@ default_dict = {
 }
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='swe',
     y_axis='perf_ratio',
     dict_fixed={'instance': 42},
@@ -689,7 +636,7 @@ ax = plot_1d_singleinstance_list(
 # Inverse performance ratio vs sweeps for different bootstrap downsamples
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='swe',
     y_axis='inv_perf_ratio',
     dict_fixed={'instance': 42},
@@ -709,7 +656,7 @@ ax = plot_1d_singleinstance_list(
 # Performance ratio vs runs for different bootstrap downsamples
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='reads',
     y_axis='perf_ratio',
     dict_fixed={'instance': 42},
@@ -730,7 +677,7 @@ ax = plot_1d_singleinstance_list(
 # Performance ratio vs runs for different bootstrap downsamples
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='reads',
     y_axis='inv_perf_ratio',
     dict_fixed={'instance': 42},
@@ -750,7 +697,7 @@ ax = plot_1d_singleinstance_list(
 # Mean time plot of some fixed parameter setting
 f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='swe',
     y_axis='mean_time',
     dict_fixed={'instance': 42, 'boots': 1000},
@@ -767,7 +714,7 @@ plot_1d_singleinstance_list(
 # Success probability of some fixed parameter setting
 f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='swe',
     y_axis='success_prob',
     dict_fixed={'instance': 42, 'boots': 1000},
@@ -784,7 +731,7 @@ plot_1d_singleinstance_list(
 # TTS Plot for all bootstrapping downsamples in both schedules
 f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='swe',
     y_axis='tts',
     ax=ax,
@@ -797,13 +744,13 @@ plot_1d_singleinstance_list(
     log_y=True,
     save_fig=False,
     default_dict=default_dict,
-    colors=['colormap']
+    colors=['colormap'],
 )
 # %%
 # TTS Plot for all bootstrapping downsamples in both schedules
 f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='reads',
     y_axis='tts',
     ax=ax,
@@ -816,12 +763,13 @@ plot_1d_singleinstance_list(
     log_y=True,
     save_fig=False,
     default_dict=default_dict,
-    colors=['colormap']
+    colors=['colormap'],
 )
 # %%
 # Loop over the dataframes with 4 values of sweeps and a sweep in boots then compute the results, and complete by creating main Dataframe
+# TODO: Generalize this description
 interesting_sweeps = [
-    df_pysa_42[df_pysa_42['boots'] == default_boots].nsmallest(1, 'tts')[
+    df_42[df_42['boots'] == default_boots].nsmallest(1, 'tts')[
         'swe'].values[0],
     1,
     10,
@@ -831,7 +779,7 @@ interesting_sweeps = [
 ]
 
 interesting_replicas = [
-    df_pysa_42[df_pysa_42['boots'] == default_boots].nsmallest(1, 'tts')[
+    df_42[df_42['boots'] == default_boots].nsmallest(1, 'tts')[
         'rep'].values[0],
     default_replicas,
     n_replicas_list[-1],
@@ -848,16 +796,16 @@ parameters_detailed_dict = {
 }
 
 use_raw_dataframes = True
-use_raw_pysa_pickles = False
-df_pysa_42 = createPySAResultsDataframes(
-    df=df_pysa_42,
+use_raw_sample_pickles = False
+df_42 = createPySAResultsDataframes(
+    df=df_42,
     instance_list=[instance],
     parameters_dict=parameters_detailed_dict,
     boots_list=all_boots_list,
-    pysa_results_path=pysa_results_path,
-    pysa_pickle_path=pysa_pickle_path,
+    results_path=pysa_results_path,
+    pickle_path=pysa_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_pysa_pickles=use_raw_pysa_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -865,14 +813,15 @@ df_pysa_42 = createPySAResultsDataframes(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
-    ocean_df_flag=False,
+    ocean_df_flag=ocean_df_flag,
+    suffix=suffix,
 )
 
 # %%
 # Plot with performance ratio vs reads for interesting sweeps
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='reads',
     y_axis='perf_ratio',
     # instance=42,
@@ -898,7 +847,7 @@ ax = plot_1d_singleinstance_list(
 # Plot with performance ratio vs reads for interesting sweeps
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='reads',
     y_axis='perf_ratio',
     # instance=42,
@@ -923,7 +872,7 @@ ax = plot_1d_singleinstance_list(
 # Plot with inverse performance ratio vs reads for interesting sweeps
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='reads',
     y_axis='inv_perf_ratio',
     # instance=42,
@@ -945,38 +894,37 @@ ax = plot_1d_singleinstance_list(
     xlim=[1e2, default_sweeps*default_boots*1.1],
 )
 # %%
-# Compute all instances with PySA
+# Compute all instances with solver
 instance_list = [i for i in range(20)] + [42]
 training_instance_list = [i for i in range(20)]
 # %%
 # Merge all results dataframes in a single one
-# schedules_list = ['geometric']
 df_list = []
 use_raw_dataframes = True
-use_raw_pysa_pickles = False
+use_raw_sample_pickles = False
 # all_boots_list = list(range(1, 1001, 1))
 for instance in instance_list:
-    df_name = "df_results_" + str(instance) + "P.pkl"
+    df_name = "df_results_" + str(instance) + suffix + ".pkl"
     df_path = os.path.join(pysa_results_path, df_name)
     if os.path.exists(df_path):
-        df_results_pysa = pd.read_pickle(df_path)
+        df_results_instance = pd.read_pickle(df_path)
     else:
-        df_results_pysa = None
+        df_results_instance = None
     parameters_dict = {
         'swe': sweeps_list,
         'rep': n_replicas_list,
         'pcold': p_cold_list,
         'phot': p_hot_list,
     }
-    df_results_pysa = createPySAResultsDataframes(
-        df=df_results_pysa,
+    df_results_instance = createPySAResultsDataframes(
+        df=df_results_instance,
         instance_list=[instance],
         parameters_dict=parameters_dict,
         boots_list=boots_list,
-        pysa_results_path=pysa_results_path,
-        pysa_pickle_path=pysa_pickle_path,
+        results_path=pysa_results_path,
+        pickle_path=pysa_pickle_path,
         use_raw_dataframes=use_raw_dataframes,
-        use_raw_pysa_pickles=use_raw_pysa_pickles,
+        use_raw_sample_pickles=use_raw_sample_pickles,
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
@@ -984,12 +932,13 @@ for instance in instance_list:
         gap=gap,
         fail_value=fail_value,
         save_pickle=True,
-        ocean_df_flag=False,
+        ocean_df_flag=ocean_df_flag,
+        suffix=suffix,
     )
 
     # Loop over the dataframes with 4 values of sweeps and a sweep in boots then compute the results, and complete by creating main Dataframe
     interesting_sweeps = [
-        df_results_pysa[df_results_pysa['boots'] == default_boots].nsmallest(1, 'tts')[
+        df_results_instance[df_results_instance['boots'] == default_boots].nsmallest(1, 'tts')[
             'swe'].values[0],
         1,
         10,
@@ -998,7 +947,7 @@ for instance in instance_list:
         default_sweeps,
     ]
     interesting_replicas = [
-        df_results_pysa[df_results_pysa['boots'] == default_boots].nsmallest(1, 'tts')[
+        df_results_instance[df_results_instance['boots'] == default_boots].nsmallest(1, 'tts')[
             'rep'].values[0],
         default_replicas,
         n_replicas_list[-1],
@@ -1011,15 +960,15 @@ for instance in instance_list:
         'phot': p_hot_list,
     }
 
-    df_results_pysa = createPySAResultsDataframes(
-        df=df_results_pysa,
+    df_results_instance = createPySAResultsDataframes(
+        df=df_results_instance,
         instance_list=[instance],
         parameters_dict=parameters_detailed_dict,
         boots_list=all_boots_list,
-        pysa_results_path=pysa_results_path,
-        pysa_pickle_path=pysa_pickle_path,
+        results_path=pysa_results_path,
+        pickle_path=pysa_pickle_path,
         use_raw_dataframes=use_raw_dataframes,
-        use_raw_pysa_pickles=use_raw_pysa_pickles,
+        use_raw_sample_pickles=use_raw_sample_pickles,
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
@@ -1027,13 +976,14 @@ for instance in instance_list:
         gap=gap,
         fail_value=fail_value,
         save_pickle=True,
-        ocean_df_flag=False,
+        ocean_df_flag=ocean_df_flag,
+        suffix=suffix,
     )
 
-    df_list.append(df_results_pysa)
+    df_list.append(df_results_instance)
 
 df_results_all = pd.concat(df_list, ignore_index=True)
-df_name = "df_resultsP.pkl"
+df_name = "df_results" + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
 df_results_all = cleanup_df(df_results_all)
 df_results_all.to_pickle(df_path)
@@ -1042,17 +992,17 @@ df_results_all.to_pickle(df_path)
 # Run all the instances with Dwave-neal
 overwrite_pickles = False
 use_raw_dataframes = False
-use_raw_pysa_pickles = False
+use_raw_sample_pickles = False
 
 df_results_all = createPySAResultsDataframes(
     df=df_results_all,
     instance_list=instance_list,
     parameters_dict=parameters_dict,
     boots_list=boots_list,
-    pysa_results_path=pysa_results_path,
-    pysa_pickle_path=pysa_pickle_path,
+    results_path=pysa_results_path,
+    pickle_path=pysa_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_pysa_pickles=use_raw_pysa_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -1060,136 +1010,25 @@ df_results_all = createPySAResultsDataframes(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
-    ocean_df_flag=False,
+    ocean_df_flag=ocean_df_flag,
+    suffix=suffix,
 )
-# %%
-# Function to generate stats aggregated dataframe
-# TODO: this can be generalized by acknowledging that the boots are the resource R
-
-
-def generateStatsDataframe(
-    df_all: List[dict] = None,
-    stat_measures: List[str] = ['mean', 'median'],
-    instance_list: List[str] = None,
-    parameters_dict: dict = None,
-    resource_list: List[int] = [default_boots],
-    pysa_results_path: str = None,
-    use_raw_full_dataframe: bool = False,
-    use_raw_dataframes: bool = False,
-    use_raw_pysa_pickles: bool = False,
-    overwrite_pickles: bool = False,
-    s: float = 0.99,
-    confidence_level: float = 0.68,
-    bootstrap_iterations: int = 1000,
-    gap: float = 1.0,
-    fail_value: float = None,
-    save_pickle: bool = True,
-    ocean_df_flag: bool = False,
-) -> pd.DataFrame:
-    '''
-    Function to generate statistics from the aggregated dataframe
-
-    Args:
-        df_all: List of dictionaries containing the aggregated dataframe
-        stat_measures: List of statistics to be calculated
-        instance_list: List of instances to be considered
-        parameters_dict: Dictionary of parameters to be considered, with list as values
-        resource_list: List of resources to be considered
-        pysa_results_path: Path to the directory containing the results
-        use_raw_full_dataframe: If True, the full dataframe is used
-        use_raw_dataframes: Boolean indicating whether to use the raw data for generating the aggregated dataframe
-        use_raw_pysa_pickles: Boolean indicating whether to use the raw pickles for generating the aggregated pickles
-        overwrite_pickles: Boolean indicating whether to overwrite the pickles
-        s: The success factor (usually said as RTT within s% probability).
-        confidence_level: Confidence level for the confidence intervals in bootstrapping
-        bootstrap_iterations: Number of bootstrap iterations
-        gap: The threshold for the considering a read successful w.r.t the performance ratio [%].
-        fail_value: Value to be used for failed runs
-        save_pickle: Boolean indicating whether to save the aggregated pickle
-        ocean_df_flag: Boolean indicating whether to use the ocean dataframe
-    '''
-    df_all = createPySAResultsDataframes(
-        df=df_all,
-        instance_list=instance_list,
-        parameters_dict=parameters_dict,
-        boots_list=resource_list,
-        pysa_results_path=pysa_results_path,
-        pysa_pickle_path=pysa_pickle_path,
-        use_raw_dataframes=use_raw_dataframes,
-        use_raw_pysa_pickles=use_raw_pysa_pickles,
-        overwrite_pickles=overwrite_pickles,
-        s=s,
-        confidence_level=confidence_level,
-        bootstrap_iterations=bootstrap_iterations,
-        gap=gap,
-        fail_value=fail_value,
-        save_pickle=True,
-        ocean_df_flag=ocean_df_flag,
-    )
-    # Split large dataframe such that we can compute the statistics and confidence interval for each metric across the instances
-    # TODO This can be improved by the lambda function version of the approach defining an input parameter for the function as a dictionary. Currently this is too slow
-    # Not succesful reimplementation of the operation above
-    # df_stats_all = df_results_all.set_index(
-    #     'instance').groupby(parameters + ['boots']
-    #     ).apply(lambda s: pd.Series({
-    #         stat_measure + '_' + metric : conf_interval(s,metric, stat_measure) for metric in metrics_list for stat_measure in stat_measures})
-    #     ).reset_index()
-
-    parameters = list(parameters_dict.keys())
-    resources = ['boots']
-    df_name = 'df_results_stats'
-    df_path = os.path.join(pysa_results_path, df_name + 'P.pkl')
-    if os.path.exists(df_path):
-        df_all_stats = pd.read_pickle(df_path)
-    else:
-        df_all_stats = pd.DataFrame()
-    if all([stat_measure + '_' + metric + '_conf_interval_' + limit in df_all_stats.columns for stat_measure in stat_measures for metric in metrics_list for limit in ['lower', 'upper']]) and not use_raw_full_dataframe:
-        pass
-    else:
-        df_all_groups = df_all[df_all['instance'].isin(instance_list)].set_index(
-            'instance').groupby(parameters + resources)
-        dataframes = []
-        for metric in metrics_list:
-            df_all_mean = df_all_groups.apply(
-                mean_conf_interval, key_string=metric)
-            df_all_median = df_all_groups.apply(
-                median_conf_interval, key_string=metric)
-            dataframes.append(df_all_mean)
-            dataframes.append(df_all_median)
-
-        df_all_stats = pd.concat(dataframes, axis=1).reset_index()
-
-    df_stats = df_all_stats.copy()
-
-    for stat_measure in stat_measures:
-        for key, value in lower_bounds.items():
-            df_stats[stat_measure + '_' + key + '_conf_interval_lower'].clip(
-                lower=value, inplace=True)
-        for key, value in upper_bounds.items():
-            df_stats[stat_measure + '_' + key + '_conf_interval_upper'].clip(
-                upper=value, inplace=True)
-    if save_pickle:
-        df_stats = cleanup_df(df_stats)
-        df_stats.to_pickle(df_path)
-
-    return df_stats
-
 
 # %%
 # Generate stats results
 use_raw_full_dataframe = False
 use_raw_dataframes = False
-use_raw_pysa_pickles = False
+use_raw_sample_pickles = False
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
     instance_list=training_instance_list,
     parameters_dict=parameters_dict,
     resource_list=boots_list,
-    pysa_results_path=pysa_results_path,
+    results_path=pysa_results_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_pysa_pickles=use_raw_pysa_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -1197,13 +1036,13 @@ df_results_all_stats = generateStatsDataframe(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
-    ocean_df_flag=False,
+    ocean_df_flag=ocean_df_flag,
 )
 # %%
 # Generate plots for TTS of ensemble together with single instance (42)
 f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_pysa_42,
+    df=df_42,
     x_axis='swe',
     y_axis='tts',
     ax=ax,
@@ -1328,18 +1167,18 @@ parameters_best_ensemble_dict = {
     'phot': p_hot_list,
 }
 for instance in instance_list:
-    df_name = "df_results_" + str(instance) + "P.pkl"
+    df_name = "df_results_" + str(instance) + suffix + ".pkl"
     df_path = os.path.join(pysa_results_path, df_name)
-    df_results_pysa = pd.read_pickle(df_path)
-    df_results_pysa = createPySAResultsDataframes(
-        df=df_results_pysa,
+    df_results_instance = pd.read_pickle(df_path)
+    df_results_instance = createPySAResultsDataframes(
+        df=df_results_instance,
         instance_list=[instance],
         parameters_dict=parameters_best_ensemble_dict,
         boots_list=all_boots_list,
-        pysa_results_path=pysa_results_path,
-        pysa_pickle_path=pysa_pickle_path,
+        results_path=pysa_results_path,
+        pickle_path=pysa_pickle_path,
         use_raw_dataframes=use_raw_dataframes,
-        use_raw_pysa_pickles=use_raw_pysa_pickles,
+        use_raw_sample_pickles=use_raw_sample_pickles,
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
@@ -1347,13 +1186,14 @@ for instance in instance_list:
         gap=gap,
         fail_value=fail_value,
         save_pickle=True,
-        ocean_df_flag=False,
+        ocean_df_flag=ocean_df_flag,
+        suffix=suffix,
     )
-    df_list.append(df_results_pysa)
+    df_list.append(df_results_instance)
 
 df_results_all = pd.concat(df_list, ignore_index=True)
 df_results_all = cleanup_df(df_results_all)
-df_name = "df_resultsP.pkl"
+df_name = "df_results" + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
 df_results_all.to_pickle(df_path)
 
@@ -1364,10 +1204,10 @@ df_results_all = createPySAResultsDataframes(
     instance_list=instance_list,
     parameters_dict=parameters_best_ensemble_dict,
     boots_list=all_boots_list,
-    pysa_results_path=pysa_results_path,
-    pysa_pickle_path=pysa_pickle_path,
+    results_path=pysa_results_path,
+    pickle_path=pysa_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_pysa_pickles=use_raw_pysa_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -1375,7 +1215,8 @@ df_results_all = createPySAResultsDataframes(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
-    ocean_df_flag=False,
+    ocean_df_flag=ocean_df_flag,
+    suffix=suffix,
 )
 # %%
 # Compute inverse of performance ratio for all instances
@@ -1387,20 +1228,20 @@ if 'inv_perf_ratio' not in df_results_all.columns:
     df_results_all['inv_perf_ratio_conf_interval_upper'] = 1 - \
         df_results_all['perf_ratio_conf_interval_lower'] + EPSILON
 df_results_all = cleanup_df(df_results_all)
-df_name = "df_resultsP.pkl"
+df_name = "df_results" + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
 df_results_all.to_pickle(df_path)
 
-if 'inv_perf_ratio' not in df_pysa_42.columns:
-    df_pysa_42['inv_perf_ratio'] = 1 - df_pysa_42['perf_ratio'] + EPSILON
-    df_pysa_42['inv_perf_ratio_conf_interval_lower'] = 1 - \
-        df_pysa_42['perf_ratio_conf_interval_upper'] + EPSILON
-    df_pysa_42['inv_perf_ratio_conf_interval_upper'] = 1 - \
-        df_pysa_42['perf_ratio_conf_interval_lower'] + EPSILON
-df_pysa_42 = cleanup_df(df_pysa_42)
-df_name = "df_results_42P.pkl"
+if 'inv_perf_ratio' not in df_42.columns:
+    df_42['inv_perf_ratio'] = 1 - df_42['perf_ratio'] + EPSILON
+    df_42['inv_perf_ratio_conf_interval_lower'] = 1 - \
+        df_42['perf_ratio_conf_interval_upper'] + EPSILON
+    df_42['inv_perf_ratio_conf_interval_upper'] = 1 - \
+        df_42['perf_ratio_conf_interval_lower'] + EPSILON
+df_42 = cleanup_df(df_42)
+df_name = "df_results_42" + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
-df_pysa_42.to_pickle(df_path)
+df_42.to_pickle(df_path)
 # %%
 # Obtain the tts for each instance in the median and the mean of the ensemble accross the sweeps
 # TODO generalize this code. In general, one parameter (or several) are fixed in certain interesting values and then for all instances with the all other values of remaining parameters we report the metric output, everything at 1000 bootstraps
@@ -1419,17 +1260,20 @@ df_default = df_results_all[
     (df_results_all['swe'] == default_sweeps) &
     (df_results_all['rep'] == default_replicas) &
     (df_results_all['pcold'] == default_p_cold) &
-    (df_results_all['phot'] == default_p_hot)].set_index(['instance'])
+    (df_results_all['phot'] == default_p_hot)
+    ].set_index(['instance'])
 df_default.fillna(fail_value, inplace=True)
 keys_list = ['default']
 df_ensemble_best = []
+# TODO: How to generalize this to zips of all parameters that change?
 for i, swe_rep in enumerate(zip(best_ensemble_sweeps, best_ensemble_replicas)):
     df_metric_best = df_results_all[
         (df_results_all['boots'] == default_boots) &
         (df_results_all['swe'] == swe_rep[0]) &
         (df_results_all['rep'] == swe_rep[1]) &
         (df_results_all['pcold'] == default_p_cold) &
-        (df_results_all['phot'] == default_p_hot)].set_index(['instance'])
+        (df_results_all['phot'] == default_p_hot)
+        ].set_index(['instance'])
     df_metric_best.fillna(fail_value, inplace=True)
     df_ensemble_best.append(df_metric_best)
     keys_list.append(stat_measures[i] + '_ensemble')
@@ -1477,7 +1321,7 @@ for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
         ax.set(yscale='log')
 
 df_results_all = cleanup_df(df_results_all)
-df_name = "df_resultsP.pkl"
+df_name = "df_results" + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
 df_results_all.to_pickle(df_path)
 # %%
@@ -1564,10 +1408,10 @@ df_results_all_stats = generateStatsDataframe(
     instance_list=training_instance_list,
     parameters_dict=parameters_dict,
     resource_list=boots_list,
-    pysa_results_path=pysa_results_path,
+    results_path=pysa_results_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_pysa_pickles=use_raw_pysa_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -1575,7 +1419,7 @@ df_results_all_stats = generateStatsDataframe(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
-    ocean_df_flag=False,
+    ocean_df_flag=ocean_df_flag,
 )
 # %%
 # Generate plots for performance ratio of ensemble vs reads
@@ -1656,10 +1500,9 @@ for stat_measure in stat_measures:
 # Create virtual best and virtual worst columns
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
-parameters = ['swe', 'rep', 'pcold', 'phot']
 stale_parameters = ['pcold', 'phot']
 
-df_name = "df_results_virtP.pkl"
+df_name = "df_results_virt" + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
 if use_raw_dataframes or os.path.exists(df_path) is False:
     df_virtual_all = df_results_all.groupby(
@@ -1858,17 +1701,17 @@ for stat_measure in stat_measures:
 # %%
 # Defining which datapoints to take
 repetitions = 10  # Times to run the algorithm
-rs = [1, 10]  # resources per parameter setting (runs)
+rs = [1, 5, 10]  # resources per parameter setting (runs)
 frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 R_budgets = [1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 experiments = rs * repetitions
-df_name = "df_progress_totalP.pkl"
+df_name = "df_progress_total" + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
 df_search = df_results_all_stats[
-    parameters + ['boots',
+    parameters_list + ['boots',
                   'median_perf_ratio', 'mean_perf_ratio', 'reads']
 ].set_index(
-    parameters + ['boots'])
+    parameters_list + ['boots'])
 parameter_sets = itertools.product(
     *(parameters_dict[Name] for Name in parameters_dict))
 parameter_sets = list(parameter_sets)
@@ -1902,13 +1745,12 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                                 idx[random_parameter_set + (r,)]
                             ]
                         )
-                        # TODO: Seems too cumbersome, might discourage use of idx
                         total_reads += r*random_parameter_set[0]*random_parameter_set[1]
                         if total_reads > R_exploration:
                             converged = True
                             break
                     exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
-                        parameters + ['boots'])
+                        parameters_list + ['boots'])
                     exploration_step['median_perf_ratio'] = exploration_step['median_perf_ratio'].expanding(
                         min_periods=1).max()
                     exploration_step['mean_perf_ratio'] = exploration_step['mean_perf_ratio'].expanding(
@@ -1923,7 +1765,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     progress_list.append(exploration_step)
 
                     exploitation_step = df_search.reset_index().set_index(
-                        parameters).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
+                        parameters_list).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
                     exploitation_step['cum_reads'] = exploitation_step['reads'] + \
                         exploration_step['cum_reads'].max()
                     exploitation_step.sort_values(['cum_reads'], inplace=True)
@@ -2250,7 +2092,7 @@ for stat_measure in stat_measures:
 # r = 1  # resource per parameter setting (runs)
 rs = [1, 5, 10]
 # R_budget = 550  # budget for exploitation (runs)
-df_name = "df_progress_ternaryP.pkl"
+df_name = "df_progress_ternary" + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
 df_search = df_results_all_stats[
     ['schedule', 'swe', 'boots',
@@ -2583,7 +2425,7 @@ for stat_measure in stat_measures:
 # Computing up ternary search across parameter for instance 42
 # We assume that the performance of the parameter is unimodal (in decreases and the increases)
 rs = [1, 5, 10]
-df_name = "df_progress_ternary_42P.pkl"
+df_name = "df_progress_ternary_42" + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
 # TODO: check that 'geometric' is replaced accross the code with default_schedule
 default_schedule = 'geometric'
@@ -2593,7 +2435,7 @@ if search_metric == 'tts':
     search_direction = -1  # -1 for decreasing, 1 for increasing
 else:
     search_direction = 1
-df_search = df_pysa_42[
+df_search = df_42[
     ['schedule', 'swe', 'boots', 'reads'] +
     list(set([compute_metric, search_metric]))
 ].sort_values([search_metric]).set_index(
@@ -2705,11 +2547,11 @@ repetitions = 10  # Times to run the algorithm
 # rs = [1, 5, 10]  # resources per parameter setting (runs)
 # frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 # R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
-df_name = "df_progress_42P.pkl"
+df_name = "df_progress_42" + suffix + ".pkl"
 df_path = os.path.join(pysa_results_path, df_name)
 compute_metric = 'perf_ratio'
 parameters = ['schedule', 'swe']
-df_search = df_pysa_42[
+df_search = df_42[
     parameters + ['boots', 'reads'] + [compute_metric]
 ].set_index(
     parameters + ['boots']

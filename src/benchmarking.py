@@ -4,7 +4,6 @@ import functools
 import itertools
 import os
 import pickle
-import pickle as pkl
 import time
 from ctypes.wintypes import DWORD
 from gc import collect
@@ -19,10 +18,10 @@ import networkx as nx
 # Import numpy and scipy for certain numerical calculations below
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib import ticker
 from pysa.sa import Solver
 from scipy import sparse, stats
-import seaborn as sns
 
 from plotting import *
 from retrieve_data import *
@@ -63,6 +62,18 @@ if not(os.path.exists(dneal_pickle_path)):
           ' does not exist. We will create it.')
     os.makedirs(dneal_pickle_path)
 
+pysa_results_path = os.path.join(results_path, 'pysa/')
+if not(os.path.exists(pysa_results_path)):
+    print('PySA results directory ' + pysa_results_path +
+          ' does not exist. We will create it.')
+    os.makedirs(pysa_results_path)
+
+pysa_pickle_path = os.path.join(pysa_results_path, 'pickles/')
+if not(os.path.exists(pysa_pickle_path)):
+    print('PySA pickles directory' + pysa_pickle_path +
+          ' does not exist. We will create it.')
+    os.makedirs(pysa_pickle_path)
+
 instance_path = os.path.join(results_path, 'instances/')
 if not(os.path.exists(instance_path)):
     print('Instances directory ' + instance_path +
@@ -74,6 +85,26 @@ if not(os.path.exists(plots_path)):
     print('Plots directory ' + plots_path +
           ' does not exist. We will create it.')
     os.makedirs(plots_path)
+
+# %%
+# Define default values
+    
+default_sweeps = 1000
+total_reads = 1000
+default_boots = default_reads
+float_type = 'float32'
+default_reads = 1000
+total_reads = 1000
+# TODO rename this total_reads parameter, remove redundancy with above
+default_Tfactor = 1.0
+default_schedule = 'geometric'
+default_replicas = 1
+default_p_hot = 50.0
+default_p_cold = 1.0
+parameters_list = ['schedule', 'sweeps']
+suffix = ''
+ocean_df_flag = True
+
 # %%
 # Create instance 42
 model_random = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
@@ -137,7 +168,7 @@ def createDnealSamplesDataframe(
     total_reads: int = 1000,
     sim_ann_sampler=None,
     dneal_pickle_path: str = None,
-    use_raw_dneal_pickles: bool = False,
+    use_raw_sample_pickles: bool = False,
     overwrite_pickles: bool = False,
 ) -> pd.DataFrame:
     '''
@@ -151,7 +182,7 @@ def createDnealSamplesDataframe(
         total_reads: The total number of reads to use for the dneal algorithm.
         sim_ann_sampler: The sampler to use for the simulated annealing algorithm.
         dneal_pickle_path: The path to the pickle files.
-        use_raw_dneal_pickles: Whether to use the raw pickles or not.
+        use_raw_sample_pickles: Whether to use the raw pickles or not.
         overwrite_pickles: Whether to overwrite the pickles or not.
 
     Returns:
@@ -178,9 +209,9 @@ def createDnealSamplesDataframe(
         try:
             df_samples = pd.read_pickle(df_path)
             return df_samples
-        except (pkl.UnpicklingError, EOFError):
+        except (pickle.UnpicklingError, EOFError):
             os.replace(df_path, df_path + '.bak')
-    if use_raw_dneal_pickles or not os.path.exists(df_path):
+    if use_raw_sample_pickles or not os.path.exists(df_path):
         # If you want to generate the data or load it here
         if sim_ann_sampler is None:
             sim_ann_sampler = neal.SimulatedAnnealingSampler()
@@ -232,10 +263,10 @@ def createDnealResultsDataframes(
     instance_list: List[int] = [0],
     parameters_dict: dict = None,
     boots_list: List[int] = [1000],
-    dneal_results_path: str = None,
-    dneal_pickle_path: str = None,
+    results_path: str = None,
+    pickle_path: str = None,
     use_raw_dataframes: bool = False,
-    use_raw_dneal_pickles: bool = False,
+    use_raw_sample_pickles: bool = False,
     overwrite_pickles: bool = False,
     confidence_level: float = 68,
     gap: float = 1.0,
@@ -243,6 +274,8 @@ def createDnealResultsDataframes(
     s: float = 0.99,
     fail_value: float = np.inf,
     save_pickle: bool = True,
+    ocean_df_flag: bool = True,
+    suffix: str = '',
 ) -> pd.DataFrame:
     '''
     Function to create the dataframes for the experiments
@@ -252,19 +285,32 @@ def createDnealResultsDataframes(
         instance: The instance number
         boots: The number of bootstraps
         parameters_dict: The parameters dictionary with values as lists
-        dneal_results_path: The path to the results
-        dneal_pickle_path: The path to the pickle files
+        results_path: The path to the results
+        pickle_path: The path to the pickle files
         use_raw_dataframes: If we want to use the raw data
+        use_raw_sample_pickles: If we want to use the raw sample pickles
         overwrite_pickles: If we want to overwrite the pickle files
+        confidence_level: The confidence level
+        gap: The gap
+        bootstrap_iterations: The number of bootstrap iterations
+        s: The success probability
+        fail_value: The fail value
+        save_pickle: If we want to save the pickle files
+        ocean_df_flag: If we want to use the ocean dataframe
+        suffix: The suffix to add to the dataframe name
+
+    Returns:
+        The results dataframe
 
     '''
     # Remove repeated elements in the parameters_dict values (sets)
     if parameters_dict is not None:
         for i, j in parameters_dict.items():
             parameters_dict[i] = set(j)
-    # Create list of parameters sorted alphabetically (ingoring uppercase)
+    # Create list of parameters
     params = list(parameters_dict.keys())
-    params.sort(key=str.lower)
+    # Sort it alphabetically (ignoring uppercase)
+    # params.sort(key=str.lower)
     # Check that the parameters are columns in the dataframe
     if df is not None:
         assert all([i in df.columns for i in params])
@@ -282,43 +328,34 @@ def createDnealResultsDataframes(
     # Create filename
     # TODO modify filenames inteligently to make it easier to work with
     if len(instance_list) > 1:
-        df_name = "df_results.pkl"
+        df_name = 'df_results' + suffix + '.pkl'
     else:
-        df_name = "df_results_" + str(instance_list[0]) + ".pkl"
-    df_path = os.path.join(dneal_results_path, df_name)
+        df_name = 'df_results_' + str(instance_list[0]) + suffix + '.pkl'
+    df_path = os.path.join(results_path, df_name)
 
     # If use_raw_dataframes compute the row
     if use_raw_dataframes or not os.path.exists(df_path):
         # TODO Remove all the list_* variables and name them as plurals instead
-        list_results_dneal = []
+        list_results = []
         for instance in instance_list:
             random_energy = loadEnergyFromFile(os.path.join(
                 results_path, 'random_energies.txt'), prefix + str(instance))
             min_energy = loadEnergyFromFile(os.path.join(
                 results_path, 'gs_energies.txt'), prefix + str(instance))
             # We will assume that the insertion order in the keys is preserved (hence Python3.7+ only) and is sorted alphabetically
-            combinations = itertools.product(
+            parameter_sets = itertools.product(
                 *(parameters_dict[Name] for Name in parameters_dict))
-            combinations = list(combinations)
-            for combination in combinations:
-                list_inputs = [instance] + [i for i in combination]
-                # Question: Is there a way of extracting the parameters names as variables names from the dictionary keys?
-                # For the moment, let's hard-code it
-                schedule = combination[0]
-                sweep = combination[1]
-
-                # parameters = {'schedule': schedule,
-                #               'sweep': sweep,
-                #               # 'Tfactor': 1.0,
-                #               }
-                parameters = dict(zip(params, combination))
+            parameter_sets = list(parameter_sets)
+            for parameter_set in parameter_sets:
+                list_inputs = [instance] + [i for i in parameter_set]
+                parameters = dict(zip(params, parameter_set))
                 df_samples = createDnealSamplesDataframe(
                     instance=instance,
                     parameters=parameters,
                     total_reads=total_reads,
                     sim_ann_sampler=sim_ann_sampler,
-                    dneal_pickle_path=dneal_pickle_path,
-                    use_raw_dneal_pickles=use_raw_dneal_pickles,
+                    pickle_path=pickle_path,
+                    use_raw_pickles=use_raw_sample_pickles,
                     overwrite_pickles=overwrite_pickles,
                 )
 
@@ -342,12 +379,14 @@ def createDnealResultsDataframes(
                             gap=gap,
                             s=s,
                             fail_value=fail_value,
+                            ocean_df_flag=ocean_df_flag,
                         )
-                    list_results_dneal.append(
+                    list_results.append(
                         list_inputs + list_outputs)
-
-        df_results_dneal = pd.DataFrame(list_results_dneal, columns=[
-            'instance', 'schedule', 'sweeps', 'boots',
+        # TODO: Organize these column names to be created automatically from metric list
+        df_results = pd.DataFrame(list_results,
+        columns=[
+            'instance'] + params + ['boots',
             'min_energy', 'min_energy_conf_interval_lower', 'min_energy_conf_interval_upper',
             'perf_ratio', 'perf_ratio_conf_interval_lower', 'perf_ratio_conf_interval_upper',
             'success_prob', 'success_prob_conf_interval_lower', 'success_prob_conf_interval_upper',
@@ -357,9 +396,9 @@ def createDnealResultsDataframes(
         ])
         if df is not None:
             df_new = pd.concat(
-                [df, df_results_dneal], axis=0, ignore_index=True)
+                [df, df_results], axis=0, ignore_index=True)
         else:
-            df_new = df_results_dneal.copy()
+            df_new = df_results.copy()
 
     else:
         print("Loading the dataframe")
@@ -383,14 +422,7 @@ upper_bounds = {key: None for key in metrics_list}
 upper_bounds['success_prob'] = 1.0
 upper_bounds['perf_ratio'] = 1.0
 
-# Define default behavior for the solver
-total_reads = 1000
-# TODO rename this total_reads parameter, remove redundancy with above
-default_reads = 1000
-default_sweeps = 1000
-default_Tfactor = 1.0
-default_schedule = 'geometric'
-default_boots = total_reads
+
 # %%
 # Function to generate stats aggregated dataframe
 # TODO: this can be generalized by acknowledging that the boots are the resource R
@@ -402,17 +434,20 @@ def generateStatsDataframe(
     instance_list: List[str] = None,
     parameters_dict: dict = None,
     resource_list: List[int] = [default_boots],
-    dneal_results_path: str = None,
+    results_path: str = None,
+    pickles_path: str = None,
     use_raw_full_dataframe: bool = False,
     use_raw_dataframes: bool = False,
-    use_raw_dneal_pickles: bool = False,
+    use_raw_samples_pickles: bool = False,
     overwrite_pickles: bool = False,
     s: float = 0.99,
     confidence_level: float = 0.68,
     bootstrap_iterations: int = 1000,
-    gap: float = 0.1,
+    gap: float = 1.0,
     fail_value: float = None,
     save_pickle: bool = True,
+    ocean_df_flag: bool = False,
+    suffix: str = '',
 ) -> pd.DataFrame:
     '''
     Function to generate statistics from the aggregated dataframe
@@ -423,10 +458,10 @@ def generateStatsDataframe(
         instance_list: List of instances to be considered
         parameters_dict: Dictionary of parameters to be considered, with list as values
         resource_list: List of resources to be considered
-        dneal_results_path: Path to the directory containing the results
+        results_path: Path to the directory containing the results
         use_raw_full_dataframe: If True, the full dataframe is used
         use_raw_dataframes: Boolean indicating whether to use the raw data for generating the aggregated dataframe
-        use_raw_dneal_pickles: Boolean indicating whether to use the raw pickles for generating the aggregated pickles
+        use_raw_samples_pickles: Boolean indicating whether to use the raw pickles for generating the aggregated pickles
         overwrite_pickles: Boolean indicating whether to overwrite the pickles
         s: The success factor (usually said as RTT within s% probability).
         confidence_level: Confidence level for the confidence intervals in bootstrapping
@@ -434,16 +469,18 @@ def generateStatsDataframe(
         gap: The threshold for the considering a read successful w.r.t the performance ratio [%].
         fail_value: Value to be used for failed runs
         save_pickle: Boolean indicating whether to save the aggregated pickle
+        ocean_df_flag: Boolean indicating whether to use the ocean dataframe
+        suffix: Suffix to be added to the pickle name
     '''
     df_all = createDnealResultsDataframes(
         df=df_all,
         instance_list=instance_list,
         parameters_dict=parameters_dict,
         boots_list=resource_list,
-        dneal_results_path=dneal_results_path,
-        dneal_pickle_path=dneal_pickle_path,
+        results_path=results_path,
+        pickle_path=pickles_path,
         use_raw_dataframes=use_raw_dataframes,
-        use_raw_dneal_pickles=use_raw_dneal_pickles,
+        use_raw_sample_pickles=use_raw_samples_pickles,
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=confidence_level,
@@ -451,6 +488,7 @@ def generateStatsDataframe(
         gap=gap,
         fail_value=fail_value,
         save_pickle=True,
+        ocean_df_flag=ocean_df_flag,
     )
     # Split large dataframe such that we can compute the statistics and confidence interval for each metric across the instances
     # TODO This can be improved by the lambda function version of the approach defining an input parameter for the function as a dictionary. Currently this is too slow
@@ -464,8 +502,11 @@ def generateStatsDataframe(
     parameters = list(parameters_dict.keys())
     resources = ['boots']
     df_name = 'df_results_stats'
-    df_path = os.path.join(dneal_results_path, df_name + '.pkl')
-    df_all_stats = pd.read_pickle(df_path)
+    df_path = os.path.join(results_path, df_name + suffix + '.pkl')
+    if os.path.exists(df_path):
+        df_all_stats = pd.read_pickle(df_path)
+    else:
+        df_all_stats = pd.DataFrame()
     if all([stat_measure + '_' + metric + '_conf_interval_' + limit in df_all_stats.columns for stat_measure in stat_measures for metric in metrics_list for limit in ['lower', 'upper']]) and not use_raw_full_dataframe:
         pass
     else:
@@ -500,9 +541,6 @@ def generateStatsDataframe(
 
 # %%
 # Compute results for instance 42 using D-Wave Neal
-use_raw_dataframes = False
-use_raw_dneal_pickles = False
-overwrite_pickles = False
 instance = 42
 metrics_list = ['min_energy', 'tts',
                 'perf_ratio', 'success_prob', 'mean_time', 'inv_perf_ratio']
@@ -523,22 +561,30 @@ boots_list = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
 # TODO there should be an attribute to the parameters and if they vary logarithmically, have a function that generates the list of values "equally" spaced in logarithmic space
 sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
-df_name = "df_results_" + str(instance) + ".pkl"
+df_name = "df_results_" + str(instance) + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 if os.path.exists(df_path):
-    df_dneal_42 = pd.read_pickle(df_path)
+    df_42 = pd.read_pickle(df_path)
 else:
-    df_dneal_42 = None
+    df_42 = None
 
-df_dneal_42 = createDnealResultsDataframes(
-    df=df_dneal_42,
+parameters_dict = {
+    'schedule': schedules_list,
+    'sweeps': sweeps_list,
+}
+use_raw_dataframes = True
+use_raw_sample_pickles = False
+overwrite_pickles = False
+
+df_42 = createDnealResultsDataframes(
+    df=df_42,
     instance_list=[instance],
-    parameters_dict={'schedule': schedules_list, 'sweeps': sweeps_list},
+    parameters_dict=parameters_dict,
     boots_list=boots_list,
-    dneal_results_path=dneal_results_path,
-    dneal_pickle_path=dneal_pickle_path,
+    results_path=dneal_results_path,
+    pickle_path=dneal_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_dneal_pickles=use_raw_dneal_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -546,6 +592,8 @@ df_dneal_42 = createDnealResultsDataframes(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
+    ocean_df_flag=ocean_df_flag,
+    suffix=suffix,
 )
 
 # %%
@@ -555,6 +603,9 @@ labels = {
     'instance': 'Random instance',
     'replicas': 'Number of replicas',
     'sweeps': 'Number of sweeps',
+    'rep': 'Number of replicas',
+    'swe': 'Number of sweeps',
+    'swe': 'Number of sweeps',
     'pcold': 'Probability of dEmin flip at cold temperature',
     'phot': 'Probability of dEmax flip at hot temperature',
     'mean_time': 'Mean time [us]',
@@ -592,10 +643,12 @@ labels = {
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples
 default_dict = {'schedule': default_schedule,
-                'sweeps': default_sweeps, 'boots': default_boots}
+                'sweeps': default_sweeps,
+                'boots': default_boots,
+}
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='sweeps',
     y_axis='perf_ratio',
     dict_fixed={'instance': 42, 'schedule': 'geometric'},
@@ -610,12 +663,13 @@ ax = plot_1d_singleinstance_list(
         {'instance': 42, 'reads': default_sweeps*default_boots}),
     use_colorbar=False,
     ylim=[0.6, 1.01],
+    colors=['colormap'],
 )
 # %%
 # Inverse performance ratio vs sweeps for different bootstrap downsamples
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='sweeps',
     y_axis='inv_perf_ratio',
     dict_fixed={'instance': 42, 'schedule': 'geometric'},
@@ -628,12 +682,13 @@ ax = plot_1d_singleinstance_list(
     save_fig=False,
     default_dict=default_dict,
     use_colorbar=False,
+    colors=['colormap'],
 )
 # %%
 # Performance ratio vs runs for different bootstrap downsamples
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='reads',
     y_axis='perf_ratio',
     dict_fixed={'instance': 42, 'schedule': 'geometric'},
@@ -647,12 +702,13 @@ ax = plot_1d_singleinstance_list(
     default_dict=default_dict,
     use_colorbar=False,
     ylim=[0.9, 1.005],
+    colors=['colormap'],
 )
 # %%
 # Performance ratio vs runs for different bootstrap downsamples
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='reads',
     y_axis='inv_perf_ratio',
     dict_fixed={'instance': 42, 'schedule': 'geometric'},
@@ -665,13 +721,14 @@ ax = plot_1d_singleinstance_list(
     save_fig=False,
     default_dict=default_dict,
     use_colorbar=False,
+    colors=['colormap'],
     # ylim=[0.95, 1.005]
 )
 # %%
 # Mean time plot of some fixed parameter setting
 f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='sweeps',
     y_axis='mean_time',
     dict_fixed={'instance': 42, 'boots': 1000},
@@ -688,7 +745,7 @@ plot_1d_singleinstance_list(
 # Success probability of some fixed parameter setting
 f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='sweeps',
     y_axis='success_prob',
     dict_fixed={'instance': 42, 'boots': 1000},
@@ -705,7 +762,7 @@ plot_1d_singleinstance_list(
 # TTS Plot for all bootstrapping downsamples in both schedules
 f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='sweeps',
     y_axis='tts',
     ax=ax,
@@ -715,16 +772,17 @@ plot_1d_singleinstance_list(
     labels=labels,
     prefix=prefix,
     log_x=False,
-    log_y=False,
+    log_y=True,
     save_fig=False,
     default_dict=default_dict,
+    colors=['colormap'],
 )
 # %%
 # TTS Plot for all bootstrapping downsamples in both schedules
 f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_dneal_42,
-    x_axis='sweeps',
+    df=df_42,
+    x_axis='reads',
     y_axis='tts',
     ax=ax,
     dict_fixed={'schedule': 'geometric', 'instance': 42},
@@ -732,15 +790,16 @@ plot_1d_singleinstance_list(
                 for j in [10, 100, 1000]],
     labels=labels,
     prefix=prefix,
-    log_x=False,
-    log_y=False,
+    log_x=True,
+    log_y=True,
     save_fig=False,
     default_dict=default_dict,
+    colors=['colormap'],
 )
 # %%
 # Loop over the dataframes with 4 values of sweeps and a sweep in boots then compute the results, and complete by creating main Dataframe
 interesting_sweeps = [
-    df_dneal_42[df_dneal_42['boots'] == default_boots].nsmallest(1, 'tts')[
+    df_42[df_42['boots'] == default_boots].nsmallest(1, 'tts')[
         'sweeps'].values[0],
     1,
     10,
@@ -750,18 +809,24 @@ interesting_sweeps = [
 ]
 
 # Iterating for all values of bootstrapping downsampling proves to be very expensive, rather use steps of 10
-all_boots_list = list(range(1, 1001, 1))
+# all_boots_list = list(range(1, 1001, 1))
+all_boots_list = [i*10**j for j in range(0, 3) for i in range(1, 10)]
+parameters_detailed_dict = {
+    'schedule': schedules_list,
+    'sweeps': interesting_sweeps,
+}
 
-df_dneal_42 = createDnealResultsDataframes(
-    df=df_dneal_42,
+use_raw_dataframes = True
+use_raw_sample_pickles = False
+df_42 = createDnealResultsDataframes(
+    df=df_42,
     instance_list=[instance],
-    parameters_dict={'schedule': schedules_list,
-                     'sweeps': interesting_sweeps},
+    parameters_dict=parameters_detailed_dict,
     boots_list=all_boots_list,
-    dneal_results_path=dneal_results_path,
-    dneal_pickle_path=dneal_pickle_path,
+    results_path=dneal_results_path,
+    pickle_path=dneal_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_dneal_pickles=use_raw_dneal_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -769,13 +834,15 @@ df_dneal_42 = createDnealResultsDataframes(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
+    ocean_df_flag=ocean_df_flag,
+    suffix=suffix,
 )
 
 # %%
 # Plot with performance ratio vs reads for interesting sweeps
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='reads',
     y_axis='perf_ratio',
     # instance=42,
@@ -801,7 +868,7 @@ ax = plot_1d_singleinstance_list(
 # Plot with performance ratio vs reads for interesting sweeps
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='reads',
     y_axis='perf_ratio',
     # instance=42,
@@ -826,7 +893,7 @@ ax = plot_1d_singleinstance_list(
 # Plot with inverse performance ratio vs reads for interesting sweeps
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='reads',
     y_axis='inv_perf_ratio',
     # instance=42,
@@ -848,32 +915,36 @@ ax = plot_1d_singleinstance_list(
     xlim=[1e2, default_sweeps*default_boots*1.1],
 )
 # %%
-# Compute all instances with Dwave-neal
+# Compute all instances with solver
 instance_list = [i for i in range(20)] + [42]
 training_instance_list = [i for i in range(20)]
 # %%
 # Merge all results dataframes in a single one
 schedules_list = ['geometric']
 df_list = []
-use_raw_dataframes = False
-use_raw_dneal_pickles = False
+use_raw_dataframes = True
+use_raw_sample_pickles = False
 all_boots_list = list(range(1, 1001, 1))
 for instance in instance_list:
-    df_name = "df_results_" + str(instance) + ".pkl"
+    df_name = "df_results_" + str(instance) + suffix + ".pkl"
     df_path = os.path.join(dneal_results_path, df_name)
     if os.path.exists(df_path):
-        df_results_dneal = pd.read_pickle(df_path)
+        df_results_instance = pd.read_pickle(df_path)
     else:
-        df_results_dneal = None
-    df_results_dneal = createDnealResultsDataframes(
-        df=df_results_dneal,
+        df_results_instance = None
+    parameters_dict = {
+        'schedule': schedules_list,
+        'sweeps': sweeps_list,
+    }
+    df_results_instance = createDnealResultsDataframes(
+        df=df_results_instance,
         instance_list=[instance],
-        parameters_dict={'schedule': schedules_list, 'sweeps': sweeps_list},
+        parameters_dict=parameters_dict,
         boots_list=boots_list,
-        dneal_results_path=dneal_results_path,
-        dneal_pickle_path=dneal_pickle_path,
+        results_path=dneal_results_path,
+        pickle_path=dneal_pickle_path,
         use_raw_dataframes=use_raw_dataframes,
-        use_raw_dneal_pickles=use_raw_dneal_pickles,
+        use_raw_sample_pickles=use_raw_sample_pickles,
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
@@ -881,28 +952,32 @@ for instance in instance_list:
         gap=gap,
         fail_value=fail_value,
         save_pickle=True,
+        ocean_df_flag=ocean_df_flag,
+        suffix=suffix,
     )
 
     # Loop over the dataframes with 4 values of sweeps and a sweep in boots then compute the results, and complete by creating main Dataframe
     interesting_sweeps = [
-        df_results_dneal[df_results_dneal['boots'] == default_boots].nsmallest(1, 'tts')[
+        df_results_instance[df_results_instance['boots'] == default_boots].nsmallest(1, 'tts')[
             'sweeps'].values[0],
-        1,
         10,
         default_sweeps // 2,
         default_sweeps,
     ]
 
-    df_results_dneal = createDnealResultsDataframes(
-        df=df_results_dneal,
+    parameters_detailed_dict = {
+        'schedule': schedules_list,
+        'sweeps': interesting_sweeps,
+    }
+    df_results_instance = createDnealResultsDataframes(
+        df=df_results_instance,
         instance_list=[instance],
-        parameters_dict={'schedule': schedules_list,
-                         'sweeps': interesting_sweeps},
+        parameters_dict=parameters_detailed_dict,
         boots_list=all_boots_list,
-        dneal_results_path=dneal_results_path,
-        dneal_pickle_path=dneal_pickle_path,
+        results_path=dneal_results_path,
+        pickle_path=dneal_pickle_path,
         use_raw_dataframes=use_raw_dataframes,
-        use_raw_dneal_pickles=use_raw_dneal_pickles,
+        use_raw_sample_pickles=use_raw_sample_pickles,
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
@@ -910,12 +985,14 @@ for instance in instance_list:
         gap=gap,
         fail_value=fail_value,
         save_pickle=True,
+        ocean_df_flag=ocean_df_flag,
+        suffix=suffix,
     )
 
-    df_list.append(df_results_dneal)
+    df_list.append(df_results_instance)
 
 df_results_all = pd.concat(df_list, ignore_index=True)
-df_name = "df_results.pkl"
+df_name = "df_results" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all = cleanup_df(df_results_all)
 df_results_all.to_pickle(df_path)
@@ -924,19 +1001,19 @@ df_results_all.to_pickle(df_path)
 # Run all the instances with Dwave-neal
 overwrite_pickles = False
 use_raw_dataframes = False
-use_raw_dneal_pickles = False
+use_raw_sample_pickles = False
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
 
 df_results_all = createDnealResultsDataframes(
     df=df_results_all,
     instance_list=instance_list,
-    parameters_dict={'schedule': schedules_list, 'sweeps': sweeps_list},
+    parameters_dict=parameters_dict,
     boots_list=boots_list,
-    dneal_results_path=dneal_results_path,
-    dneal_pickle_path=dneal_pickle_path,
+    results_path=dneal_results_path,
+    pickle_path=dneal_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_dneal_pickles=use_raw_dneal_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -944,22 +1021,24 @@ df_results_all = createDnealResultsDataframes(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
+    ocean_df_flag=ocean_df_flag,
+    suffix=suffix,
 )
 # %%
 # Generate stats results
 use_raw_full_dataframe = False
 use_raw_dataframes = False
-use_raw_dneal_pickles = False
+use_raw_sample_pickles = False
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
     instance_list=training_instance_list,
-    parameters_dict={'schedule': schedules_list, 'sweeps': sweeps_list},
+    parameters_dict=parameters_dict,
     resource_list=boots_list,
-    dneal_results_path=dneal_results_path,
+    results_path=dneal_results_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_dneal_pickles=use_raw_dneal_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -972,7 +1051,7 @@ df_results_all_stats = generateStatsDataframe(
 # Generate plots for TTS of ensemble together with single instance (42)
 f, ax = plt.subplots()
 plot_1d_singleinstance_list(
-    df=df_dneal_42,
+    df=df_42,
     x_axis='sweeps',
     y_axis='tts',
     ax=ax,
@@ -1027,7 +1106,7 @@ plot_1d_singleinstance_list(
     ax=ax,
     dict_fixed={'schedule': 'geometric', 'sweeps': 500},
     list_dicts=[{'boots': j}
-                for j in all_boots_list[::10]],
+                for j in all_boots_list[::1]],
     labels=labels,
     prefix=prefix,
     log_x=True,
@@ -1054,6 +1133,7 @@ plot_1d_singleinstance_list(
     log_y=False,
     save_fig=False,
     ylim=[0.95, 1.005],
+    colors=['colormap'],
 )
 # %%
 # Generate plots for performance ratio of ensemble vs reads
@@ -1073,6 +1153,7 @@ plot_1d_singleinstance_list(
     save_fig=False,
     # ylim=[0.9, 1.005],
     # xlim=[1e2, 5e4],
+    colors=['colormap'],
 )
 
 # %%
@@ -1082,23 +1163,25 @@ df_list = []
 stat_measures = ['mean', 'median']
 use_raw_dataframes = False
 for stat_measure in stat_measures:
-    best_sweep = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
-        1, stat_measure + '_tts')['sweeps'].values[0]
-    best_ensemble_sweeps.append(best_sweep)
+    best_ensemble_sweeps.append(df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
+        1, stat_measure + '_tts')['sweeps'].values[0])
+parameters_best_ensemble_dict = {
+    'schedule': schedules_list,
+    'sweeps': best_ensemble_sweeps,
+}
 for instance in instance_list:
-    df_name = "df_results_" + str(instance) + ".pkl"
+    df_name = "df_results_" + str(instance) + suffix + ".pkl"
     df_path = os.path.join(dneal_results_path, df_name)
-    df_results_dneal = pd.read_pickle(df_path)
-    df_results_dneal = createDnealResultsDataframes(
-        df=df_results_dneal,
+    df_results_instance = pd.read_pickle(df_path)
+    df_results_instance = createDnealResultsDataframes(
+        df=df_results_instance,
         instance_list=[instance],
-        parameters_dict={'schedule': schedules_list,
-                         'sweeps': best_ensemble_sweeps},
+        parameters_dict=parameters_best_ensemble_dict,
         boots_list=all_boots_list,
-        dneal_results_path=dneal_results_path,
-        dneal_pickle_path=dneal_pickle_path,
+        results_path=dneal_results_path,
+        pickle_path=dneal_pickle_path,
         use_raw_dataframes=use_raw_dataframes,
-        use_raw_dneal_pickles=use_raw_dneal_pickles,
+        use_raw_sample_pickles=use_raw_sample_pickles,
         overwrite_pickles=overwrite_pickles,
         s=s,
         confidence_level=conf_int,
@@ -1106,12 +1189,14 @@ for instance in instance_list:
         gap=gap,
         fail_value=fail_value,
         save_pickle=True,
+        ocean_df_flag=ocean_df_flag,
+        suffix=suffix,
     )
-    df_list.append(df_results_dneal)
+    df_list.append(df_results_instance)
 
 df_results_all = pd.concat(df_list, ignore_index=True)
 df_results_all = cleanup_df(df_results_all)
-df_name = "df_results.pkl"
+df_name = "df_results" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all.to_pickle(df_path)
 
@@ -1120,13 +1205,12 @@ df_results_all.to_pickle(df_path)
 df_results_all = createDnealResultsDataframes(
     df=df_results_all,
     instance_list=instance_list,
-    parameters_dict={'schedule': schedules_list,
-                     'sweeps': best_ensemble_sweeps},
+    parameters_dict=parameters_best_ensemble_dict,
     boots_list=all_boots_list,
-    dneal_results_path=dneal_results_path,
-    dneal_pickle_path=dneal_pickle_path,
+    results_path=dneal_results_path,
+    pickle_path=dneal_pickle_path,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_dneal_pickles=use_raw_dneal_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -1134,6 +1218,8 @@ df_results_all = createDnealResultsDataframes(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
+    ocean_df_flag=ocean_df_flag,
+    suffix=suffix,
 )
 # %%
 # Compute inverse of performance ratio for all instances
@@ -1145,23 +1231,24 @@ if 'inv_perf_ratio' not in df_results_all.columns:
     df_results_all['inv_perf_ratio_conf_interval_upper'] = 1 - \
         df_results_all['perf_ratio_conf_interval_lower'] + EPSILON
 df_results_all = cleanup_df(df_results_all)
-df_name = "df_results.pkl"
+df_name = "df_results" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all.to_pickle(df_path)
 
-if 'inv_perf_ratio' not in df_dneal_42.columns:
-    df_dneal_42['inv_perf_ratio'] = 1 - df_dneal_42['perf_ratio'] + EPSILON
-    df_dneal_42['inv_perf_ratio_conf_interval_lower'] = 1 - \
-        df_dneal_42['perf_ratio_conf_interval_upper'] + EPSILON
-    df_dneal_42['inv_perf_ratio_conf_interval_upper'] = 1 - \
-        df_dneal_42['perf_ratio_conf_interval_lower'] + EPSILON
-df_dneal_42 = cleanup_df(df_dneal_42)
-df_name = "df_results_42.pkl"
+if 'inv_perf_ratio' not in df_42.columns:
+    df_42['inv_perf_ratio'] = 1 - df_42['perf_ratio'] + EPSILON
+    df_42['inv_perf_ratio_conf_interval_lower'] = 1 - \
+        df_42['perf_ratio_conf_interval_upper'] + EPSILON
+    df_42['inv_perf_ratio_conf_interval_upper'] = 1 - \
+        df_42['perf_ratio_conf_interval_lower'] + EPSILON
+df_42 = cleanup_df(df_42)
+df_name = "df_results_42" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-df_dneal_42.to_pickle(df_path)
+df_42.to_pickle(df_path)
 # %%
 # Obtain the tts for each instance in the median and the mean of the ensemble accross the sweeps
 # TODO generalize this code. In general, one parameter (or several) are fixed in certain interesting values and then for all instances with the all other values of remaining parameters we report the metric output, everything at 1000 bootstraps
+
 
 for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
 
@@ -1170,45 +1257,60 @@ for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
     df_results_all[metric + '_upper'] = df_results_all[metric] - \
         df_results_all[metric + '_conf_interval_upper']
 
-    # These following lines can be extracted from the loop
-    df_default = df_results_all[(df_results_all['boots'] == default_boots) & (
-        df_results_all['sweeps'] == default_sweeps)].set_index(['instance', 'schedule'])
-    df_list = [df_default]
-    keys_list = ['default']
-    for i, sweep in enumerate(best_ensemble_sweeps):
-        df_list.append(df_results_all[(df_results_all['boots'] == default_boots) & (
-            df_results_all['sweeps'] == sweep)].set_index(['instance', 'schedule']))
-        keys_list.append(stat_measures[i] + '_ensemble')
+# These following lines can be extracted from the loop
+df_default = df_results_all[
+    (df_results_all['boots'] == default_boots) & 
+    (df_results_all['schedule'] == default_schedule) & 
+    (df_results_all['sweeps'] == default_sweeps)
+    ].set_index(['instance'])
+df_default.fillna(fail_value, inplace=True)
+keys_list = ['default']
+df_ensemble_best = []
+# TODO: How to generalize this to zips of all parameters that change?
+for i, sweep in enumerate(best_ensemble_sweeps):
+    df_metric_best = df_results_all[
+        (df_results_all['boots'] == default_boots) &
+        (df_results_all['schedule'] == default_schedule) & 
+        (df_results_all['sweeps'] == sweep)
+        ].set_index(['instance'])
+    df_metric_best.fillna(fail_value, inplace=True)
+    df_ensemble_best.append(df_metric_best)
+    keys_list.append(stat_measures[i] + '_ensemble')
     # Until here can be done off-loop
+keys_list.append('best')
+
+for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
+
+    df_list = [df_default] + df_ensemble_best
 
     # Metrics that you want to minimize
     ascent = metric in ['tts', 'mean_time', 'inv_perf_ratio']
     df_best = df_results_all[
         (df_results_all['boots'] == default_boots)
     ].sort_values(metric, ascending=ascent).groupby(
-        ['instance', 'schedule']).apply(
+        ['instance']).apply(
             pd.DataFrame.head, n=1
-    ).droplevel(-1).drop(columns=['instance', 'schedule']
+    ).droplevel(-1).drop(columns=['instance']
                          )
 
     df_list.append(df_best)
-    keys_list.append('best')
 
     df_merged = pd.concat(df_list, axis=1, keys=keys_list,
                           names=['stat_metric', 'measure'])
 
     fig, ax = plt.subplots()
     df_merged.loc[
-        (slice(None), slice(None)),  # (slice(None), 'geometric'),
+        slice(None),
         :
     ].plot.bar(
         y=[(stat_metric, metric) for stat_metric in keys_list],
         yerr=df_merged.loc[
-            (slice(None), slice(None)),  # (slice(None), 'geometric'),
+            slice(None),
             (slice(None), [metric + '_lower', metric + '_upper'])
         ].to_numpy().T,
         ax=ax,
     )
+    # TODO: leverage use of index    ax.set(title='Different performance of ' + metric +
     ax.set(title='Different performance of ' + metric +
            ' in instances ' + prefix + '\n' +
            'evaluated individually and with the ensemble')
@@ -1218,20 +1320,19 @@ for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
         ax.set(yscale='log')
 
 df_results_all = cleanup_df(df_results_all)
-df_name = "df_results.pkl"
+df_name = "df_results" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_results_all.to_pickle(df_path)
 # %%
 # Plot with performance ratio vs reads for interesting sweeps
 for instance in [3, 0, 7, 42]:
-
     interesting_sweeps = [
         df_results_all[(df_results_all['boots'] == default_boots) & (df_results_all['instance'] == instance)].nsmallest(1, 'tts')[
             'sweeps'].values[0],
         10,
         default_sweeps//2,
         default_sweeps,
-    ] + list(set(best_ensemble_sweeps))
+    ] + best_ensemble_sweeps
     f, ax = plt.subplots()
     ax = plot_1d_singleinstance_list(
         df=df_results_all,
@@ -1258,13 +1359,14 @@ for instance in [3, 0, 7, 42]:
 # Plot with inverse performance ratio vs reads for interesting sweeps
 for instance in [3, 0, 7, 42]:
 
-    interesting_sweeps = list(set([
-        int(df_results_all[(df_results_all['boots'] == default_boots) & (df_results_all['instance'] == instance)].nsmallest(1, 'tts')[
-            'sweeps'].values[0]),
-        10,
+    interesting_sweeps = [
+        df_results_all[
+            (df_results_all['boots'] == default_boots) & 
+            (df_results_all['instance'] == instance)].nsmallest(1, 'tts')[
+            'sweeps'].values[0],
         default_sweeps//2,
         default_sweeps,
-    ] + best_ensemble_sweeps))
+    ] + best_ensemble_sweeps
     f, ax = plt.subplots()
     ax = plot_1d_singleinstance_list(
         df=df_results_all,
@@ -1288,17 +1390,17 @@ for instance in [3, 0, 7, 42]:
 
 # %%
 # Regenerate the dataframe with the statistics to get the complete performance plot
+use_raw_full_dataframe = False
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
     instance_list=training_instance_list,
-    parameters_dict={'schedule': schedules_list,
-                     'sweeps': sweeps_list},
+    parameters_dict=parameters_dict,
     resource_list=boots_list,
-    dneal_results_path=dneal_results_path,
+    results_path=dneal_results_path,
     use_raw_full_dataframe=use_raw_full_dataframe,
     use_raw_dataframes=use_raw_dataframes,
-    use_raw_dneal_pickles=use_raw_dneal_pickles,
+    use_raw_sample_pickles=use_raw_sample_pickles,
     overwrite_pickles=overwrite_pickles,
     s=s,
     confidence_level=conf_int,
@@ -1306,6 +1408,7 @@ df_results_all_stats = generateStatsDataframe(
     gap=gap,
     fail_value=fail_value,
     save_pickle=True,
+    ocean_df_flag=ocean_df_flag,
 )
 # %%
 # Generate plots for performance ratio of ensemble vs reads
@@ -1319,7 +1422,7 @@ for stat_measure in stat_measures:
             ax=ax,
             dict_fixed={'schedule': 'geometric'},
             list_dicts=[{'sweeps': i, 'instance': instance}
-                        for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
+                        for i in [10, default_sweeps//2, default_sweeps] + best_ensemble_sweeps],
             labels=labels,
             prefix=prefix,
             log_x=True,
@@ -1337,8 +1440,8 @@ for stat_measure in stat_measures:
         y_axis=stat_measure + '_perf_ratio',
         ax=ax,
         dict_fixed={'schedule': 'geometric'},
-        list_dicts=[{'sweeps': i}
-                    for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
+        list_dicts=[{'sweeps': i, 'instance': instance}
+                        for i in [10, default_sweeps//2, default_sweeps] + best_ensemble_sweeps],
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -1363,7 +1466,7 @@ for stat_measure in stat_measures:
         ax=ax,
         dict_fixed={'schedule': 'geometric'},
         list_dicts=[{'sweeps': i}
-                    for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
+                        for i in [10, default_sweeps//2, default_sweeps] + best_ensemble_sweeps],
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -1379,12 +1482,13 @@ for stat_measure in stat_measures:
 # Create virtual best and virtual worst columns
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
+stale_parameters = ['schedule']
 
-df_name = "df_results_virt.pkl"
+df_name = "df_results_virt" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 if use_raw_dataframes or os.path.exists(df_path) is False:
     df_virtual_all = df_results_all.groupby(
-        ['schedule', 'reads']
+        stale_parameters + ['reads']
     ).apply(lambda s: pd.Series({
             'virt_best_tts': np.nanmin(s['tts']),
             'virt_best_perf_ratio': np.nanmax(s['perf_ratio']),
@@ -1396,31 +1500,31 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
             })
             ).reset_index()
     df_virtual_best_max = df_virtual_all[
-        ['reads', 'schedule',
+        stale_parameters + ['reads',
          'virt_best_perf_ratio',
          'virt_best_success_prob']
     ].sort_values('reads'
                   ).groupby(
-        'schedule'
+        stale_parameters
     ).expanding(min_periods=1).max().droplevel(-1).reset_index()
 
     # This is done as the virtual worst counts the worst case, computed as the minimum from last read to first
     df_virtual_worst_max = df_virtual_all[
-        ['reads', 'schedule',
+        stale_parameters + ['reads',
          'virt_worst_perf_ratio']
     ].sort_values('reads', ascending=False
                   ).groupby(
-        'schedule'
+        stale_parameters
     ).expanding(min_periods=1).min().droplevel(-1).reset_index()
 
     df_virtual_best_min = df_virtual_all[
-        ['reads', 'schedule',
+        stale_parameters + ['reads',
          'virt_best_tts',
          'virt_best_mean_time',
          'virt_best_inv_perf_ratio']
     ].sort_values('reads'
                   ).groupby(
-        'schedule'
+        stale_parameters
     ).expanding(min_periods=1).agg({
         'reads': np.max,
         'virt_best_tts': np.min,
@@ -1432,30 +1536,30 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
     # ].sort_values(['schedule','reads'])['reads']
 
     df_virtual_worst_min = df_virtual_all[
-        ['reads', 'schedule',
+        stale_parameters + ['reads',
          'virt_worst_inv_perf_ratio']
     ].sort_values('reads', ascending=False
                   ).groupby(
-        'schedule'
+        stale_parameters
     ).expanding(min_periods=1).agg({
         'reads': np.min,
         'virt_worst_inv_perf_ratio': np.max}
     ).droplevel(-1).reset_index()
     df_virtual_best_min['reads'] = df_virtual_all[
-        ['reads', 'schedule']
-    ].sort_values('schedule').sort_values('reads', ascending=False)['reads']
+        stale_parameters + ['reads']
+    ].sort_values(stale_parameters).sort_values('reads', ascending=False)['reads']
 
     df_virtual_best = df_virtual_best_max.merge(
         df_virtual_worst_max,
-        on=['schedule', 'reads'],
+        on=stale_parameters + ['reads'],
         how='left')
     df_virtual_best = df_virtual_best.merge(
         df_virtual_best_min,
-        on=['schedule', 'reads'],
+        on=stale_parameters + ['reads'],
         how='left')
     df_virtual_best = df_virtual_best.merge(
         df_virtual_worst_min,
-        on=['schedule', 'reads'],
+        on=stale_parameters + ['reads'],
         how='left')
     df_virtual_best = cleanup_df(df_virtual_best)
     df_virtual_best.to_pickle(df_path)
@@ -1578,14 +1682,17 @@ rs = [1, 5, 10]  # resources per parameter setting (runs)
 frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 R_budgets = [1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 experiments = rs * repetitions
-df_name = "df_progress_total.pkl"
+df_name = "df_progress_total" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-use_raw_dataframes = False
 df_search = df_results_all_stats[
-                                ['schedule', 'sweeps', 'boots',
+    parameters_list + ['boots',
                                     'median_perf_ratio', 'mean_perf_ratio', 'reads']
 ].set_index(
-    ['schedule', 'sweeps', 'boots'])
+    parameters_list + ['boots'])
+parameter_sets = itertools.product(
+    *(parameters_dict[Name] for Name in parameters_dict))
+parameter_sets = list(parameter_sets)
+use_raw_dataframes = False
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
@@ -1597,28 +1704,30 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
             R_exploitation = R_budget - R_exploration
             for r in rs:
                 for experiment in range(repetitions):
-                    random_sweeps = np.random.choice(
-                        sweeps_list, size=int(R_exploration / r), replace=True)
+                    random_parameter_sets = random.choices(
+                        parameter_sets, k=int(R_exploration / r))
                     # Conservative estimate of very unlikely scenario that we choose all sweeps=1
                     # % Question: Should we replace these samples?
-                    if r*random_sweeps[0] > R_exploration:
+                    if r*random_parameter_sets[0][1] > R_exploration:
+                        # TODO: There should be a better way of having parameters that affect runtime making an appear. An idea, having a function f(params) = runs that we can call
                         print(
                             "R_exploration must be larger than single exploration step")
                         continue
                         # We allow it to run at least once assuming that
                     series_list = []
                     total_reads = 0
-                    for sweep in random_sweeps:
+                    for random_parameter_set in random_parameter_sets:
                         series_list.append(
                             df_search.loc[
-                                idx['geometric', sweep, r]]
+                                idx[random_parameter_set + (r,)]
+                            ]
                         )
-                        total_reads += sweep*r
+                        total_reads += r*random_parameter_set[1]
                         if total_reads > R_exploration:
                             converged = True
                             break
                     exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
-                        ['schedule', 'sweeps', 'boots'])
+                        parameters_list + ['boots'])
                     exploration_step['median_perf_ratio'] = exploration_step['median_perf_ratio'].expanding(
                         min_periods=1).max()
                     exploration_step['mean_perf_ratio'] = exploration_step['mean_perf_ratio'].expanding(
@@ -1633,7 +1742,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     progress_list.append(exploration_step)
 
                     exploitation_step = df_search.reset_index().set_index(
-                        ['schedule', 'sweeps']).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
+                        parameters_list).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
                     exploitation_step['cum_reads'] = exploitation_step['reads'] + \
                         exploration_step['cum_reads'].max()
                     exploitation_step.sort_values(['cum_reads'], inplace=True)
@@ -1675,8 +1784,8 @@ plot_1d_singleinstance_list(
     y_axis='median_perf_ratio',
     ax=ax,
     dict_fixed={
-        'R_budget': R_budgets[1],
-        'R_explor': R_budgets[1]*frac_r_exploration[0],
+        'R_budget': R_budgets[-1],
+        'R_explor': R_budgets[-1]*frac_r_exploration[0],
         'run_per_solve': rs[0],
     },
     # label_plot='Ordered exploration',
@@ -1701,10 +1810,10 @@ plot_1d_singleinstance_list(
 # Average across the experiments with the same R_budget, R_explor, and run_per_solve for envelope
 # TODO When resource varies with parameters, we need to average across the resource-series. This should be done by augmenting every-time series in each experiment with the and interpolating the behavior before averaging. Currently we use the boots as a proxy for averaging.
 df_progress = df_progress_total[
-    ['schedule', 'boots', 'cum_reads', 'R_budget', 'R_explor',
+    stale_parameters + ['boots', 'cum_reads', 'R_budget', 'R_explor',
         'run_per_solve', 'experiment', 'median_perf_ratio', 'mean_perf_ratio']
 ].groupby(
-    ['schedule', 'boots', 'R_budget', 'R_explor', 'run_per_solve']
+    stale_parameters + ['boots', 'R_budget', 'R_explor', 'run_per_solve']
 ).apply(lambda s: pd.Series({
         'cum_reads': np.median(s['cum_reads']),
         'median_median_perf_ratio': np.median(s['median_perf_ratio']),
@@ -1763,6 +1872,7 @@ df_progress = cleanup_df(df_progress)
 # Compute best random exploration-exploitation strategy for each R_budget
 df_best_random_list = []
 for R_budget in R_budgets:
+    # TODO: This could be done in a more general way, e.g. by using the stale parameters, which could be even generated by checking the length of the list in param_dict
     df_best_random_list.append(df_progress[
         (df_progress['schedule'] == 'geometric') &
         (df_progress['R_budget'] == R_budget)
@@ -1845,10 +1955,7 @@ for stat_measure in stat_measures:
         # y_axis='mean_' + stat_measure + '_perf_ratio',
         y_axis=stat_measure + '_median_perf_ratio',
         ax=ax,
-        dict_fixed={'schedule': 'geometric',
-                    # 'frac_r_exploration': frac_r_exploration[-1],
-                    # 'run_per_solve': rs[0]
-                    },
+        dict_fixed={'schedule': 'geometric'},
         # label_plot='Ordered exploration',
         list_dicts=[{'R_budget': i}
                     for i in R_budgets],
@@ -1930,10 +2037,7 @@ for stat_measure in stat_measures:
         # y_axis='mean_' + stat_measure + '_inv_perf_ratio',
         y_axis=stat_measure + '_median_inv_perf_ratio',
         ax=ax,
-        dict_fixed={'schedule': 'geometric',
-                    # 'frac_r_exploration': frac_r_exploration[-1],
-                    # 'run_per_solve': rs[0]
-                    },
+        dict_fixed={'schedule': 'geometric'},
         # label_plot='Ordered exploration',
         list_dicts=[{'R_budget': i}
                     for i in R_budgets],
@@ -1959,7 +2063,7 @@ for stat_measure in stat_measures:
 # r = 1  # resource per parameter setting (runs)
 rs = [1, 5, 10]
 # R_budget = 550  # budget for exploitation (runs)
-df_name = "df_progress_ternary.pkl"
+df_name = "df_progress_ternary" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_search = df_results_all_stats[
     ['schedule', 'sweeps', 'boots',
@@ -2292,7 +2396,7 @@ for stat_measure in stat_measures:
 # Computing up ternary search across parameter for instance 42
 # We assume that the performance of the parameter is unimodal (in decreases and the increases)
 rs = [1, 5, 10]
-df_name = "df_progress_ternary_42.pkl"
+df_name = "df_progress_ternary_42" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 # TODO: check that 'geometric' is replaced accross the code with default_schedule
 default_schedule = 'geometric'
@@ -2302,7 +2406,7 @@ if search_metric == 'tts':
     search_direction = -1  # -1 for decreasing, 1 for increasing
 else:
     search_direction = 1
-df_search = df_dneal_42[
+df_search = df_42[
     ['schedule', 'sweeps', 'boots', 'reads'] +
     list(set([compute_metric, search_metric]))
 ].sort_values([search_metric]).set_index(
@@ -2414,11 +2518,11 @@ repetitions = 10  # Times to run the algorithm
 # rs = [1, 5, 10]  # resources per parameter setting (runs)
 # frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 # R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
-df_name = "df_progress_42.pkl"
+df_name = "df_progress_42" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 compute_metric = 'perf_ratio'
 parameters = ['schedule', 'sweeps']
-df_search = df_dneal_42[
+df_search = df_42[
     parameters + ['boots', 'reads'] + [compute_metric]
 ].set_index(
     parameters + ['boots']

@@ -359,15 +359,17 @@ def plot_1d_singleinstance(
         ax.set(xscale='log')
     if log_y:
         ax.set(yscale='log')
-    ax.set(title='Plot ' + prefix +
-           '\n' + y_axis + ' dependance with ' + x_axis + ', \n' +
-                 ', '.join(str(key) + '=' + str(value) for key, value in dict_fixed.items()))
+    title_text = 'Plot ' + prefix + '\n' + y_axis + ' dependance with ' + x_axis
+    if dict_fixed is not None:
+        title_text = title_text + ', \n' + ', '.join(str(key) + '=' + str(value) for key, value in dict_fixed.items())
+    
+    ax.set(title=title_text)
 
     if save_fig:
-        plt.savefig(
-            plots_path + y_axis + '_' + x_axis + '_fixed_' + '_'.join(str(key)
-                                                                      for key in dict_fixed.keys())
-            + '.png')
+        file_name = plots_path + y_axis + '_' + x_axis
+        if dict_fixed is not None:
+            file_name = file_name + '_fixed_' + '_'.join(str(key) for key in dict_fixed.keys())
+        plt.savefig(file_name + '.png')
 
     return ax
 

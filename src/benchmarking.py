@@ -102,7 +102,7 @@ default_schedule = 'geometric'
 default_replicas = 1
 default_p_hot = 50.0
 default_p_cold = 1.0
-parameters_list = ['schedule', 'sweeps']
+parameters_list = ['schedule', 'sweeps', 'Tfactor']
 suffix = ''
 ocean_df_flag = True
 results_path = dneal_results_path
@@ -131,7 +131,8 @@ default_sweeps = 1000
 total_reads = 1000
 default_reads = 1000
 default_boots = default_reads
-default_name = prefix + str(instance) + '_geometric_' + \
+
+default_name = prefix + str(instance) + '_' + default_schedule + '_' + \
     str(default_sweeps) + '.p'
 df_default_name = 'df_' + default_name + 'kl'
 rerun_default = False
@@ -140,8 +141,8 @@ if not os.path.exists(os.path.join(dneal_pickle_path, default_name)) or rerun_de
     start = time.time()
     default_samples = sim_ann_sampler.sample(
         model_random,
-        num_reads=1000,
-        num_sweeps=1000,)
+        num_reads=default_reads,
+        num_sweeps=default_sweeps,)
     time_default = time.time() - start
     default_samples.info['timing'] = time_default
     with open(os.path.join(dneal_pickle_path, default_name), 'wb') as f:
@@ -203,7 +204,7 @@ def createDnealSamplesDataframe(
     # Gather instance names
     # TODO: We need to adress renaming problems, one proposal is to be very judicious about the keys order in parameters and be consistent with naming, another idea is sorting them alphabetically before joining them
     dict_pickle_name = prefix + str(instance) + "_" + \
-        '_'.join(str(vals) for vals in parameters.values()) + ".p"
+        '_'.join(str(vals) for vals in parameters.values()) + suffix + ".p"
     df_samples_name = 'df_' + dict_pickle_name + 'kl'
     df_path = os.path.join(dneal_pickle_path, df_samples_name)
     if os.path.exists(df_path):
@@ -240,7 +241,7 @@ def createDnealSamplesDataframe(
             samples = sim_ann_sampler.sample(
                 model_random,
                 num_reads=total_reads,
-                num_sweeps=parameters['sweep'],
+                num_sweeps=parameters['sweeps'],
                 beta_schedule_type=parameters['schedule'],
                 beta_range=(default_samples.info['beta_range'][0]*parameters['Tfactor'],
                             default_samples.info['beta_range'][1]),
@@ -508,7 +509,7 @@ def generateStatsDataframe(
 
     parameters = list(parameters_dict.keys())
     resources = ['boots']
-    df_name = 'df_results_stats'
+    df_name = 'df_results_stats' + suffix
     df_path = os.path.join(results_path, df_name + suffix + '.pkl')
     if os.path.exists(df_path):
         df_all_stats = pd.read_pickle(df_path)
@@ -580,6 +581,7 @@ else:
 parameters_dict = {
     'schedule': schedules_list,
     'sweeps': sweeps_list,
+    'Tfactor': [default_Tfactor],
 }
 use_raw_dataframes = False
 use_raw_sample_pickles = False
@@ -623,6 +625,7 @@ labels = {
     'median_success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
     'mean_success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
     'perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
+    'best_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
     'median_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
     'mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
     'median_mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
@@ -647,15 +650,18 @@ labels = {
     'median_median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
     'mean_mean_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
     'mean_median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
+    'best_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
     # 'tts': 'TTS to GS with 99% confidence \n [s * replica] ~ [MVM]',
 }
 
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples
-default_dict = {'schedule': default_schedule,
-                'sweeps': default_sweeps,
-                'boots': default_boots,
-                }
+default_dict = {
+    'schedule': default_schedule,
+    'sweeps': default_sweeps,
+    'Tfactor': default_Tfactor, 
+    'boots': default_boots,
+    }
 f, ax = plt.subplots()
 ax = plot_1d_singleinstance_list(
     df=df_42,
@@ -940,10 +946,6 @@ for instance in instance_list:
         df_results_instance = pd.read_pickle(df_path)
     else:
         df_results_instance = None
-    parameters_dict = {
-        'schedule': schedules_list,
-        'sweeps': sweeps_list,
-    }
     df_results_instance = createDnealResultsDataframes(
         df=df_results_instance,
         instance_list=[instance],
@@ -977,6 +979,7 @@ for instance in instance_list:
     parameters_detailed_dict = {
         'schedule': schedules_list,
         'sweeps': interesting_sweeps,
+        'Tfactor': [default_Tfactor],
     }
     df_results_instance = createDnealResultsDataframes(
         df=df_results_instance,
@@ -1008,7 +1011,7 @@ df_results_all = cleanup_df(df_results_all)
 df_results_all.to_pickle(df_path)
 
 # %%
-# Run all the instances with Dwave-neal
+# Run all the instances with solver
 overwrite_pickles = False
 use_raw_dataframes = False
 use_raw_sample_pickles = False
@@ -1175,12 +1178,15 @@ df_list = []
 stat_measures = ['mean', 'median']
 use_raw_dataframes = False
 for stat_measure in stat_measures:
-    best_ensemble_sweeps.append(df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
-        1, stat_measure + '_tts')['sweeps'].values[0])
+    best_sweep = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
+        1, stat_measure + '_tts')['sweeps'].values[0]
+    best_ensemble_sweeps.append(best_sweep)
 parameters_best_ensemble_dict = {
     'schedule': schedules_list,
     'sweeps': best_ensemble_sweeps,
+    'Tfactor': [default_Tfactor],
 }
+
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + suffix + ".pkl"
     df_path = os.path.join(results_path, df_name)
@@ -1498,7 +1504,7 @@ for stat_measure in stat_measures:
 # Create virtual best and virtual worst columns
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
-stale_parameters = ['schedule']
+stale_parameters = ['schedule', 'Tfactor']
 
 df_name = "df_results_virt" + suffix + ".pkl"
 df_path = os.path.join(results_path, df_name)
@@ -1692,11 +1698,15 @@ for stat_measure in stat_measures:
                 u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
     )
 # %%
-# Defining which datapoints to take
+# Random search for the ensemble
 repetitions = 10  # Times to run the algorithm
-rs = [1, 5, 10]  # resources per parameter setting (runs)
-frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
-R_budgets = [1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
+# rs = [1, 5, 10]  # resources per parameter setting (runs)
+rs = [1, 2, 5, 10, 20, 50, 100]  # resources per parameter setting (runs)
+# frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
+frac_r_exploration = [0.05, 0.1, 0.2, 0.5, 0.75]
+# R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
+# R_budgets = [1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
+R_budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7] for j in [3, 4, 5]] + [1e6]
 experiments = rs * repetitions
 df_name = "df_progress_total" + suffix + ".pkl"
 df_path = os.path.join(results_path, df_name)
@@ -1708,17 +1718,22 @@ df_search = df_results_all_stats[
 parameter_sets = itertools.product(
     *(parameters_dict[Name] for Name in parameters_dict))
 parameter_sets = list(parameter_sets)
-use_raw_dataframes = False
+search_metric = 'median_perf_ratio'
+compute_metric = 'median_perf_ratio'
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
         for frac_expl_total in frac_r_exploration:
-            # R_exploration = 50  # budget for exploration (runs)
             # budget for exploration (runs)
             R_exploration = int(R_budget*frac_expl_total)
             # budget for exploitation (runs)
             R_exploitation = R_budget - R_exploration
             for r in rs:
+                if r > R_exploration:
+                    print(
+                        "R_exploration must be larger than single exploration step")
+                    continue
                 for experiment in range(repetitions):
                     random_parameter_sets = random.choices(
                         parameter_sets, k=int(R_exploration / r))
@@ -1744,9 +1759,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                             break
                     exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
                         parameters_list + ['boots'])
-                    exploration_step['median_perf_ratio'] = exploration_step['median_perf_ratio'].expanding(
-                        min_periods=1).max()
-                    exploration_step['mean_perf_ratio'] = exploration_step['mean_perf_ratio'].expanding(
+                    exploration_step[compute_metric] = exploration_step[compute_metric].expanding(
                         min_periods=1).max()
                     exploration_step.reset_index('boots', inplace=True)
                     exploration_step['experiment'] = experiment
@@ -1758,22 +1771,16 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     progress_list.append(exploration_step)
 
                     exploitation_step = df_search.reset_index().set_index(
-                        parameters_list).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
+                        parameters_list).loc[exploration_step.nlargest(1, compute_metric).index]
                     exploitation_step['cum_reads'] = exploitation_step['reads'] + \
                         exploration_step['cum_reads'].max()
                     exploitation_step.sort_values(['cum_reads'], inplace=True)
                     exploitation_step = exploitation_step[exploitation_step['cum_reads'] <= R_budget]
-                    exploitation_step['median_perf_ratio'].fillna(
+                    exploitation_step[compute_metric].fillna(
                         0, inplace=True)
-                    exploitation_step['median_perf_ratio'].clip(
-                        lower=exploration_step['median_perf_ratio'].max(), inplace=True)
-                    exploitation_step['median_perf_ratio'] = exploitation_step['median_perf_ratio'].expanding(
-                        min_periods=1).max()
-                    exploitation_step['mean_perf_ratio'].fillna(
-                        0, inplace=True)
-                    exploitation_step['mean_perf_ratio'].clip(
-                        lower=exploration_step['mean_perf_ratio'].max(), inplace=True)
-                    exploitation_step['mean_perf_ratio'] = exploitation_step['mean_perf_ratio'].expanding(
+                    exploitation_step[compute_metric].clip(
+                        lower=exploration_step[compute_metric].max(), inplace=True)
+                    exploitation_step[compute_metric] = exploitation_step[compute_metric].expanding(
                         min_periods=1).max()
                     exploitation_step['experiment'] = experiment
                     exploitation_step['run_per_solve'] = r
@@ -1789,6 +1796,18 @@ else:
 if 'R_budget' not in df_progress_total.columns:
     df_progress_total['R_budget'] = df_progress_total['R_explor'] + \
         df_progress_total['R_exploit']
+
+
+for stat_measure in stat_measures:
+    if 'best_' + stat_measure + '_perf_ratio' not in df_progress_total.columns:
+        df_progress_total[stat_measure + '_inv_perf_ratio'] = 1 - \
+            df_progress_total[stat_measure + '_perf_ratio'] + EPSILON
+        df_progress_total['best_' + stat_measure + '_inv_perf_ratio'] = df_progress_total.sort_values(
+            ['cum_reads', 'R_budget']
+        ).expanding(min_periods=1).min()[stat_measure + '_inv_perf_ratio']
+        df_progress_total['best_' + stat_measure + '_perf_ratio'] = 1 - \
+            df_progress_total['best_' + stat_measure +
+                              '_inv_perf_ratio'] + EPSILON
 df_progress_total = cleanup_df(df_progress_total)
 
 # %%
@@ -2687,7 +2706,7 @@ plot_1d_singleinstance_list(
     use_conf_interval=False,
     default_dict=default_dict.update({'instance': instance}),
     use_colorbar=False,
-    ylim=[0.975, 1.0025],
+    ylim=[0.985, 1.0025],
     xlim=[1e3, 5e4],
 )
 # plot_1d_singleinstance_list(

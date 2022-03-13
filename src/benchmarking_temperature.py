@@ -1017,7 +1017,7 @@ df_results_all.to_pickle(df_path)
 # %%
 # Run all the instances with solver
 overwrite_pickles = False
-use_raw_dataframes = True
+use_raw_dataframes = False
 use_raw_sample_pickles = False
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
@@ -1044,7 +1044,7 @@ df_results_all = createDnealResultsDataframes(
 )
 # %%
 # Generate stats results
-use_raw_full_dataframe = True
+use_raw_full_dataframe = False
 use_raw_dataframes = False
 use_raw_sample_pickles = False
 df_results_all_stats = generateStatsDataframe(
@@ -1083,27 +1083,27 @@ plot_1d_singleinstance_list(
     list_dicts=[{
         # 'instance': 42,
         'boots': j}
-                for j in [1,5,10,100,1000]],
+                for j in [100,1000]],
     labels=labels,
     prefix=prefix,
     log_x=True,
     log_y=True,
     colormap=plt.cm.Dark2,
 )
-# plot_1d_singleinstance_list(
-#     df=df_results_all_stats,
-#     x_axis='Tfactor',
-#     y_axis='median_tts',
-#     ax=ax,
-#     dict_fixed={'schedule': 'geometric'},
-#     list_dicts=[{'boots': j}
-#                 for j in [1,5,10,100,1000]],
-#     labels=labels,
-#     prefix=prefix,
-#     log_x=True,
-#     log_y=True,
-#     colors=['colormap']
-# )
+plot_1d_singleinstance_list(
+    df=df_results_all_stats,
+    x_axis='Tfactor',
+    y_axis='median_tts',
+    ax=ax,
+    dict_fixed={'schedule': 'geometric'},
+    list_dicts=[{'boots': j}
+                for j in [100,1000]],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=True,
+    colors=['colormap']
+)
 # %%
 # Generate plots for performance ratio of ensemble vs Tfactor
 f, ax = plt.subplots()
@@ -1185,7 +1185,7 @@ plot_1d_singleinstance_list(
 best_ensemble_Tfactor = []
 df_list = []
 stat_measures = ['mean', 'median']
-use_raw_dataframes = True
+use_raw_dataframes = False
 for stat_measure in stat_measures:
     best_Tfactor = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
         1, stat_measure + '_tts')['Tfactor'].values[0]
@@ -1427,7 +1427,7 @@ for instance in [3, 0, 7, 42]:
 
 # %%
 # Regenerate the dataframe with the statistics to get the complete performance plot
-use_raw_full_dataframe = True
+use_raw_full_dataframe = False
 use_raw_dataframes = False
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
@@ -1599,7 +1599,7 @@ for stat_measure in stat_measures:
         save_fig=False,
         ylim=[0.975, 1.0025],
         # xlim=[5e2, 5e4],
-        xlim=[5e2, 5e4],
+        xlim=[1e3, 1e5],
         use_colorbar=False,
         use_conf_interval=False,
         linewidth=2.5,
@@ -1638,7 +1638,7 @@ for stat_measure in stat_measures:
         log_x=True,
         log_y=True,
         save_fig=False,
-        xlim=[5e2, 5e4],
+        xlim=[1e3, 1e5],
         use_colorbar=False,
         linewidth=2.5,
         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
@@ -1776,7 +1776,7 @@ df_search = df_results_all_stats[
 parameter_sets = itertools.product(
     *(parameters_dict[Name] for Name in parameters_dict))
 parameter_sets = list(parameter_sets)
-use_raw_dataframes = True
+use_raw_dataframes = False
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
@@ -1877,7 +1877,7 @@ R_budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7] for j in [3, 4, 5]] + [1e6]
 experiments = rs * repetitions
 df_name = "df_progress_total_ternary" + suffix +".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-use_raw_dataframes = True
+use_raw_dataframes = False
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
@@ -2112,55 +2112,14 @@ plot_1d_singleinstance_list(
 )
 # %%
 # Alternative implementation of the best random exploration - exploitation
-# Gather the performance at the last period of the experiments
-experiment_setting = ['R_budget', 'R_explor', 'run_per_solve']
-# Sort by descending order in cumulative reads, group per experiment in each setting and get index of the last period. End by setting index to experiment setting
-df_progress_end = df_progress_total[
-        experiment_setting + ['cum_reads', 'experiment',
-        'median_perf_ratio' ,'median_inv_perf_ratio'
-        ]
-    ].loc[
-    df_progress_total.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting + ['experiment']
-            )['cum_reads'].idxmax()
-    ].set_index(
-        experiment_setting
-        )
 
-df_progress_best = df_progress_total[
-        experiment_setting + ['cum_reads',
-        'experiment','median_perf_ratio'
-        ]
-    ].loc[
-    df_progress_total.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting + ['experiment']
-            )['cum_reads'].idxmax()
-    ].groupby(
-    experiment_setting
-    )[
-        ['median_perf_ratio']
-        ].agg(stat_measures).groupby(
-            ['R_budget']
-            ).agg(
-                ['max','idxmax']
-                )
-
-df_progress_best.columns = ["_".join(reversed(pair)).replace('max_','') for pair in df_progress_best.columns]
-df_progress_best.reset_index(inplace=True)
-
-for stat_measure in stat_measures:
-    for stat_measure_inv in ['median']:
-        df_progress_best[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = 1 - \
-            df_progress_best[stat_measure + '_' +
-                        stat_measure_inv + '_perf_ratio'] + EPSILON
-
-df_progress_best = cleanup_df(df_progress_best)
+# Processing random search for instance ensemble
+df_progress_best, df_progress_end = process_df_progress(
+    df_progress=df_progress_total,
+    compute_metrics=['median_perf_ratio'],
+    stat_measures=['mean', 'median'],
+    maximizing=True,
+)
 
 
 # # Group by experiment setting, and compute stat_measure in each group (across all experiments) in each setting, followed by grouping for each budget resource and computing the minimum, maximum, and corresponding indices (as they mean the strategy in the experiment settings sense)
@@ -2176,51 +2135,15 @@ df_progress_best = cleanup_df(df_progress_best)
 # %%
 # Best progress ternary search
 # Sort by descending order in cumulative reads, group per experiment in each setting and get index of the last period. End by setting index to experiment setting
-df_progress_end_ternary = df_progress_total_ternary[
-        experiment_setting + ['cum_reads', 'median_perf_ratio'
-        ]
-    ].loc[
-    df_progress_total_ternary.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting
-            )['cum_reads'].idxmax()
-    ].set_index(
-        experiment_setting
-        )
 
-df_progress_best_ternary = df_progress_total_ternary[
-        experiment_setting + ['cum_reads', 'median_perf_ratio'
-        ]
-    ].loc[
-    df_progress_total_ternary.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting
-            )['cum_reads'].idxmax()
-    ].groupby(
-    experiment_setting
-    )[
-        ['median_perf_ratio']
-        ].agg(stat_measures).groupby(
-            ['R_budget']
-            ).agg(
-                ['max','idxmax']
-                )
 
-df_progress_best_ternary.columns = ["_".join(reversed(pair)).replace('max_','') for pair in df_progress_best_ternary.columns]
-df_progress_best_ternary.reset_index(inplace=True)
-
-for stat_measure in stat_measures:
-    for stat_measure_inv in ['median']:
-        df_progress_best_ternary[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = 1 - \
-            df_progress_best_ternary[stat_measure + '_' +
-                        stat_measure_inv + '_perf_ratio'] + EPSILON
-
-df_progress_best_ternary = cleanup_df(df_progress_best_ternary)
-
+# Processing ternary search for instance ensemble
+df_progress_best_ternary, df_progress_end_ternary = process_df_progress(
+    df_progress=df_progress_total_ternary,
+    compute_metrics=['median_perf_ratio'],
+    stat_measures=['mean', 'median'],
+    maximizing=True,
+)
 # %%
 # Interesting function comparing plots for all approaches for mean
 f, ax = plt.subplots()
@@ -2229,10 +2152,6 @@ sns.lineplot(data=df_progress_end.reset_index(), x='R_budget', y='median_inv_per
 # Interesting as it allows for combinations of parameters to be plotted in hue
 
 # sns.lineplot(data=df_progress, x='cum_reads', y='best_mean_median_inv_perf_ratio', ax=ax, estimator='mean', ci=None)
-
-
-
-df_progress_end.groupby(experiment_setting)['median_inv_perf_ratio'].mean().reset_index().groupby('R_budget')['median_inv_perf_ratio'].min().plot(ax=ax)
 
 
 df_progress_best.plot(x='R_budget', y='mean_median_inv_perf_ratio', ax=ax)
@@ -2244,55 +2163,6 @@ ax.set(yscale='log')
 ax.set(xscale='log')
 ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 # %%
-# Best progress ternary search
-# Sort by descending order in cumulative reads, group per experiment in each setting and get index of the last period. End by setting index to experiment setting
-df_progress_end_ternary = df_progress_total_ternary[
-        experiment_setting + ['cum_reads', 'median_perf_ratio', 'median_inv_perf_ratio'
-        ]
-    ].loc[
-    df_progress_total_ternary.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting
-            )['cum_reads'].idxmax()
-    ].set_index(
-        experiment_setting
-        )
-
-df_progress_best_ternary = df_progress_total_ternary[
-        experiment_setting + ['cum_reads', 'median_perf_ratio'
-        ]
-    ].loc[
-    df_progress_total_ternary.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting
-            )['cum_reads'].idxmax()
-    ].groupby(
-    experiment_setting
-    )[
-        ['median_perf_ratio']
-        ].agg(stat_measures).groupby(
-            ['R_budget']
-            ).agg(
-                ['max','idxmax']
-                )
-
-df_progress_best_ternary.columns = ["_".join(reversed(pair)).replace('max_','') for pair in df_progress_best_ternary.columns]
-df_progress_best_ternary.reset_index(inplace=True)
-
-for stat_measure in stat_measures:
-    for stat_measure_inv in ['median']:
-        df_progress_best_ternary[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = 1 - \
-            df_progress_best_ternary[stat_measure + '_' +
-                        stat_measure_inv + '_perf_ratio'] + EPSILON
-
-df_progress_best_ternary = cleanup_df(df_progress_best_ternary)
-
-
-# %%
 # Interesting function comparing plots for all approaches for mean
 f, ax = plt.subplots()
 
@@ -2300,10 +2170,6 @@ f, ax = plt.subplots()
 # Interesting as it allows for combinations of parameters to be plotted in hue
 
 # sns.lineplot(data=df_progress_ternary, x='cum_reads', y='best_mean_median_inv_perf_ratio', ax=ax, estimator='mean', ci=None)
-
-
-
-df_progress_end_ternary.groupby(experiment_setting)['median_inv_perf_ratio'].mean().reset_index().groupby('R_budget')['median_inv_perf_ratio'].min().plot(ax=ax)
 
 
 df_progress_best_ternary.plot(x='R_budget', y='mean_median_inv_perf_ratio', ax=ax)
@@ -2366,7 +2232,7 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_best_perf_ratio',
+        y_axis='perf_ratio',
         ax=ax,
         label_plot='Virtual best',
         dict_fixed=None,

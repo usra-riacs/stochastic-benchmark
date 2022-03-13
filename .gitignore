@@ -133,8 +133,8 @@ dmypy.json
 src/workspace.code-workspace
 
 # Extra data files
+data/sk/*/df_progress_total*.pkl
 data/sk/*/pickles/*
 data/sk/*/pickles_bak/*
 data/sk/*/unique_gs/*
 data/sk/*/data/*
-data/sk/*/df_progress_total*.pkl

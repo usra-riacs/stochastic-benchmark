@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy import sparse, stats
+from typing import List, Union, Tuple
 
 EPSILON = 1e-10
 
@@ -338,4 +339,119 @@ def conf_interval(
         key_median_string + '_conf_interval_lower': center - deviation,
         key_median_string + '_conf_interval_upper': center + deviation}
     return pd.Series(result)
+
+
+# %%
+# Function to perform alternative processing of progress dataframes
+
+
+def process_df_progress(
+    df_progress: pd.DataFrame = None,
+    compute_metrics: list = ['perf_ratio'],
+    stat_measures: list = ['median'],
+    maximizing: bool = True,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    '''
+    Function to process progress dataframes, computing statistics across experiments and reporting best behavior for each budget.
+
+    Args:
+        df_progress: Dataframe containing progress data
+        compute_metrics: List of metrics to compute
+        stat_measures: List of statistics to compute
+        maximizing: Boolean indicating whether to maximize or minimize the metric
+
+    Returns:
+        Tuple of dictionaries of which there are
+            df_progress_processed: Processed dataframe
+            df_progress_end: Processed dataframe
+
+
+    '''
+    if df_progress is None:
+        return None
+
+    experiment_setting = ['R_budget', 'R_explor', 'run_per_solve']
+    individual_run = experiment_setting
+    if 'experiment' in df_progress.columns:
+        individual_run += ['experiment']
+
+    if maximizing:
+        opt_stats = ['max', 'idxmax']
+        del_str = 'max_'
+    else:
+        opt_stats = ['min', 'idxmin']
+        del_str = 'min_'
+
+    df_progress_end = df_progress[
+        individual_run + compute_metrics + ['cum_reads']
+    ].loc[
+        df_progress.sort_values(
+            ['cum_reads'],
+            ascending=False,
+        ).groupby(
+            individual_run
+        )['cum_reads'].idxmax()
+    ].copy()
+
+    for compute_metric in compute_metrics:
+        if 'inv_' in compute_metric:
+            df_progress[compute_metric.replace(
+                'inv_', '')] = 1 - df_progress[compute_metric] + EPSILON
+            expanding_metric = compute_metric
+            df_progress_end[compute_metric.replace(
+                'inv_', '')] = 1 - df_progress_end[compute_metric] + EPSILON
+        else:
+            position = compute_metric.index('perf_ratio')
+            df_progress[compute_metric[:position] + 'inv_' +
+                        compute_metric[position:]] = df_progress[compute_metric] + EPSILON
+            df_progress_end[compute_metric[:position] + 'inv_' +
+                            compute_metric[position:]] = df_progress_end[compute_metric] + EPSILON
+            expanding_metric = compute_metric[:position] + \
+                'inv_' + compute_metric[position:]
+    df_progress['best_inv_perf_ratio'] = df_progress.sort_values(
+        ['cum_reads', 'R_budget']
+    ).expanding(min_periods=1).min()[expanding_metric]
+    df_progress['best_perf_ratio'] = 1 - \
+        df_progress['best_inv_perf_ratio'] + EPSILON
+
+    df_progress = cleanup_df(df_progress)
+    df_progress_end = cleanup_df(df_progress_end)
+
+    df_progress_best = df_progress[
+        individual_run + compute_metrics + ['cum_reads']
+    ].loc[
+        df_progress.sort_values(
+            ['cum_reads'],
+            ascending=False,
+        ).groupby(
+            individual_run
+        )['cum_reads'].idxmax()
+    ].groupby(
+        experiment_setting
+    )[
+        compute_metrics
+    ].agg(stat_measures).groupby(
+        ['R_budget']
+    ).agg(
+        opt_stats
+    ).copy()
+
+    df_progress_best.columns = ["_".join(reversed(pair)).replace(
+        del_str, '') for pair in df_progress_best.columns]
+    df_progress_best.reset_index(inplace=True)
+
+    for stat_measure in stat_measures:
+        for compute_metric in compute_metrics:
+            if 'inv_' in compute_metric:
+                df_progress_best[stat_measure + '_' + compute_metric.replace('inv_', '')] = 1 - \
+                    df_progress_best[stat_measure +
+                                     '_' + compute_metric] + EPSILON
+            else:
+                position = compute_metric.index('perf_ratio')
+                df_progress_best[stat_measure + '_' + compute_metric[:position] + 'inv_' +
+                                 compute_metric[position:]] = df_progress_best[stat_measure + '_' + compute_metric] + EPSILON
+
+    df_progress_best = cleanup_df(df_progress_best)
+
+    return df_progress_best, df_progress_end
 

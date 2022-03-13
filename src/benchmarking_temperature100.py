@@ -8,7 +8,7 @@ import pickle as pkl
 import time
 from ctypes.wintypes import DWORD
 from gc import collect
-from typing import List, Union
+from typing import List, Union, Tuple
 from unicodedata import category
 
 import dimod
@@ -102,7 +102,7 @@ default_boots = default_reads
 # TODO: check that 'geometric' is replaced accross the code with default_schedule
 default_schedule = 'geometric'
 default_name = prefix + str(instance) + '_' + default_schedule + '_' + \
-        str(default_sweeps) + '.p'
+    str(default_sweeps) + '.p'
 df_default_name = 'df_' + default_name + 'kl'
 rerun_default = False
 if not os.path.exists(os.path.join(dneal_pickle_path, default_name)) or rerun_default:
@@ -350,13 +350,13 @@ def createDnealResultsDataframes(
 
         df_results_dneal = pd.DataFrame(list_results_dneal, columns=[
             'instance'] + params + ['boots',
-            'min_energy', 'min_energy_conf_interval_lower', 'min_energy_conf_interval_upper',
-            'perf_ratio', 'perf_ratio_conf_interval_lower', 'perf_ratio_conf_interval_upper',
-            'success_prob', 'success_prob_conf_interval_lower', 'success_prob_conf_interval_upper',
-            'tts', 'tts_conf_interval_lower', 'tts_conf_interval_upper',
-            'mean_time', 'mean_time_conf_interval_lower', 'mean_time_conf_interval_upper',
-            'inv_perf_ratio', 'inv_perf_ratio_conf_interval_lower', 'inv_perf_ratio_conf_interval_upper',
-        ])
+                                    'min_energy', 'min_energy_conf_interval_lower', 'min_energy_conf_interval_upper',
+                                    'perf_ratio', 'perf_ratio_conf_interval_lower', 'perf_ratio_conf_interval_upper',
+                                    'success_prob', 'success_prob_conf_interval_lower', 'success_prob_conf_interval_upper',
+                                    'tts', 'tts_conf_interval_lower', 'tts_conf_interval_upper',
+                                    'mean_time', 'mean_time_conf_interval_lower', 'mean_time_conf_interval_upper',
+                                    'inv_perf_ratio', 'inv_perf_ratio_conf_interval_lower', 'inv_perf_ratio_conf_interval_upper',
+                                    ])
         if df is not None:
             df_new = pd.concat(
                 [df, df_results_dneal], axis=0, ignore_index=True)
@@ -506,7 +506,7 @@ def generateStatsDataframe(
 # %%
 # Compute results for instance 42 using D-Wave Neal
 use_raw_dataframes = False
-use_raw_dneal_pickles = True
+use_raw_dneal_pickles = False
 overwrite_pickles = False
 instance = 42
 metrics_list = ['min_energy', 'tts',
@@ -527,11 +527,12 @@ sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
 df_name = "df_results_" + str(instance) + "t.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-if os.path.exists(df_path): # and False:
+if os.path.exists(df_path):  # and False:
     df_dneal_42 = pd.read_pickle(df_path)
 else:
     df_dneal_42 = None
-parameters_dict = {'schedule': schedules_list, 'sweeps': [default_sweeps], 'Tfactor': Tfactor_list}
+parameters_dict = {'schedule': schedules_list,
+                   'sweeps': [default_sweeps], 'Tfactor': Tfactor_list}
 df_dneal_42 = createDnealResultsDataframes(
     df=df_dneal_42,
     instance_list=[instance],
@@ -757,10 +758,11 @@ interesting_Tfactors = [
 # Iterating for all values of bootstrapping downsampling proves to be very expensive, rather use steps of 10
 # all_boots_list = list(range(1, 1001, 1))
 # all_boots_list = [i*10**j for j in [0, 1, 2] for i in [1,2,3,5,7] ] + [1000]
-all_boots_list = [1,2,3,5,7,10,15,20,30,50,70,100,150,200,300,500,700,1000]
+all_boots_list = [1, 2, 3, 5, 7, 10, 15, 20, 30,
+                  50, 70, 100, 150, 200, 300, 500, 700, 1000]
 detailed_parameters_dict = {'schedule': schedules_list,
-                     'sweeps': [default_sweeps],
-                     'Tfactor': interesting_Tfactors}
+                            'sweeps': [default_sweeps],
+                            'Tfactor': interesting_Tfactors}
 df_dneal_42 = createDnealResultsDataframes(
     df=df_dneal_42,
     instance_list=[instance],
@@ -867,11 +869,11 @@ use_raw_dataframes = False
 use_raw_dneal_pickles = False
 parameters_dict = {
     'schedule': schedules_list, 'sweeps': [default_sweeps], 'Tfactor': Tfactor_list,
-    }
+}
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + "t.pkl"
     df_path = os.path.join(dneal_results_path, df_name)
-    if os.path.exists(df_path): # and False
+    if os.path.exists(df_path):  # and False
         df_results_dneal = pd.read_pickle(df_path)
     else:
         df_results_dneal = None
@@ -905,8 +907,8 @@ for instance in instance_list:
     ]
 
     detailed_parameters_dict = {'schedule': schedules_list,
-                        'sweeps': [default_sweeps],
-                        'Tfactor': interesting_Tfactors}
+                                'sweeps': [default_sweeps],
+                                'Tfactor': interesting_Tfactors}
     df_results_dneal = createDnealResultsDataframes(
         df=df_results_dneal,
         instance_list=[instance],
@@ -936,8 +938,8 @@ df_results_all.to_pickle(df_path)
 # %%
 # Run all the instances with Dwave-neal
 overwrite_pickles = False
-use_raw_dataframes = True
-use_raw_dneal_pickles = True
+use_raw_dataframes = False
+use_raw_dneal_pickles = False
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
 
@@ -960,9 +962,9 @@ df_results_all = createDnealResultsDataframes(
 )
 # %%
 # Generate stats results
-use_raw_full_dataframe = True
-use_raw_dataframes = True
-use_raw_dneal_pickles = True
+use_raw_full_dataframe = False
+use_raw_dataframes = False
+use_raw_dneal_pickles = False
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
@@ -982,27 +984,9 @@ df_results_all_stats = generateStatsDataframe(
     save_pickle=True,
 )
 # %%
+# Presentation plot!
 # Generate plots for TTS of ensemble together with single instance (42)
 f, ax = plt.subplots()
-plot_1d_singleinstance_list(
-    df=df_dneal_42,
-    x_axis='Tfactor',
-    y_axis='tts',
-    ax=ax,
-    dict_fixed={
-        'schedule': 'geometric',
-        'instance': 42,
-        },
-    list_dicts=[{
-        # 'instance': 42,
-        'boots': j}
-                for j in [1000]],
-    labels=labels,
-    prefix=prefix,
-    log_x=True,
-    log_y=True,
-    colormap=plt.cm.Dark2,
-)
 plot_1d_singleinstance_list(
     df=df_results_all_stats,
     x_axis='Tfactor',
@@ -1010,12 +994,32 @@ plot_1d_singleinstance_list(
     ax=ax,
     dict_fixed={'schedule': 'geometric'},
     list_dicts=[{'boots': j}
-                for j in [1000]],
+                for j in [1000, 100]],
     labels=labels,
     prefix=prefix,
     log_x=True,
     log_y=True,
     colors=['colormap']
+)
+plot_1d_singleinstance_list(
+    df=df_dneal_42,
+    x_axis='Tfactor',
+    y_axis='tts',
+    ax=ax,
+    dict_fixed={
+        'schedule': 'geometric',
+        # 'instance': 42,
+    },
+    list_dicts=[{
+        'instance': 42,
+        'boots': j}
+        for j in [1000, 100]],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=True,
+    colormap=plt.cm.Dark2,
+    default_dict=default_dict,
 )
 # %%
 # Generate plots for performance ratio of ensemble vs Tfactor
@@ -1098,7 +1102,7 @@ plot_1d_singleinstance_list(
 best_ensemble_Tfactor = []
 df_list = []
 stat_measures = ['mean', 'median']
-use_raw_dataframes = True
+use_raw_dataframes = False
 for stat_measure in stat_measures:
     best_Tfactor = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
         1, stat_measure + '_tts')['Tfactor'].values[0]
@@ -1194,13 +1198,19 @@ for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
         df_results_all[metric + '_conf_interval_upper']
 
     # These following lines can be extracted from the loop
-    df_default = df_results_all[(df_results_all['boots'] == default_boots) & (
-        df_results_all['Tfactor'] == default_Tfactor)].set_index(['instance', 'schedule'])
+    df_default = df_results_all[
+        (df_results_all['boots'] == default_boots)
+        & (df_results_all['schedule'] == default_schedule)
+        & (df_results_all['Tfactor'] == default_Tfactor)
+    ].set_index(['instance'])
     df_list = [df_default]
     keys_list = ['default']
     for i, Tfactor in enumerate(best_ensemble_Tfactor):
-        df_list.append(df_results_all[(df_results_all['boots'] == default_boots) & (
-            df_results_all['Tfactor'] == Tfactor)].set_index(['instance', 'schedule']))
+        df_list.append(df_results_all[
+            (df_results_all['boots'] == default_boots)
+            & (df_results_all['schedule'] == default_schedule)
+            & (df_results_all['Tfactor'] == Tfactor)
+        ].set_index(['instance']))
         keys_list.append(stat_measures[i] + '_ensemble')
     # Until here can be done off-loop
 
@@ -1208,10 +1218,11 @@ for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
     ascent = metric in ['tts', 'mean_time', 'inv_perf_ratio']
     df_best = df_results_all[
         (df_results_all['boots'] == default_boots)
+        & (df_results_all['schedule'] == default_schedule)
     ].sort_values(metric, ascending=ascent).groupby(
-        ['instance', 'schedule']).apply(
+        ['instance']).apply(
             pd.DataFrame.head, n=1
-    ).droplevel(-1).drop(columns=['instance', 'schedule']
+    ).droplevel(-1).drop(columns=['instance']
                          )
 
     df_list.append(df_best)
@@ -1222,12 +1233,12 @@ for metric in ['perf_ratio', 'success_prob', 'tts', 'inv_perf_ratio']:
 
     fig, ax = plt.subplots()
     df_merged.loc[
-        (slice(None), slice(None)),  # (slice(None), 'geometric'),
+        slice(None),
         :
     ].plot.bar(
         y=[(stat_metric, metric) for stat_metric in keys_list],
         yerr=df_merged.loc[
-            (slice(None), slice(None)),  # (slice(None), 'geometric'),
+            slice(None),
             (slice(None), [metric + '_lower', metric + '_upper'])
         ].to_numpy().T,
         ax=ax,
@@ -1315,8 +1326,8 @@ for instance in [3, 0, 7, 42]:
 
 # %%
 # Regenerate the dataframe with the statistics to get the complete performance plot
-use_raw_full_dataframe = True
-use_raw_dataframes = True
+use_raw_full_dataframe = False
+use_raw_dataframes = False
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
@@ -1363,14 +1374,14 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
          'virt_best_perf_ratio',
          'virt_best_success_prob']
     ].sort_values('reads'
-                  ).expanding(min_periods=1).max()#.droplevel(-1).reset_index()
+                  ).expanding(min_periods=1).max()  # .droplevel(-1).reset_index()
 
     # This is done as the virtual worst counts the worst case, computed as the minimum from last read to first
     df_virtual_worst_max = df_virtual_all[
         ['reads',
          'virt_worst_perf_ratio']
     ].sort_values('reads', ascending=False
-                  ).expanding(min_periods=1).min()#.droplevel(-1).reset_index()
+                  ).expanding(min_periods=1).min()  # .droplevel(-1).reset_index()
 
     df_virtual_best_min = df_virtual_all[
         ['reads',
@@ -1379,11 +1390,11 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
          'virt_best_inv_perf_ratio']
     ].sort_values('reads'
                   ).expanding(min_periods=1).agg({
-        'reads': np.max,
-        'virt_best_tts': np.min,
-        'virt_best_mean_time': np.min,
-        'virt_best_inv_perf_ratio': np.min}
-    )#.droplevel(-1).reset_index()
+                      'reads': np.max,
+                      'virt_best_tts': np.min,
+                      'virt_best_mean_time': np.min,
+                      'virt_best_inv_perf_ratio': np.min}
+    )  # .droplevel(-1).reset_index()
     # df_virtual_best_min['reads'] = df_virtual_all[
     #     ['reads', 'schedule']
     # ].sort_values(['schedule','reads'])['reads']
@@ -1393,9 +1404,9 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
          'virt_worst_inv_perf_ratio']
     ].sort_values('reads', ascending=False
                   ).expanding(min_periods=1).agg({
-        'reads': np.min,
-        'virt_worst_inv_perf_ratio': np.max}
-    )#.droplevel(-1).reset_index()
+                      'reads': np.min,
+                      'virt_worst_inv_perf_ratio': np.max}
+    )  # .droplevel(-1).reset_index()
     df_virtual_best_min['reads'] = df_virtual_all[
         ['reads']
     ].sort_values('reads', ascending=False)['reads']
@@ -1420,12 +1431,12 @@ else:
 
 # Dirty workaround to compute virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
 df_virtual_best = df_virtual_best.merge(df_results_all.groupby([
-        'instance', 'reads'
-        ])['perf_ratio'].max().reset_index().groupby(
-            ['reads']
-        ).median().reset_index(),
-        on=['reads'],
-        how='left')
+    'instance', 'reads'
+])['perf_ratio'].max().reset_index().groupby(
+    ['reads']
+).median().reset_index(),
+    on=['reads'],
+    how='left')
 
 df_virtual_best['inv_perf_ratio'] = 1 - df_virtual_best['perf_ratio'] + EPSILON
 df_virtual_best = cleanup_df(df_virtual_best)
@@ -1540,29 +1551,29 @@ for stat_measure in stat_measures:
     )
 
 # %%
+# Presentation Figure!
 # Generate plots for performance ratio of ensemble vs reads
 for stat_measure in stat_measures:
     f, ax = plt.subplots()
-    for instance in instance_list:
-        plot_1d_singleinstance_list(
-            df=df_results_all,
-            x_axis='reads',
-            y_axis='perf_ratio',
-            ax=ax,
-            dict_fixed={'schedule': 'geometric'},
-            list_dicts=[{'Tfactor': i, 'instance': instance}
-                        for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
-            labels=labels,
-            prefix=prefix,
-            log_x=True,
-            log_y=False,
-            save_fig=False,
-            use_colorbar=False,
-            marker=None,
-            alpha=0.15,
-            colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
-                    u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
-        )
+    plot_1d_singleinstance_list(
+        df=df_results_all_stats,
+        x_axis='reads',
+        y_axis=stat_measure + '_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': 'geometric'},
+        list_dicts=[{'Tfactor': i}
+                    for i in [100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
+        labels=labels,
+        prefix=prefix,
+        use_conf_interval=False,
+        log_x=True,
+        log_y=False,
+        save_fig=False,
+        use_colorbar=False,
+        linewidth=2.5,
+        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+    )
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
@@ -1577,41 +1588,15 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    plot_1d_singleinstance_list(
-        df=df_results_all_stats,
-        x_axis='reads',
-        y_axis=stat_measure + '_perf_ratio',
-        ax=ax,
-        dict_fixed={'schedule': 'geometric'},
-        list_dicts=[{'Tfactor': i}
-                    for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=False,
-        save_fig=False,
-        ylim=[0.975, 1.0025],
-        # xlim=[5e2, 5e4],
-        xlim=[5e2, 5e4],
-        use_colorbar=False,
-        linewidth=2.5,
-        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
-                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
-    )
-
-# %%
-# Generate plots for inverse performance ratio of ensemble vs reads
-for stat_measure in stat_measures:
-    f, ax = plt.subplots()
     for instance in instance_list:
         plot_1d_singleinstance_list(
             df=df_results_all,
             x_axis='reads',
-            y_axis='inv_perf_ratio',
+            y_axis='perf_ratio',
             ax=ax,
             dict_fixed={'schedule': 'geometric'},
             list_dicts=[{'Tfactor': i, 'instance': instance}
-                        for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
+                        for i in [100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
             labels=labels,
             prefix=prefix,
             log_x=True,
@@ -1622,7 +1607,38 @@ for stat_measure in stat_measures:
             alpha=0.15,
             colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
                     u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+            ylim=[0.975, 1.0025],
+            # xlim=[5e2, 5e4],
+            xlim=[2e2, 5e4],
         )
+    ax.legend(labels=['Median Tfactor=100', 'Median Tfactor=1 (default)',
+              'Median Tfactor=22.5 (best TTS ensemble)', 'Median Virtual best Tfactor'])
+
+# %%
+# Presentation Figure!
+# Generate plots for inverse performance ratio of ensemble vs reads
+for stat_measure in stat_measures:
+    f, ax = plt.subplots()
+    plot_1d_singleinstance_list(
+        df=df_results_all_stats,
+        x_axis='reads',
+        y_axis=stat_measure + '_inv_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': 'geometric'},
+        list_dicts=[{'Tfactor': i}
+                    for i in [100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=True,
+        use_conf_interval=False,
+        save_fig=False,
+        xlim=[5e2, 5e4],
+        use_colorbar=False,
+        linewidth=2.5,
+        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+    )
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
@@ -1639,25 +1655,29 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    plot_1d_singleinstance_list(
-        df=df_results_all_stats,
-        x_axis='reads',
-        y_axis=stat_measure + '_inv_perf_ratio',
-        ax=ax,
-        dict_fixed={'schedule': 'geometric'},
-        list_dicts=[{'Tfactor': i}
-                    for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=True,
-        save_fig=False,
-        xlim=[5e2, 5e4],
-        use_colorbar=False,
-        linewidth=2.5,
-        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
-                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
-    )
+    for instance in instance_list:
+        plot_1d_singleinstance_list(
+            df=df_results_all,
+            x_axis='reads',
+            y_axis='inv_perf_ratio',
+            ax=ax,
+            dict_fixed={'schedule': 'geometric'},
+            list_dicts=[{'Tfactor': i, 'instance': instance}
+                        for i in [100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
+            labels=labels,
+            prefix=prefix,
+            log_x=True,
+            log_y=False,
+            save_fig=False,
+            use_colorbar=False,
+            marker=None,
+            alpha=0.15,
+            colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                    u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+            xlim=[2e2, 5e4],
+        )
+    ax.legend(labels=['Median Tfactor=100', 'Median Tfactor=1 (default)',
+              'Median Tfactor=22.5 (best TTS ensemble)', 'Median Virtual best Tfactor'])
 # %%
 # Random search for the ensemble
 repetitions = 10  # Times to run the algorithm
@@ -1674,11 +1694,11 @@ df_name = "df_progress_totalt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_search = df_results_all_stats[
     parameters + ['boots',
-                            'median_perf_ratio', 'mean_perf_ratio', 'reads']
+                  'median_perf_ratio', 'mean_perf_ratio', 'reads']
 ].set_index(
     parameters + ['boots']
 )
-use_raw_dataframes = True
+use_raw_dataframes = False
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
@@ -1780,7 +1800,7 @@ df_name = "df_progress_total_ternaryt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_search = df_results_all_stats[
     parameters + ['boots',
-                            'median_perf_ratio', 'mean_perf_ratio', 'reads']
+                  'median_perf_ratio', 'mean_perf_ratio', 'reads']
 ].set_index(
     parameters + ['boots']
 )
@@ -1801,10 +1821,9 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                 elif r*default_sweeps > R_exploration:
                     print(
                         "R_exploration must at least larger than an exploration step to go into exploitation, only exploration is performed")
-                
-                
+
                 series_list = []
-                
+
                 lo = 0
                 val_lo = Tfactor_list[lo]
                 perf_lo = df_search.loc[
@@ -1818,7 +1837,6 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     idx[default_schedule, val_up, r]]['median_perf_ratio']
                 series_list.append(df_search.loc[
                     idx[default_schedule, val_up, r]])
-
 
                 total_reads = 2*r*default_sweeps
 
@@ -1933,7 +1951,7 @@ for stat_measure in stat_measures:
         ).expanding(min_periods=1).min()[stat_measure + '_inv_perf_ratio']
         df_progress_total_ternary['best_' + stat_measure + '_perf_ratio'] = 1 - \
             df_progress_total_ternary['best_' + stat_measure +
-                              '_inv_perf_ratio'] + EPSILON
+                                      '_inv_perf_ratio'] + EPSILON
 df_progress_total_ternary = cleanup_df(df_progress_total_ternary)
 # df_progress_total_ternary.to_pickle(df_path)
 
@@ -2032,77 +2050,26 @@ plot_1d_singleinstance_list(
 # %%
 # Alternative implementation of the best random exploration - exploitation
 # Gather the performance at the last period of the experiments
-experiment_setting = ['R_budget', 'R_explor', 'run_per_solve']
 # Sort by descending order in cumulative reads, group per experiment in each setting and get index of the last period. End by setting index to experiment setting
-df_progress_end = df_progress_total[
-        experiment_setting + ['cum_reads', 'experiment','median_perf_ratio', 'mean_perf_ratio','median_inv_perf_ratio', 'mean_inv_perf_ratio'
-        ]
-    ].loc[
-    df_progress_total.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting + ['experiment']
-            )['cum_reads'].idxmax()
-    ].set_index(
-        experiment_setting
-        )
-
-df_progress_best = df_progress_total[
-        experiment_setting + ['cum_reads', 'experiment','median_perf_ratio', 'mean_perf_ratio'
-        ]
-    ].loc[
-    df_progress_total.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting + ['experiment']
-            )['cum_reads'].idxmax()
-    ].groupby(
-    experiment_setting
-    )[
-        ['median_perf_ratio', 'mean_perf_ratio']
-        ].agg(stat_measures).groupby(
-            ['R_budget']
-            ).agg(
-                ['max','idxmax']
-                )
-
-df_progress_best.columns = ["_".join(reversed(pair)).replace('max_','') for pair in df_progress_best.columns]
-df_progress_best.reset_index(inplace=True)
-
-for stat_measure in stat_measures:
-    for stat_measure_inv in stat_measures:
-        df_progress_best[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = 1 - \
-            df_progress_best[stat_measure + '_' +
-                        stat_measure_inv + '_perf_ratio'] + EPSILON
-
-df_progress_best = cleanup_df(df_progress_best)
 
 
-# # Group by experiment setting, and compute stat_measure in each group (across all experiments) in each setting, followed by grouping for each budget resource and computing the minimum, maximum, and corresponding indices (as they mean the strategy in the experiment settings sense)
-# progress_metrics_list = ['perf_ratio', 'inv_perf_ratio']
-
-# agg_dict = {j+'_'+k+'_'+i: pd.NamedAgg(column=k+'_'+i, aggfunc=j) for j in stat_measures for k in stat_measures for i in progress_metrics_list}
-# df_progress_best = df_progress_end.groupby(
-#     experiment_setting
-#     ).agg(**agg_dict).groupby(
-#             ['R_budget']
-#             ).agg(['min','idxmin','max','idxmax'])
-
-
+# Processing random search for instance ensemble
+df_progress_best, df_progress_end = process_df_progress(
+    df_progress=df_progress_total,
+    compute_metrics=['mean_perf_ratio', 'median_perf_ratio'],
+    stat_measures=['mean', 'median'],
+    maximizing=True,
+)
 
 # %%
 # Interesting function comparing plots for all approaches for mean
 f, ax = plt.subplots()
 
-df_progress_end.groupby(experiment_setting)['median_inv_perf_ratio'].mean().reset_index().groupby('R_budget')['median_inv_perf_ratio'].min().plot(ax=ax)
-
-
 df_progress_best.plot(x='R_budget', y='mean_median_inv_perf_ratio', ax=ax)
 
 
-sns.lineplot(data=df_progress_best, x='R_budget', y='mean_median_inv_perf_ratio', ax=ax, estimator=None, ci=None)
+sns.lineplot(data=df_progress_best, x='R_budget',
+             y='mean_median_inv_perf_ratio', ax=ax, estimator=None, ci=None)
 
 ax.set(yscale='log')
 ax.set(xscale='log')
@@ -2111,78 +2078,40 @@ ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 # %%
 # Best progress ternary search
 # Sort by descending order in cumulative reads, group per experiment in each setting and get index of the last period. End by setting index to experiment setting
-df_progress_end_ternary = df_progress_total_ternary[
-        experiment_setting + ['cum_reads', 'median_perf_ratio', 'mean_perf_ratio','median_inv_perf_ratio', 'mean_inv_perf_ratio'
-        ]
-    ].loc[
-    df_progress_total_ternary.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting
-            )['cum_reads'].idxmax()
-    ].set_index(
-        experiment_setting
-        )
 
-df_progress_best_ternary = df_progress_total_ternary[
-        experiment_setting + ['cum_reads', 'median_perf_ratio', 'mean_perf_ratio'
-        ]
-    ].loc[
-    df_progress_total_ternary.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting
-            )['cum_reads'].idxmax()
-    ].groupby(
-    experiment_setting
-    )[
-        ['median_perf_ratio', 'mean_perf_ratio']
-        ].agg(stat_measures).groupby(
-            ['R_budget']
-            ).agg(
-                ['max','idxmax']
-                )
 
-df_progress_best_ternary.columns = ["_".join(reversed(pair)).replace('max_','') for pair in df_progress_best_ternary.columns]
-df_progress_best_ternary.reset_index(inplace=True)
-
-for stat_measure in stat_measures:
-    for stat_measure_inv in stat_measures:
-        df_progress_best_ternary[stat_measure + '_' + stat_measure_inv + '_inv_perf_ratio'] = 1 - \
-            df_progress_best_ternary[stat_measure + '_' +
-                        stat_measure_inv + '_perf_ratio'] + EPSILON
-
-df_progress_best_ternary = cleanup_df(df_progress_best_ternary)
-
+# Processing ternary search for ensemble
+df_progress_best_ternary, df_progress_end_ternary = process_df_progress(
+    df_progress=df_progress_total_ternary,
+    compute_metrics=['median_perf_ratio', 'mean_perf_ratio'],
+    stat_measures=['mean', 'median'],
+    maximizing=True,
+)
 
 # %%
 # Interesting function comparing plots for all approaches for mean
 f, ax = plt.subplots()
 
-# sns.lineplot(data=df_progress_end.reset_index(), x='R_budget', y='median_inv_perf_ratio', hue=df_progress_end.reset_index()[['run_per_solve', 'R_explor']].apply(tuple, axis=1), ax=ax, estimator='mean', ci=None)
+# sns.lineplot(data=df_progress_end, x='R_budget', y='median_inv_perf_ratio', hue=df_progress_end[['run_per_solve', 'R_explor']].apply(tuple, axis=1), ax=ax, estimator='mean', ci=None)
 # Interesting as it allows for combinations of parameters to be plotted in hue
 
 # sns.lineplot(data=df_progress_ternary, x='cum_reads', y='best_mean_median_inv_perf_ratio', ax=ax, estimator='mean', ci=None)
 
-
-
-df_progress_end_ternary.groupby(experiment_setting)['median_inv_perf_ratio'].mean().reset_index().groupby('R_budget')['median_inv_perf_ratio'].min().plot(ax=ax)
-
-
-df_progress_best_ternary.plot(x='R_budget', y='mean_median_inv_perf_ratio', ax=ax)
+df_progress_best_ternary.plot(
+    x='R_budget', y='mean_median_inv_perf_ratio', ax=ax)
 
 
 # sns.lineplot(data=df_progress_ternary, x='cum_reads', y='mean_median_inv_perf_ratio',
-# #  hue=df_progress_end_ternary.reset_index()[['run_per_solve', 'R_explor']].apply(tuple, axis=1),
+# #  hue=df_progress_end_ternary[['run_per_solve', 'R_explor']].apply(tuple, axis=1),
 #  ax=ax, estimator='mean', ci=None)
 
 
-sns.lineplot(data=df_progress_end_ternary.reset_index(), x='R_budget', y='median_inv_perf_ratio', hue=df_progress_end_ternary.reset_index()[['run_per_solve', 'R_explor']].apply(tuple, axis=1), ax=ax, estimator='mean', ci=None)
+sns.lineplot(data=df_progress_end_ternary, x='R_budget', y='median_inv_perf_ratio', hue=df_progress_end_ternary[[
+             'run_per_solve', 'R_explor']].apply(tuple, axis=1), ax=ax, estimator='mean', ci=None)
 # Interesting as it allows for combinations of parameters to be plotted in hue
 
-sns.lineplot(data=df_progress_best_ternary, x='R_budget', y='mean_median_inv_perf_ratio', ax=ax, estimator=None, ci=None)
+sns.lineplot(data=df_progress_best_ternary, x='R_budget',
+             y='mean_median_inv_perf_ratio', ax=ax, estimator=None, ci=None)
 
 ax.set(yscale='log')
 ax.set(xscale='log')
@@ -2444,7 +2373,7 @@ df_name = "df_progress_ternaryt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_search = df_results_all_stats[
     parameters + ['boots',
-     'median_perf_ratio', 'mean_perf_ratio', 'reads']
+                  'median_perf_ratio', 'mean_perf_ratio', 'reads']
 ].set_index(
     parameters + ['boots']
 )
@@ -2517,7 +2446,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
 
         exploitation_step = df_results_all_stats[
             parameters + ['boots',
-                'median_perf_ratio', 'mean_perf_ratio', 'reads']
+                          'median_perf_ratio', 'mean_perf_ratio', 'reads']
         ].set_index(
             parameters).loc[exploration_step.nlargest(1, 'median_perf_ratio').index].copy()
         exploitation_step['cum_reads'] = exploitation_step['reads'] + \
@@ -2924,8 +2853,104 @@ df_progress_total_42.to_pickle(df_path)
 
 
 # %%
-# Exploration-exploitation with best parameters from ensemble
-# TODO: We should compute full exploration-expliotation for this single instance and compare to what the ensemble recommmends
+# Full random exploration-exploitation over single instance addressing previous TODO
+df_name = "df_random_42t.pkl"
+df_path = os.path.join(dneal_results_path, df_name)
+compute_metric = 'perf_ratio'
+df_search = df_dneal_42[
+    parameters + ['boots', 'reads'] + [compute_metric]
+].set_index(
+    parameters + ['boots']
+)
+use_raw_dataframes = True
+if use_raw_dataframes or os.path.exists(df_path) is False:
+    progress_list = []
+    for R_budget in R_budgets:
+        for frac_expl_total in frac_r_exploration:
+            # budget for exploration (runs)
+            R_exploration = int(R_budget*frac_expl_total)
+            # budget for exploitation (runs)
+            R_exploitation = R_budget - R_exploration
+            for r in rs:
+                for experiment in range(repetitions):
+                    random_Tfactor = np.random.choice(
+                        Tfactor_list, size=int(R_exploration / (r*default_sweeps)), replace=True)
+                    # % Question: Should we replace these samples?
+                    if r*default_sweeps > R_exploration:
+                        print(
+                            "R_exploration must be larger than single exploration step")
+                        continue
+                    series_list = []
+                    total_reads = 0
+                    for Tfactor in random_Tfactor:
+                        series_list.append(df_search.loc[
+                            idx[default_schedule, Tfactor, r]]
+                        )
+                        total_reads += r*default_sweeps
+                        if total_reads > R_exploration:
+                            converged = True
+                            break
+                    exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
+                        parameters + ['boots'])
+                    exploration_step[compute_metric] = exploration_step[compute_metric].expanding(
+                        min_periods=1).max()
+                    exploration_step.reset_index('boots', inplace=True)
+                    exploration_step['experiment'] = experiment
+                    exploration_step['run_per_solve'] = r
+                    exploration_step['R_explor'] = R_exploration
+                    exploration_step['R_exploit'] = R_exploitation
+                    exploration_step['R_budget'] = R_budget
+                    exploration_step['cum_reads'] = exploration_step.groupby('experiment').expanding(
+                        min_periods=1)['reads'].sum().reset_index(drop=True).values
+                    progress_list.append(exploration_step)
+
+                    exploitation_step = df_search.reset_index().set_index(
+                        parameters).loc[exploration_step.nlargest(1, compute_metric).index]
+                    exploitation_step['cum_reads'] = exploitation_step['reads'] + \
+                        exploration_step['cum_reads'].max()
+                    exploitation_step.sort_values(['cum_reads'], inplace=True)
+                    exploitation_step = exploitation_step[exploitation_step['cum_reads'] <= R_budget]
+                    exploitation_step[compute_metric].fillna(
+                        0, inplace=True)
+                    exploitation_step[compute_metric].clip(
+                        lower=exploration_step[compute_metric].max(), inplace=True)
+                    exploitation_step[compute_metric] = exploitation_step[compute_metric].expanding(
+                        min_periods=1).max()
+                    exploitation_step['experiment'] = experiment
+                    exploitation_step['run_per_solve'] = r
+                    exploitation_step['R_explor'] = R_exploration
+                    exploitation_step['R_exploit'] = R_exploitation
+                    exploitation_step['R_budget'] = R_budget
+                    progress_list.append(exploitation_step)
+    df_progress_random_total_42 = pd.concat(progress_list, axis=0)
+    df_progress_random_total_42.reset_index(inplace=True)
+    df_progress_random_total_42.to_pickle(df_path)
+else:
+    df_progress_random_total_42 = pd.read_pickle(df_path)
+
+if 'best_perf_ratio' not in df_progress_random_total_42.columns:
+    df_progress_random_total_42['inv_perf_ratio'] = 1 - \
+        df_progress_random_total_42['perf_ratio'] + EPSILON
+    df_progress_random_total_42['best_inv_perf_ratio'] = df_progress_random_total_42.sort_values(
+        ['cum_reads', 'R_budget']
+    ).expanding(min_periods=1).min()['inv_perf_ratio']
+    df_progress_random_total_42['best_perf_ratio'] = 1 - \
+        df_progress_random_total_42['best_inv_perf_ratio'] + EPSILON
+df_progress_random_total_42 = cleanup_df(df_progress_random_total_42)
+df_progress_random_total_42.to_pickle(df_path)
+
+# %%
+# Processing total random search for instance 42
+df_progress_random_best_42, _ = process_df_progress(
+    df_progress=df_progress_random_total_42,
+    compute_metrics=['perf_ratio'],
+    stat_measures=['mean', 'median'],
+    maximizing=True,
+)
+# %%
+# %%
+# Ternary Exploration-exploitation with best parameters from ensemble
+# TODO: We should compute full exploration-exploitation for this single instance and compare to what the ensemble recommmends
 df_name = "df_ternary_expl_42t.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 compute_metric = 'perf_ratio'
@@ -2952,9 +2977,168 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                 continue
             elif r*default_sweeps > R_exploration:
                 print(
-                    "R_exploration must at least larger than an exploration step to go into exploitation, only exploration is performed")            
+                    "R_exploration must at least larger than an exploration step to go into exploitation, only exploration is performed")
             series_list = []
-            
+
+            lo = 0
+            val_lo = Tfactor_list[lo]
+            perf_lo = df_search.loc[
+                idx[default_schedule, val_lo, r]][compute_metric]
+            series_list.append(df_search.loc[
+                idx[default_schedule, val_lo, r]])
+
+            up = len(Tfactor_list) - 1
+            val_up = Tfactor_list[up]
+            perf_up = df_search.loc[
+                idx[default_schedule, val_up, r]][compute_metric]
+            series_list.append(df_search.loc[
+                idx[default_schedule, val_up, r]])
+
+            total_reads = 2*r*default_sweeps
+
+            while lo <= up:
+                x1 = int(lo + (up - lo) / 3)
+                x2 = int(up - (up - lo) / 3)
+                val_x1 = Tfactor_list[x1]
+                perf_x1 = df_search.loc[
+                    idx[default_schedule, val_x1, r]][compute_metric]
+                series_list.append(df_search.loc[
+                    idx[default_schedule, val_x1, r]])
+                total_reads += r*default_sweeps
+                if total_reads > R_exploration:
+                    break
+                val_x2 = Tfactor_list[x2]
+                perf_x2 = df_search.loc[
+                    idx[default_schedule, val_x2, r]][compute_metric]
+                series_list.append(df_search.loc[
+                    idx[default_schedule, val_x2, r]])
+                total_reads += r*default_sweeps
+                if total_reads > R_exploration:
+                    break
+                if perf_x2 == perf_up:
+                    up -= 1
+                    val_up = Tfactor_list[up]
+                    perf_up = df_search.loc[
+                        idx[default_schedule, val_up, r]][compute_metric]
+                    series_list.append(df_search.loc[
+                        idx[default_schedule, val_up, r]])
+                    total_reads += r*default_sweeps
+                elif perf_x1 == perf_lo:
+                    lo += 1
+                    val_lo = Tfactor_list[lo]
+                    perf_lo = df_search.loc[
+                        idx[default_schedule, val_lo, r]][compute_metric]
+                    series_list.append(df_search.loc[
+                        idx[default_schedule, val_lo, r]])
+                    total_reads += r*default_sweeps
+                elif perf_x1 > perf_x2:
+                    up = x2
+                    val_up = Tfactor_list[up]
+                    perf_up = df_search.loc[
+                        idx[default_schedule, val_up, r]][compute_metric]
+                else:
+                    lo = x1
+                    val_lo = Tfactor_list[lo]
+                    perf_lo = df_search.loc[
+                        idx[default_schedule, val_lo, r]][compute_metric]
+
+                if total_reads > R_exploration:
+                    break
+
+            if r*default_sweeps > R_exploration:
+                print(
+                    "R_exploration must be larger than single exploration step")
+                continue
+            series_list = []
+            total_reads = 0
+            for Tfactor in random_Tfactor:
+                series_list.append(df_search.loc[
+                    idx[default_schedule, Tfactor, r]]
+                )
+                total_reads += r*default_sweeps
+                if total_reads > R_exploration:
+                    converged = True
+                    break
+            exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
+                parameters + ['boots'])
+            exploration_step[compute_metric] = exploration_step[compute_metric].expanding(
+                min_periods=1).max()
+            exploration_step.reset_index('boots', inplace=True)
+            exploration_step['experiment'] = experiment
+            exploration_step['run_per_solve'] = r
+            exploration_step['R_explor'] = R_exploration
+            exploration_step['R_exploit'] = R_exploitation
+            exploration_step['R_budget'] = R_budget
+            exploration_step['cum_reads'] = exploration_step.groupby('experiment').expanding(
+                min_periods=1)['reads'].sum().reset_index(drop=True).values
+            progress_list.append(exploration_step)
+
+            exploitation_step = df_search.reset_index().set_index(
+                parameters).loc[exploration_step.nlargest(1, compute_metric).index]
+            exploitation_step['cum_reads'] = exploitation_step['reads'] + \
+                exploration_step['cum_reads'].max()
+            exploitation_step.sort_values(['cum_reads'], inplace=True)
+            exploitation_step = exploitation_step[exploitation_step['cum_reads'] <= R_budget]
+            exploitation_step[compute_metric].fillna(
+                0, inplace=True)
+            exploitation_step[compute_metric].clip(
+                lower=exploration_step[compute_metric].max(), inplace=True)
+            exploitation_step[compute_metric] = exploitation_step[compute_metric].expanding(
+                min_periods=1).max()
+            exploitation_step['experiment'] = experiment
+            exploitation_step['run_per_solve'] = r
+            exploitation_step['R_explor'] = R_exploration
+            exploitation_step['R_exploit'] = R_exploitation
+            exploitation_step['R_budget'] = R_budget
+            progress_list.append(exploitation_step)
+    df_progress_ternary_exp_42 = pd.concat(progress_list, axis=0)
+    df_progress_ternary_exp_42.reset_index(inplace=True)
+    df_progress_ternary_exp_42.to_pickle(df_path)
+else:
+    df_progress_ternary_exp_42 = pd.read_pickle(df_path)
+
+if 'best_perf_ratio' not in df_progress_ternary_exp_42.columns:
+    df_progress_ternary_exp_42['inv_perf_ratio'] = 1 - \
+        df_progress_ternary_exp_42['perf_ratio'] + EPSILON
+    df_progress_ternary_exp_42['best_inv_perf_ratio'] = df_progress_ternary_exp_42.sort_values(
+        ['cum_reads', 'R_budget']
+    ).expanding(min_periods=1).min()['inv_perf_ratio']
+    df_progress_ternary_exp_42['best_perf_ratio'] = 1 - \
+        df_progress_ternary_exp_42['best_inv_perf_ratio'] + EPSILON
+df_progress_ternary_exp_42 = cleanup_df(df_progress_ternary_exp_42)
+df_progress_ternary_exp_42.to_pickle(df_path)
+
+# %%
+# Full Exploration-exploitation on single instance addressing previous TODO
+df_name = "df_ternary_expl_42t.pkl"
+df_path = os.path.join(dneal_results_path, df_name)
+compute_metric = 'perf_ratio'
+df_search = df_dneal_42[
+    parameters + ['boots', 'reads'] + [compute_metric]
+].set_index(
+    parameters + ['boots']
+)
+use_raw_dataframes = True
+if use_raw_dataframes or os.path.exists(df_path) is False:
+    progress_list = []
+    for index, row in df_progress_best_ternary['idxmean_median_perf_ratio'].iteritems():
+        R_budget = row[0]
+        R_exploration = row[1]
+        # TODO: run and read used interchangeably
+        r = row[2]
+        # budget for exploitation (runs)
+        R_exploitation = R_budget - R_exploration
+        # for r in rs:
+        for experiment in range(repetitions):
+            if r*default_sweeps*3 > R_exploration:
+                print(
+                    "R_exploration must be larger than three exploration steps")
+                continue
+            elif r*default_sweeps > R_exploration:
+                print(
+                    "R_exploration must at least larger than an exploration step to go into exploitation, only exploration is performed")
+            series_list = []
+
             lo = 0
             val_lo = Tfactor_list[lo]
             perf_lo = df_search.loc[
@@ -3087,59 +3271,26 @@ df_progress_ternary_exp_42.to_pickle(df_path)
 # Best progress random search
 # Sort by descending order in cumulative reads, group per experiment in each setting and get index of the last period. End by setting index to experiment setting
 
-df_progress_random_42 = df_progress_total_42[
-        experiment_setting + ['experiment', 'cum_reads', 'perf_ratio']
-    ].loc[
-    df_progress_total_42.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting
-            )['cum_reads'].idxmax()
-    ].groupby(
-    experiment_setting
-    )[
-        ['perf_ratio']
-        ].agg(stat_measures)
 
-df_progress_random_42.columns = ["_".join(reversed(pair)).replace('max_','') for pair in df_progress_random_42.columns]
-df_progress_random_42.reset_index(inplace=True)
-
-
-for stat_measure in stat_measures:
-    df_progress_random_42[stat_measure + '_inv_perf_ratio'] = 1 - \
-        df_progress_random_42[stat_measure + '_perf_ratio'] + EPSILON
-
-df_progress_random_42 = cleanup_df(df_progress_random_42)
+# Processing ensemble recommended random search for instance 42
+df_progress_random_42, _ = process_df_progress(
+    df_progress=df_progress_total_42,
+    compute_metrics=['perf_ratio'],
+    stat_measures=['mean', 'median'],
+    maximizing=True,
+)
 # TODO: Consider adding this to total dataframe
 # %%
 # Best progress ternary search
 # Sort by descending order in cumulative reads, group per experiment in each setting and get index of the last period. End by setting index to experiment setting
 
-df_progress_ternary_exp_avg_42 = df_progress_ternary_exp_42[
-        experiment_setting + ['experiment', 'cum_reads', 'perf_ratio']
-    ].loc[
-    df_progress_ternary_exp_42.sort_values(
-        'cum_reads',
-        ascending=False,
-        ).groupby(
-            experiment_setting
-            )['cum_reads'].idxmax()
-    ].groupby(
-    experiment_setting
-    )[
-        ['perf_ratio']
-        ].agg(stat_measures)
-
-df_progress_ternary_exp_avg_42.columns = ["_".join(reversed(pair)).replace('max_','') for pair in df_progress_ternary_exp_avg_42.columns]
-df_progress_ternary_exp_avg_42.reset_index(inplace=True)
-
-
-for stat_measure in stat_measures:
-    df_progress_ternary_exp_avg_42[stat_measure + '_inv_perf_ratio'] = 1 - \
-        df_progress_ternary_exp_avg_42[stat_measure + '_perf_ratio'] + EPSILON
-
-df_progress_ternary_exp_avg_42 = cleanup_df(df_progress_ternary_exp_avg_42)
+# Processing ensemble recommended ternary search for instance 42
+df_progress_ternary_exp_avg_42, _ = process_df_progress(
+    df_progress=df_progress_ternary_exp_42,
+    compute_metrics=['perf_ratio'],
+    stat_measures=['mean', 'median'],
+    maximizing=True,
+)
 
 # %%
 # Evaluate instance 42 with strategies learned from ensemble anaylsis
@@ -3278,6 +3429,24 @@ plot_1d_singleinstance(
     linewidth=2.5,
     color=['g'],
 )
+plot_1d_singleinstance(
+    df=df_progress_random_best_42,
+    x_axis='R_budget',
+    y_axis='mean_inv_perf_ratio',
+    dict_fixed=None,
+    ax=ax,
+    label_plot='Median random exploration-exploitation',
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=True,
+    save_fig=False,
+    default_dict=default_dict.update({'instance': instance}),
+    # ylim=[0.975, 1.0025],
+    xlim=[1e3, 1e6*1.1],
+    linewidth=2.5,
+    color=['r'],
+)
 plot_1d_singleinstance_list(
     df=df_results_all,
     x_axis='reads',
@@ -3288,7 +3457,7 @@ plot_1d_singleinstance_list(
     },
     ax=ax,
     list_dicts=[{'Tfactor': i}
-                for i in [1, 1000]],
+                for i in [1, 1000] + [best_Tfactor]],
     labels=labels,
     prefix=prefix,
     log_x=True,

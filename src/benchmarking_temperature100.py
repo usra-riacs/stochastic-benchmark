@@ -506,7 +506,7 @@ def generateStatsDataframe(
 # %%
 # Compute results for instance 42 using D-Wave Neal
 use_raw_dataframes = False
-use_raw_dneal_pickles = False
+use_raw_dneal_pickles = True
 overwrite_pickles = False
 instance = 42
 metrics_list = ['min_energy', 'tts',
@@ -527,7 +527,7 @@ sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
 df_name = "df_results_" + str(instance) + "t.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-if os.path.exists(df_path): # and False
+if os.path.exists(df_path): # and False:
     df_dneal_42 = pd.read_pickle(df_path)
 else:
     df_dneal_42 = None
@@ -937,7 +937,7 @@ df_results_all.to_pickle(df_path)
 # Run all the instances with Dwave-neal
 overwrite_pickles = False
 use_raw_dataframes = True
-use_raw_dneal_pickles = False
+use_raw_dneal_pickles = True
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
 
@@ -961,8 +961,8 @@ df_results_all = createDnealResultsDataframes(
 # %%
 # Generate stats results
 use_raw_full_dataframe = True
-use_raw_dataframes = False
-use_raw_dneal_pickles = False
+use_raw_dataframes = True
+use_raw_dneal_pickles = True
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
@@ -1045,7 +1045,7 @@ plot_1d_singleinstance_list(
     ax=ax,
     dict_fixed={'schedule': 'geometric', 'Tfactor': default_Tfactor},
     list_dicts=[{'boots': j}
-                for j in all_boots_list[::10]],
+                for j in all_boots_list[::1]],
     labels=labels,
     prefix=prefix,
     log_x=True,
@@ -1316,7 +1316,7 @@ for instance in [3, 0, 7, 42]:
 # %%
 # Regenerate the dataframe with the statistics to get the complete performance plot
 use_raw_full_dataframe = True
-use_raw_dataframes = False
+use_raw_dataframes = True
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
@@ -1699,14 +1699,13 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     series_list = []
                     total_reads = 0
                     for Tfactor in random_Tfactor:
+                        total_reads += r*default_sweeps
+                        if total_reads > R_exploration:
+                            break
                         series_list.append(
                             df_search.loc[
                                 idx['geometric', Tfactor, r]]
                         )
-                        total_reads += r*default_sweeps
-                        if total_reads > R_exploration:
-                            converged = True
-                            break
                     exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
                         parameters + ['boots'])
                     exploration_step['median_perf_ratio'] = exploration_step['median_perf_ratio'].expanding(
@@ -1829,35 +1828,39 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     val_x1 = Tfactor_list[x1]
                     perf_x1 = df_search.loc[
                         idx[default_schedule, val_x1, r]]['median_perf_ratio']
-                    series_list.append(df_search.loc[
-                        idx[default_schedule, val_x1, r]])
                     total_reads += r*default_sweeps
                     if total_reads > R_exploration:
                         break
+                    series_list.append(df_search.loc[
+                        idx[default_schedule, val_x1, r]])
                     val_x2 = Tfactor_list[x2]
                     perf_x2 = df_search.loc[
                         idx[default_schedule, val_x2, r]]['median_perf_ratio']
-                    series_list.append(df_search.loc[
-                        idx[default_schedule, val_x2, r]])
                     total_reads += r*default_sweeps
                     if total_reads > R_exploration:
                         break
+                    series_list.append(df_search.loc[
+                        idx[default_schedule, val_x2, r]])
                     if perf_x2 == perf_up:
                         up -= 1
                         val_up = Tfactor_list[up]
                         perf_up = df_search.loc[
                             idx[default_schedule, val_up, r]]['median_perf_ratio']
+                        total_reads += r*default_sweeps
+                        if total_reads > R_exploration:
+                            break
                         series_list.append(df_search.loc[
                             idx[default_schedule, val_up, r]])
-                        total_reads += r*default_sweeps
                     elif perf_x1 == perf_lo:
                         lo += 1
                         val_lo = Tfactor_list[lo]
                         perf_lo = df_search.loc[
                             idx[default_schedule, val_lo, r]]['median_perf_ratio']
+                        total_reads += r*default_sweeps
+                        if total_reads > R_exploration:
+                            break
                         series_list.append(df_search.loc[
                             idx[default_schedule, val_lo, r]])
-                        total_reads += r*default_sweeps
                     elif perf_x1 > perf_x2:
                         up = x2
                         val_up = Tfactor_list[up]

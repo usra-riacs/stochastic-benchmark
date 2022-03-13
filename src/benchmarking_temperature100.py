@@ -264,7 +264,7 @@ def createDnealResultsDataframes(
     if parameters_dict is not None:
         for i, j in parameters_dict.items():
             parameters_dict[i] = set(j)
-    # Create list of parameters sorted alphabetically (ingoring uppercase)
+    # Create list of parameters sorted alphabetically (ignoring uppercase)
     params = list(parameters_dict.keys())
     params.sort(key=str.lower)
     # Check that the parameters are columns in the dataframe
@@ -751,12 +751,13 @@ interesting_Tfactors = [
     10,
     100,
     1000,
-    1,
+    default_Tfactor,
 ]
 
 # Iterating for all values of bootstrapping downsampling proves to be very expensive, rather use steps of 10
 # all_boots_list = list(range(1, 1001, 1))
-all_boots_list = [i*10**j for j in [0, 1, 2] for i in [1,2,3,5] ] + [1000]
+# all_boots_list = [i*10**j for j in [0, 1, 2] for i in [1,2,3,5,7] ] + [1000]
+all_boots_list = [1,2,3,5,7,10,15,20,30,50,70,100,150,200,300,500,700,1000]
 detailed_parameters_dict = {'schedule': schedules_list,
                      'sweeps': [default_sweeps],
                      'Tfactor': interesting_Tfactors}
@@ -864,7 +865,9 @@ schedules_list = ['geometric']
 df_list = []
 use_raw_dataframes = False
 use_raw_dneal_pickles = False
-parameters_dict = {'schedule': schedules_list, 'sweeps': [default_sweeps], 'Tfactor': Tfactor_list}
+parameters_dict = {
+    'schedule': schedules_list, 'sweeps': [default_sweeps], 'Tfactor': Tfactor_list,
+    }
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + "t.pkl"
     df_path = os.path.join(dneal_results_path, df_name)
@@ -933,7 +936,7 @@ df_results_all.to_pickle(df_path)
 # %%
 # Run all the instances with Dwave-neal
 overwrite_pickles = False
-use_raw_dataframes = False
+use_raw_dataframes = True
 use_raw_dneal_pickles = False
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
@@ -957,7 +960,7 @@ df_results_all = createDnealResultsDataframes(
 )
 # %%
 # Generate stats results
-use_raw_full_dataframe = False
+use_raw_full_dataframe = True
 use_raw_dataframes = False
 use_raw_dneal_pickles = False
 df_results_all_stats = generateStatsDataframe(
@@ -993,27 +996,27 @@ plot_1d_singleinstance_list(
     list_dicts=[{
         # 'instance': 42,
         'boots': j}
-                for j in [1,5,10,100,1000]],
+                for j in [1000]],
     labels=labels,
     prefix=prefix,
     log_x=True,
     log_y=True,
     colormap=plt.cm.Dark2,
 )
-# plot_1d_singleinstance_list(
-#     df=df_results_all_stats,
-#     x_axis='Tfactor',
-#     y_axis='median_tts',
-#     ax=ax,
-#     dict_fixed={'schedule': 'geometric'},
-#     list_dicts=[{'boots': j}
-#                 for j in [1,5,10,100,1000]],
-#     labels=labels,
-#     prefix=prefix,
-#     log_x=True,
-#     log_y=True,
-#     colors=['colormap']
-# )
+plot_1d_singleinstance_list(
+    df=df_results_all_stats,
+    x_axis='Tfactor',
+    y_axis='median_tts',
+    ax=ax,
+    dict_fixed={'schedule': 'geometric'},
+    list_dicts=[{'boots': j}
+                for j in [1000]],
+    labels=labels,
+    prefix=prefix,
+    log_x=True,
+    log_y=True,
+    colors=['colormap']
+)
 # %%
 # Generate plots for performance ratio of ensemble vs Tfactor
 f, ax = plt.subplots()
@@ -1095,12 +1098,12 @@ plot_1d_singleinstance_list(
 best_ensemble_Tfactor = []
 df_list = []
 stat_measures = ['mean', 'median']
-use_raw_dataframes = False
+use_raw_dataframes = True
 for stat_measure in stat_measures:
     best_Tfactor = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
         1, stat_measure + '_tts')['Tfactor'].values[0]
     best_ensemble_Tfactor.append(best_Tfactor)
-
+schedules_list = ['geometric']
 best_ensemble_parameters_dict = {
     'schedule': schedules_list,
     'sweeps': [default_sweeps],
@@ -1312,7 +1315,7 @@ for instance in [3, 0, 7, 42]:
 
 # %%
 # Regenerate the dataframe with the statistics to get the complete performance plot
-use_raw_full_dataframe = False
+use_raw_full_dataframe = True
 use_raw_dataframes = False
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
@@ -1332,85 +1335,19 @@ df_results_all_stats = generateStatsDataframe(
     fail_value=fail_value,
     save_pickle=True,
 )
-# %%
-# Generate plots for performance ratio of ensemble vs reads
-for stat_measure in stat_measures:
-    f, ax = plt.subplots()
-    for instance in instance_list:
-        plot_1d_singleinstance_list(
-            df=df_results_all,
-            x_axis='reads',
-            y_axis='perf_ratio',
-            ax=ax,
-            dict_fixed={'schedule': 'geometric'},
-            list_dicts=[{'Tfactor': i, 'instance': instance}
-                        for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
-            labels=labels,
-            prefix=prefix,
-            log_x=True,
-            log_y=False,
-            save_fig=False,
-            use_colorbar=False,
-            marker=None,
-            alpha=0.15,
-            colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
-                    u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
-        )
-    plot_1d_singleinstance_list(
-        df=df_results_all_stats,
-        x_axis='reads',
-        y_axis=stat_measure + '_perf_ratio',
-        ax=ax,
-        dict_fixed={'schedule': 'geometric'},
-        list_dicts=[{'Tfactor': i}
-                    for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=False,
-        save_fig=False,
-        ylim=[0.975, 1.0025],
-        # xlim=[5e2, 5e4],
-        xlim=[5e2, 5e4],
-        use_colorbar=False,
-        linewidth=2.5,
-        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
-                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
-    )
 
-# %%
-# Generate plots for inverse performance ratio of ensemble vs reads
-for stat_measure in stat_measures:
-    f, ax = plt.subplots()
-    plot_1d_singleinstance_list(
-        df=df_results_all_stats,
-        x_axis='reads',
-        y_axis=stat_measure + '_inv_perf_ratio',
-        ax=ax,
-        dict_fixed={'schedule': 'geometric'},
-        list_dicts=[{'Tfactor': i}
-                    for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=True,
-        save_fig=False,
-        xlim=[5e2, 5e4],
-        use_colorbar=False,
-        linewidth=2.5,
-        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
-                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
-    )
 # %%
 # Create virtual best and virtual worst columns
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
+# TODO: Currently grouping by schedule, we need to do it either for all parameters or the stale ones
 
 df_name = "df_results_virtt.pkl"
 df_path = os.path.join(dneal_results_path, df_name)
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     df_virtual_all = df_results_all.groupby(
-        ['schedule', 'reads']
+        ['reads']
     ).apply(lambda s: pd.Series({
             'virt_best_tts': np.nanmin(s['tts']),
             'virt_best_perf_ratio': np.nanmax(s['perf_ratio']),
@@ -1422,66 +1359,58 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
             })
             ).reset_index()
     df_virtual_best_max = df_virtual_all[
-        ['reads', 'schedule',
+        ['reads',
          'virt_best_perf_ratio',
          'virt_best_success_prob']
     ].sort_values('reads'
-                  ).groupby(
-        'schedule'
-    ).expanding(min_periods=1).max().droplevel(-1).reset_index()
+                  ).expanding(min_periods=1).max()#.droplevel(-1).reset_index()
 
     # This is done as the virtual worst counts the worst case, computed as the minimum from last read to first
     df_virtual_worst_max = df_virtual_all[
-        ['reads', 'schedule',
+        ['reads',
          'virt_worst_perf_ratio']
     ].sort_values('reads', ascending=False
-                  ).groupby(
-        'schedule'
-    ).expanding(min_periods=1).min().droplevel(-1).reset_index()
+                  ).expanding(min_periods=1).min()#.droplevel(-1).reset_index()
 
     df_virtual_best_min = df_virtual_all[
-        ['reads', 'schedule',
+        ['reads',
          'virt_best_tts',
          'virt_best_mean_time',
          'virt_best_inv_perf_ratio']
     ].sort_values('reads'
-                  ).groupby(
-        'schedule'
-    ).expanding(min_periods=1).agg({
+                  ).expanding(min_periods=1).agg({
         'reads': np.max,
         'virt_best_tts': np.min,
         'virt_best_mean_time': np.min,
         'virt_best_inv_perf_ratio': np.min}
-    ).droplevel(-1).reset_index()
+    )#.droplevel(-1).reset_index()
     # df_virtual_best_min['reads'] = df_virtual_all[
     #     ['reads', 'schedule']
     # ].sort_values(['schedule','reads'])['reads']
 
     df_virtual_worst_min = df_virtual_all[
-        ['reads', 'schedule',
+        ['reads',
          'virt_worst_inv_perf_ratio']
     ].sort_values('reads', ascending=False
-                  ).groupby(
-        'schedule'
-    ).expanding(min_periods=1).agg({
+                  ).expanding(min_periods=1).agg({
         'reads': np.min,
         'virt_worst_inv_perf_ratio': np.max}
-    ).droplevel(-1).reset_index()
+    )#.droplevel(-1).reset_index()
     df_virtual_best_min['reads'] = df_virtual_all[
-        ['reads', 'schedule']
-    ].sort_values('schedule').sort_values('reads', ascending=False)['reads']
+        ['reads']
+    ].sort_values('reads', ascending=False)['reads']
 
     df_virtual_best = df_virtual_best_max.merge(
         df_virtual_worst_max,
-        on=['schedule', 'reads'],
+        on=['reads'],
         how='left')
     df_virtual_best = df_virtual_best.merge(
         df_virtual_best_min,
-        on=['schedule', 'reads'],
+        on=['reads'],
         how='left')
     df_virtual_best = df_virtual_best.merge(
         df_virtual_worst_min,
-        on=['schedule', 'reads'],
+        on=['reads'],
         how='left')
     df_virtual_best = cleanup_df(df_virtual_best)
     df_virtual_best.to_pickle(df_path)
@@ -1489,6 +1418,18 @@ else:
     df_virtual_best = pd.read_pickle(df_path)
     df_virtual_best = cleanup_df(df_virtual_best)
 
+# Dirty workaround to compute virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
+df_virtual_best = df_virtual_best.merge(df_results_all.groupby([
+        'instance', 'reads'
+        ])['perf_ratio'].max().reset_index().groupby(
+            ['reads']
+        ).median().reset_index(),
+        on=['reads'],
+        how='left')
+
+df_virtual_best['inv_perf_ratio'] = 1 - df_virtual_best['perf_ratio'] + EPSILON
+df_virtual_best = cleanup_df(df_virtual_best)
+df_virtual_best.to_pickle(df_path)
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance
 for stat_measure in stat_measures:
@@ -1496,10 +1437,10 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_best_perf_ratio',
+        y_axis='perf_ratio',
         ax=ax,
         label_plot='Virtual best',
-        dict_fixed={'schedule': 'geometric'},
+        dict_fixed=None,
         labels=labels,
         prefix=prefix,
         save_fig=False,
@@ -1507,20 +1448,20 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    plot_1d_singleinstance(
-        df=df_virtual_best,
-        x_axis='reads',
-        y_axis='virt_worst_perf_ratio',
-        ax=ax,
-        label_plot='Virtual worst',
-        dict_fixed={'schedule': 'geometric'},
-        labels=labels,
-        prefix=prefix,
-        save_fig=False,
-        linewidth=2.5,
-        marker=None,
-        color=['r'],
-    )
+    # plot_1d_singleinstance(
+    #     df=df_virtual_best,
+    #     x_axis='reads',
+    #     y_axis='virt_worst_perf_ratio',
+    #     ax=ax,
+    #     label_plot='Virtual worst',
+    #     dict_fixed=None,
+    #     labels=labels,
+    #     prefix=prefix,
+    #     save_fig=False,
+    #     linewidth=2.5,
+    #     marker=None,
+    #     color=['r'],
+    # )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1549,10 +1490,10 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_best_inv_perf_ratio',
+        y_axis='inv_perf_ratio',
         ax=ax,
         label_plot='Virtual best',
-        dict_fixed={'schedule': 'geometric'},
+        dict_fixed=None,
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -1562,22 +1503,22 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    plot_1d_singleinstance(
-        df=df_virtual_best,
-        x_axis='reads',
-        y_axis='virt_worst_inv_perf_ratio',
-        ax=ax,
-        label_plot='Virtual worst',
-        dict_fixed={'schedule': 'geometric'},
-        labels=labels,
-        prefix=prefix,
-        save_fig=False,
-        log_x=True,
-        log_y=False,
-        linewidth=2.5,
-        marker=None,
-        color=['r'],
-    )
+    # plot_1d_singleinstance(
+    #     df=df_virtual_best,
+    #     x_axis='reads',
+    #     y_axis='virt_worst_inv_perf_ratio',
+    #     ax=ax,
+    #     label_plot='Virtual worst',
+    #     dict_fixed=None,
+    #     labels=labels,
+    #     prefix=prefix,
+    #     save_fig=False,
+    #     log_x=True,
+    #     log_y=False,
+    #     linewidth=2.5,
+    #     marker=None,
+    #     color=['r'],
+    # )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1597,9 +1538,128 @@ for stat_measure in stat_measures:
         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
                 u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
     )
+
+# %%
+# Generate plots for performance ratio of ensemble vs reads
+for stat_measure in stat_measures:
+    f, ax = plt.subplots()
+    for instance in instance_list:
+        plot_1d_singleinstance_list(
+            df=df_results_all,
+            x_axis='reads',
+            y_axis='perf_ratio',
+            ax=ax,
+            dict_fixed={'schedule': 'geometric'},
+            list_dicts=[{'Tfactor': i, 'instance': instance}
+                        for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
+            labels=labels,
+            prefix=prefix,
+            log_x=True,
+            log_y=False,
+            save_fig=False,
+            use_colorbar=False,
+            marker=None,
+            alpha=0.15,
+            colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                    u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+        )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='perf_ratio',
+        ax=ax,
+        label_plot='Virtual best',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['k'],
+    )
+    plot_1d_singleinstance_list(
+        df=df_results_all_stats,
+        x_axis='reads',
+        y_axis=stat_measure + '_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': 'geometric'},
+        list_dicts=[{'Tfactor': i}
+                    for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        save_fig=False,
+        ylim=[0.975, 1.0025],
+        # xlim=[5e2, 5e4],
+        xlim=[5e2, 5e4],
+        use_colorbar=False,
+        linewidth=2.5,
+        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+    )
+
+# %%
+# Generate plots for inverse performance ratio of ensemble vs reads
+for stat_measure in stat_measures:
+    f, ax = plt.subplots()
+    for instance in instance_list:
+        plot_1d_singleinstance_list(
+            df=df_results_all,
+            x_axis='reads',
+            y_axis='inv_perf_ratio',
+            ax=ax,
+            dict_fixed={'schedule': 'geometric'},
+            list_dicts=[{'Tfactor': i, 'instance': instance}
+                        for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
+            labels=labels,
+            prefix=prefix,
+            log_x=True,
+            log_y=False,
+            save_fig=False,
+            use_colorbar=False,
+            marker=None,
+            alpha=0.15,
+            colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                    u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+        )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='inv_perf_ratio',
+        ax=ax,
+        label_plot='Virtual best',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=False,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['k'],
+    )
+    plot_1d_singleinstance_list(
+        df=df_results_all_stats,
+        x_axis='reads',
+        y_axis=stat_measure + '_inv_perf_ratio',
+        ax=ax,
+        dict_fixed={'schedule': 'geometric'},
+        list_dicts=[{'Tfactor': i}
+                    for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
+        labels=labels,
+        prefix=prefix,
+        log_x=True,
+        log_y=True,
+        save_fig=False,
+        xlim=[5e2, 5e4],
+        use_colorbar=False,
+        linewidth=2.5,
+        colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+                u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+    )
 # %%
 # Random search for the ensemble
-repetitions = 10  # Times to run the algorithm
 repetitions = 10  # Times to run the algorithm
 # rs = [1, 5, 10]  # resources per parameter setting (runs)
 rs = [1, 2, 5, 10, 20, 50, 100]  # resources per parameter setting (runs)
@@ -1618,7 +1678,7 @@ df_search = df_results_all_stats[
 ].set_index(
     parameters + ['boots']
 )
-use_raw_dataframes = False
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
@@ -1828,7 +1888,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                 progress_list.append(exploration_step)
 
                 exploitation_step = df_search.reset_index().set_index(
-                    parameters).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
+                    parameters).loc[exploration_step.nlargest(1, 'median_perf_ratio').index].copy()
                 exploitation_step['cum_reads'] = exploitation_step['reads'] + \
                     exploration_step['cum_reads'].max()
                 exploitation_step.sort_values(['cum_reads'], inplace=True)
@@ -2134,10 +2194,10 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_best_perf_ratio',
+        y_axis='perf_ratio',
         ax=ax,
         label_plot='Virtual best',
-        dict_fixed={'schedule': 'geometric'},
+        dict_fixed=None,
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -2147,46 +2207,23 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    plot_1d_singleinstance(
-        df=df_virtual_best,
-        x_axis='reads',
-        y_axis='virt_worst_perf_ratio',
-        ax=ax,
-        label_plot='Virtual worst',
-        dict_fixed={'schedule': 'geometric'},
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=False,
-        use_conf_interval=False,
-        save_fig=False,
-        linewidth=2.5,
-        marker=None,
-        color=['r'],
-    )
-    plot_1d_singleinstance_list(
-        df=df_results_all_stats,
-        x_axis='reads',
-        y_axis=stat_measure + '_perf_ratio',
-        ax=ax,
-        dict_fixed={'schedule': 'geometric'},
-        list_dicts=[{'Tfactor': i}
-                    for i in list(set(best_ensemble_Tfactor)) + [1000]],
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=False,
-        use_conf_interval=False,
-        save_fig=False,
-        ylim=[0.975, 1.0025],
-        # xlim=[5e2, 5e4],
-        use_colorbar=False,
-        linewidth=1.5,
-        markersize=1,
-        colormap=plt.cm.get_cmap('viridis'),
-        colors=['colormap'],
-        style='--',
-    )
+    # plot_1d_singleinstance(
+    #     df=df_virtual_best,
+    #     x_axis='reads',
+    #     y_axis='virt_worst_perf_ratio',
+    #     ax=ax,
+    #     label_plot='Virtual worst',
+    #     dict_fixed={'schedule': 'geometric'},
+    #     labels=labels,
+    #     prefix=prefix,
+    #     log_x=True,
+    #     log_y=False,
+    #     use_conf_interval=False,
+    #     save_fig=False,
+    #     linewidth=2.5,
+    #     marker=None,
+    #     color=['r'],
+    # )
     # plot_1d_singleinstance_list(
     #     df=df_progress,
     #     x_axis='cum_reads',
@@ -2215,9 +2252,9 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_progress_best,
         x_axis='R_budget',
-        # y_axis='mean_' + stat_measure + '_perf_ratio',
+        y_axis='mean_' + stat_measure + '_perf_ratio',
         # y_axis=stat_measure + '_median_perf_ratio',
-        y_axis=stat_measure + '_median_perf_ratio',
+        # y_axis=stat_measure + '_median_perf_ratio',
         ax=ax,
         dict_fixed=None,
         label_plot='Best random exploration exploitation',
@@ -2232,7 +2269,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        xlim=[1e3, 1e6],
+        xlim=[1e3, 1e5],
         linewidth=1.5,
         markersize=1,
         color=['c'],
@@ -2240,9 +2277,9 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_progress_best_ternary,
         x_axis='R_budget',
-        # y_axis='mean_' + stat_measure + '_perf_ratio',
+        y_axis='mean_' + stat_measure + '_perf_ratio',
         # y_axis=stat_measure + '_median_perf_ratio',
-        y_axis=stat_measure + '_median_perf_ratio',
+        # y_axis=stat_measure + '_median_perf_ratio',
         ax=ax,
         dict_fixed=None,
         label_plot='Best ternary exploration exploitation',
@@ -2257,7 +2294,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        xlim=[1e3, 1e6],
+        xlim=[1e3, 1e5],
         linewidth=1.5,
         markersize=1,
         color=['m'],
@@ -2269,7 +2306,7 @@ for stat_measure in stat_measures:
         ax=ax,
         dict_fixed={'schedule': 'geometric'},
         list_dicts=[{'Tfactor': i}
-                    for i in list(set(best_ensemble_Tfactor)) + [1000]],
+                    for i in [default_Tfactor] + list(set(best_ensemble_Tfactor)) + [100, 1000]],
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -2292,10 +2329,10 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_best_inv_perf_ratio',
+        y_axis='inv_perf_ratio',
         ax=ax,
         label_plot='Virtual best',
-        dict_fixed={'schedule': 'geometric'},
+        dict_fixed=None,
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -2305,23 +2342,23 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    plot_1d_singleinstance(
-        df=df_virtual_best,
-        x_axis='reads',
-        y_axis='virt_worst_inv_perf_ratio',
-        ax=ax,
-        label_plot='Virtual worst',
-        dict_fixed={'schedule': 'geometric'},
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=False,
-        use_conf_interval=False,
-        save_fig=False,
-        linewidth=2.5,
-        marker=None,
-        color=['r'],
-    )
+    # plot_1d_singleinstance(
+    #     df=df_virtual_best,
+    #     x_axis='reads',
+    #     y_axis='virt_worst_inv_perf_ratio',
+    #     ax=ax,
+    #     label_plot='Virtual worst',
+    #     dict_fixed={'schedule': 'geometric'},
+    #     labels=labels,
+    #     prefix=prefix,
+    #     log_x=True,
+    #     log_y=False,
+    #     use_conf_interval=False,
+    #     save_fig=False,
+    #     linewidth=2.5,
+    #     marker=None,
+    #     color=['r'],
+    # )
     plot_1d_singleinstance(
         df=df_progress_best,
         x_axis='R_budget',
@@ -2339,7 +2376,7 @@ for stat_measure in stat_measures:
         prefix=prefix,
         log_x=True,
         log_y=True,
-        use_conf_interval=False,
+        use_conf_interval=True,
         save_fig=False,
         ylim=[1e-10, 1e0],
         xlim=[1e3, R_budgets[-1]],
@@ -2350,9 +2387,9 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_progress_best_ternary,
         x_axis='R_budget',
-        # y_axis='mean_' + stat_measure + '_perf_ratio',
-        # y_axis=stat_measure + '_median_perf_ratio',
-        y_axis=stat_measure + '_median_inv_perf_ratio',
+        y_axis='mean_' + stat_measure + '_inv_perf_ratio',
+        # y_axis=stat_measure + '_median_inv_perf_ratio',
+        # y_axis=stat_measure + '_median_inv_perf_ratio',
         ax=ax,
         dict_fixed=None,
         label_plot='Best ternary exploration exploitation',
@@ -2364,7 +2401,7 @@ for stat_measure in stat_measures:
         prefix=prefix,
         log_x=True,
         log_y=True,
-        use_conf_interval=False,
+        use_conf_interval=True,
         save_fig=False,
         ylim=[1e-10, 1e0],
         xlim=[1e3, R_budgets[-1]],
@@ -2379,7 +2416,7 @@ for stat_measure in stat_measures:
         ax=ax,
         dict_fixed={'schedule': 'geometric'},
         list_dicts=[{'Tfactor': i}
-                    for i in list(set(best_ensemble_Tfactor)) + [1000]],
+                    for i in [default_Tfactor] + list(set(best_ensemble_Tfactor)) + [100, 1000]],
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -2393,7 +2430,7 @@ for stat_measure in stat_measures:
         colors=['colormap'],
         style='--',
         ylim=[1e-10, 1e0],
-        xlim=[1e3, R_budgets[-1]],
+        xlim=[1e3, 1e5],
     )
 
 # %%
@@ -2479,7 +2516,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
             parameters + ['boots',
                 'median_perf_ratio', 'mean_perf_ratio', 'reads']
         ].set_index(
-            parameters).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
+            parameters).loc[exploration_step.nlargest(1, 'median_perf_ratio').index].copy()
         exploitation_step['cum_reads'] = exploitation_step['reads'] + \
             exploration_step['cum_reads'].max()
         exploitation_step = exploitation_step[exploitation_step['cum_reads']
@@ -2591,7 +2628,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        xlim=[1e3, 1e6],
+        xlim=[1e3, 1e5],
         linewidth=1.5,
         markersize=10,
         style='.-',
@@ -3257,6 +3294,6 @@ plot_1d_singleinstance_list(
     default_dict=default_dict.update({'instance': instance}),
     use_colorbar=False,
     # ylim=[0.975, 1.0025],
-    xlim=[1e3, 1e6*1.1],
+    xlim=[1e3, 1e5*1.1],
 )
 # %%

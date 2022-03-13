@@ -137,3 +137,4 @@ data/sk/*/pickles/*
 data/sk/*/pickles_bak/*
 data/sk/*/unique_gs/*
 data/sk/*/data/*
+data/sk/*/df_progress_total*.pkl

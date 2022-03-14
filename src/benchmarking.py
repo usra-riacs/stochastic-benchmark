@@ -6,11 +6,7 @@ import os
 import pickle
 import time
 import random
-from ctypes.wintypes import DWORD
-from gc import collect
-from turtle import color
 from typing import List, Union
-from unicodedata import category
 
 import dimod
 # Import Matplotlib to edit plots
@@ -185,7 +181,7 @@ def createDnealSamplesDataframe(
         sweep: The number of sweeps to use for the dneal algorithm.
         total_reads: The total number of reads to use for the dneal algorithm.
         sim_ann_sampler: The sampler to use for the simulated annealing algorithm.
-        dneal_pickle_path: The path to the pickle files.
+        pickle_path: The path to the pickle files.
         use_raw_sample_pickles: Whether to use the raw pickles or not.
         overwrite_pickles: Whether to overwrite the pickles or not.
 
@@ -207,7 +203,7 @@ def createDnealSamplesDataframe(
     dict_pickle_name = prefix + str(instance) + "_" + \
         '_'.join(str(vals) for vals in parameters.values()) + suffix + ".p"
     df_samples_name = 'df_' + dict_pickle_name + 'kl'
-    df_path = os.path.join(dneal_pickle_path, df_samples_name)
+    df_path = os.path.join(pickle_path, df_samples_name)
     if os.path.exists(df_path):
         # TODO: This loop is wrong as it never forces to rerun the solver
         try:
@@ -220,7 +216,7 @@ def createDnealSamplesDataframe(
         if sim_ann_sampler is None:
             sim_ann_sampler = neal.SimulatedAnnealingSampler()
         # Gather instance paths
-        dict_pickle_name = os.path.join(dneal_pickle_path, dict_pickle_name)
+        dict_pickle_name = os.path.join(pickle_path, dict_pickle_name)
         # If the instance data exists, load the data
         if os.path.exists(df_path) and not overwrite_pickles:
             # print(pickle_name)
@@ -249,7 +245,7 @@ def createDnealSamplesDataframe(
             )
             time_s = time.time() - start
             samples.info['timing'] = time_s
-            pickle.dump(samples, open(dict_pickle_name, "wb"))
+            pickle.dump(samples, open(pickle_path, "wb"))
             # Generate Dataframes
             df_samples = samples.to_pandas_dataframe(sample_column=True)
             df_samples['runtime (us)'] = int(
@@ -262,6 +258,8 @@ def createDnealSamplesDataframe(
 # %%
 # Function to update the dataframes
 # TODO Remove all the list_* variables and name them as plurals instead
+# TODO: Prefix is assumed given directly to the file
+
 def createDnealResultsDataframes(
     df: pd.DataFrame = None,
     instance_list: List[int] = [0],
@@ -432,7 +430,7 @@ upper_bounds['perf_ratio'] = 1.0
 # %%
 # Function to generate stats aggregated dataframe
 # TODO: this can be generalized by acknowledging that the boots are the resource R
-
+# TODO: This function does not receive the metrics_list, lower_bounds, or upper_bounds. COnsider clipping values as well as confidence intervals
 
 def generateStatsDataframe(
     df_all: List[dict] = None,
@@ -1049,6 +1047,7 @@ df_results_all = createDnealResultsDataframes(
 use_raw_full_dataframe = False
 use_raw_dataframes = False
 use_raw_sample_pickles = False
+# TODO: this function assume we want all the combinatios of the parameters, while in reality, we might want to use those in a list
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
@@ -2185,7 +2184,7 @@ for stat_measure in stat_measures:
         linewidth=1.5,
         markersize=1,
         label_plot="Random exploration exploitation",
-        color=['m'],
+        color=['c'],
     )
     plot_1d_singleinstance(
         df=df_progress_ternary_best,
@@ -2211,7 +2210,7 @@ for stat_measure in stat_measures:
         linewidth=1.5,
         markersize=1,
         label_plot="Ternary exploration exploitation",
-        color=['c'],
+        color=['m'],
     )
 
     

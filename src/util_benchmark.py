@@ -371,7 +371,7 @@ def process_df_progress(
         return None
 
     experiment_setting = ['R_budget', 'R_explor', 'run_per_solve']
-    individual_run = experiment_setting
+    individual_run = experiment_setting.copy()
     if 'experiment' in df_progress.columns:
         individual_run += ['experiment']
 
@@ -413,20 +413,19 @@ def process_df_progress(
     ).expanding(min_periods=1).min()[expanding_metric]
     df_progress['best_perf_ratio'] = 1 - \
         df_progress['best_inv_perf_ratio'] + EPSILON
+    
+    if 'f_explor' not in df_progress:
+        df_progress['f_explor'] = df_progress['R_explor'] / \
+            df_progress['R_budget']
 
     df_progress = cleanup_df(df_progress)
+
+    if 'f_explor' not in df_progress_end:
+        df_progress_end['f_explor'] = df_progress_end['R_explor'] / \
+            df_progress_end['R_budget']
     df_progress_end = cleanup_df(df_progress_end)
 
-    df_progress_best = df_progress[
-        individual_run + compute_metrics + ['cum_reads']
-    ].loc[
-        df_progress.sort_values(
-            ['cum_reads'],
-            ascending=False,
-        ).groupby(
-            individual_run
-        )['cum_reads'].idxmax()
-    ].groupby(
+    df_progress_best = df_progress_end.groupby(
         experiment_setting
     )[
         compute_metrics
@@ -449,7 +448,7 @@ def process_df_progress(
             else:
                 position = compute_metric.index('perf_ratio')
                 df_progress_best[stat_measure + '_' + compute_metric[:position] + 'inv_' +
-                                 compute_metric[position:]] = df_progress_best[stat_measure + '_' + compute_metric] + EPSILON
+                                 compute_metric[position:]] = 1 - df_progress_best[stat_measure + '_' + compute_metric] + EPSILON
 
     df_progress_best = cleanup_df(df_progress_best)
 

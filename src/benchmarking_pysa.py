@@ -1415,7 +1415,7 @@ for instance in [3, 0, 7, 42]:
 
 # %%
 # Regenerate the dataframe with the statistics to get the complete performance plot
-use_raw_full_dataframe = False
+use_raw_full_dataframe = True
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
@@ -1613,10 +1613,10 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_best_perf_ratio',
+        y_axis='perf_ratio',
         ax=ax,
         label_plot='Virtual best',
-        dict_fixed={'pcold': 1, 'phot': 50},
+        dict_fixed=None,
         labels=labels,
         prefix=prefix,
         save_fig=False,
@@ -1624,20 +1624,20 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    plot_1d_singleinstance(
-        df=df_virtual_best,
-        x_axis='reads',
-        y_axis='virt_worst_perf_ratio',
-        ax=ax,
-        label_plot='Virtual worst',
-        dict_fixed={'pcold': 1, 'phot': 50},
-        labels=labels,
-        prefix=prefix,
-        save_fig=False,
-        linewidth=2.5,
-        marker=None,
-        color=['r'],
-    )
+    # plot_1d_singleinstance(
+    #     df=df_virtual_best,
+    #     x_axis='reads',
+    #     y_axis='virt_worst_perf_ratio',
+    #     ax=ax,
+    #     label_plot='Virtual worst',
+    #     dict_fixed={'pcold': 1, 'phot': 50},
+    #     labels=labels,
+    #     prefix=prefix,
+    #     save_fig=False,
+    #     linewidth=2.5,
+    #     marker=None,
+    #     color=['r'],
+    # )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1668,10 +1668,10 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_best_inv_perf_ratio',
+        y_axis='inv_perf_ratio',
         ax=ax,
         label_plot='Virtual best',
-        dict_fixed={'pcold': 1, 'phot': 50},
+        dict_fixed=None,
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -1681,22 +1681,22 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    plot_1d_singleinstance(
-        df=df_virtual_best,
-        x_axis='reads',
-        y_axis='virt_worst_inv_perf_ratio',
-        ax=ax,
-        label_plot='Virtual worst',
-        dict_fixed={'pcold': 1, 'phot': 50},
-        labels=labels,
-        prefix=prefix,
-        save_fig=False,
-        log_x=True,
-        log_y=True,
-        linewidth=2.5,
-        marker=None,
-        color=['r'],
-    )
+    # plot_1d_singleinstance(
+    #     df=df_virtual_best,
+    #     x_axis='reads',
+    #     y_axis='virt_worst_inv_perf_ratio',
+    #     ax=ax,
+    #     label_plot='Virtual worst',
+    #     dict_fixed={'pcold': 1, 'phot': 50},
+    #     labels=labels,
+    #     prefix=prefix,
+    #     save_fig=False,
+    #     log_x=True,
+    #     log_y=True,
+    #     linewidth=2.5,
+    #     marker=None,
+    #     color=['r'],
+    # )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1732,6 +1732,8 @@ R_budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7] for j in [1, 2, 3, 4, 5]] + [
 experiments = rs * repetitions
 df_name = "df_progress_total" + suffix + ".pkl"
 df_path = os.path.join(results_path, df_name)
+search_metric = 'median_perf_ratio'
+compute_metric = 'median_perf_ratio'
 df_search = df_results_all_stats[
     parameters_list + ['boots',
                   'median_perf_ratio', 'reads']
@@ -1740,7 +1742,7 @@ df_search = df_results_all_stats[
 parameter_sets = itertools.product(
     *(parameters_dict[Name] for Name in parameters_dict))
 parameter_sets = list(parameter_sets)
-use_raw_dataframes = True
+use_raw_dataframes = False
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
@@ -1769,17 +1771,17 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     series_list = []
                     total_reads = 0
                     for random_parameter_set in random_parameter_sets:
+                        total_reads += r*random_parameter_set[0]*random_parameter_set[1]
+                        if total_reads > R_exploration:
+                            break
                         series_list.append(
                             df_search.loc[
                                 idx[random_parameter_set + (r,)]
                             ]
                         )
-                        total_reads += r*random_parameter_set[0]*random_parameter_set[1]
-                        if total_reads > R_exploration:
-                            break
                     exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
                         parameters_list + ['boots'])
-                    exploration_step['median_perf_ratio'] = exploration_step['median_perf_ratio'].expanding(
+                    exploration_step[compute_metric] = exploration_step[compute_metric].expanding(
                         min_periods=1).max()
                     exploration_step.reset_index('boots', inplace=True)
                     exploration_step['experiment'] = experiment
@@ -1792,16 +1794,16 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                     progress_list.append(exploration_step)
 
                     exploitation_step = df_search.reset_index().set_index(
-                        parameters_list).loc[exploration_step.nlargest(1, 'median_perf_ratio').index]
+                        parameters_list).loc[exploration_step.nlargest(1, compute_metric).index]
                     exploitation_step['cum_reads'] = exploitation_step['reads'] + \
                         exploration_step['cum_reads'].max()
                     exploitation_step.sort_values(['cum_reads'], inplace=True)
                     exploitation_step = exploitation_step[exploitation_step['cum_reads'] <= R_budget]
-                    exploitation_step['median_perf_ratio'].fillna(
+                    exploitation_step[compute_metric].fillna(
                         0, inplace=True)
-                    exploitation_step['median_perf_ratio'].clip(
-                        lower=exploration_step['median_perf_ratio'].max(), inplace=True)
-                    exploitation_step['median_perf_ratio'] = exploitation_step['median_perf_ratio'].expanding(
+                    exploitation_step[compute_metric].clip(
+                        lower=exploration_step[compute_metric].max(), inplace=True)
+                    exploitation_step[compute_metric] = exploitation_step[compute_metric].expanding(
                         min_periods=1).max()
                     exploitation_step['experiment'] = experiment
                     exploitation_step['run_per_solve'] = r
@@ -1884,7 +1886,7 @@ for stat_measure in stat_measures:
         y_axis='perf_ratio',
         ax=ax,
         label_plot='Virtual best',
-        # dict_fixed={'pcold': 1, 'phot': 50},
+        dict_fixed=None,
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -1968,7 +1970,7 @@ for stat_measure in stat_measures:
         y_axis='inv_perf_ratio',
         ax=ax,
         label_plot='Virtual best',
-        # dict_fixed={'pcold': 1, 'phot': 50},
+        dict_fixed=None,
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -2018,23 +2020,24 @@ for stat_measure in stat_measures:
         colors=['colormap'],
         style='--',
     )
-    plot_1d_singleinstance_list(
-        df=df_best_random,
-        x_axis='cum_reads',
+    plot_1d_singleinstance(
+        df=df_progress_best,
+        x_axis='R_budget',
         # y_axis='mean_' + stat_measure + '_inv_perf_ratio',
         y_axis=stat_measure + '_median_inv_perf_ratio',
         ax=ax,
-        dict_fixed={'pcold': 1, 'phot': 50},
+        dict_fixed=None,
         # label_plot='Ordered exploration',
-        list_dicts=[{'R_budget': i}
-                    for i in R_budgets],
+        # list_dicts=[{'R_budget': i}
+        #             for i in R_budgets],
         labels=labels,
+        label_plot = 'Best random exploration exploitation',
         prefix=prefix,
         log_x=True,
         log_y=True,
-        colors=['colormap'],
-        colormap=plt.cm.get_cmap('tab10'),
-        use_colorbar=False,
+        # colors=['colormap'],
+        # colormap=plt.cm.get_cmap('tab10'),
+        # use_colorbar=False,
         use_conf_interval=False,
         save_fig=False,
         # ylim=[0.975, 1.0025],
@@ -2163,16 +2166,17 @@ if 'mean_inv_perf_ratio' not in df_progress_ternary.columns:
     df_progress_ternary['mean_inv_perf_ratio'] = 1 - \
         df_progress_ternary['mean_perf_ratio'] + EPSILON
 # %%
+# Presentation slides!
 # Plots of ternary search together with the best performing schedule
 for stat_measure in stat_measures:
     f, ax = plt.subplots()
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_best_perf_ratio',
+        y_axis='perf_ratio',
         ax=ax,
         label_plot='Virtual best',
-        dict_fixed={'pcold': 1, 'phot': 50},
+        dict_fixed=None,
         labels=labels,
         prefix=prefix,
         log_x=True,
@@ -2182,39 +2186,39 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    plot_1d_singleinstance(
-        df=df_virtual_best,
-        x_axis='reads',
-        y_axis='virt_worst_perf_ratio',
-        ax=ax,
-        label_plot='Virtual worst',
-        dict_fixed={'pcold': 1, 'phot': 50},
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=False,
-        use_conf_interval=False,
-        save_fig=False,
-        linewidth=2.5,
-        marker=None,
-        color=['r'],
-    )
+    # plot_1d_singleinstance(
+    #     df=df_virtual_best,
+    #     x_axis='reads',
+    #     y_axis='virt_worst_perf_ratio',
+    #     ax=ax,
+    #     label_plot='Virtual worst',
+    #     dict_fixed={'pcold': 1, 'phot': 50},
+    #     labels=labels,
+    #     prefix=prefix,
+    #     log_x=True,
+    #     log_y=False,
+    #     use_conf_interval=False,
+    #     save_fig=False,
+    #     linewidth=2.5,
+    #     marker=None,
+    #     color=['r'],
+    # )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
         y_axis=stat_measure + '_perf_ratio',
         ax=ax,
         dict_fixed={'pcold': 1, 'phot': 50},
-        list_dicts=[{'swe': i}
-                    for i in list(set(best_ensemble_sweeps)) + [default_sweeps]],
+        list_dicts=[{'swe': i, 'rep': j}
+                    for (i, j) in zip(best_ensemble_sweeps + [default_sweeps], best_ensemble_replicas + [default_replicas])],
         labels=labels,
         prefix=prefix,
         log_x=True,
         log_y=False,
-        use_conf_interval=False,
+        use_conf_interval=True,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        # xlim=[5e2, 5e4],
+        xlim=[5e2, 1e6],
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
@@ -2222,52 +2226,55 @@ for stat_measure in stat_measures:
         colormap=plt.cm.get_cmap('viridis'),
         colors=['colormap'],
     )
-    plot_1d_singleinstance_list(
-        df=df_best_random,
-        x_axis='cum_reads',
+    plot_1d_singleinstance(
+        df=df_progress_best,
+        x_axis='R_budget',
         # y_axis='mean_' + stat_measure + '_perf_ratio',
         y_axis=stat_measure + '_median_perf_ratio',
         ax=ax,
-        dict_fixed={'pcold': 1, 'phot': 50},
+        dict_fixed=None,
         # label_plot='Ordered exploration',
-        list_dicts=[{'R_budget': i}
-                    for i in R_budgets],
+        # list_dicts=[{'R_budget': i}
+        #             for i in R_budgets],
         labels=labels,
         prefix=prefix,
+        label_plot='Random search',
         log_x=True,
         log_y=False,
-        colors=['colormap'],
-        colormap=plt.cm.get_cmap('tab10'),
-        use_colorbar=False,
+        # colors=['colormap'],
+        # colormap=plt.cm.get_cmap('tab10'),
+        # use_colorbar=False,
         use_conf_interval=False,
         save_fig=False,
         linewidth=1.5,
         markersize=1,
+        color=['m'],
     )
-    plot_1d_singleinstance_list(
-        df=df_progress_ternary,
-        x_axis='cum_reads',
-        y_axis=stat_measure + '_perf_ratio',
-        ax=ax,
-        dict_fixed={'pcold': 1, 'phot': 50},
-        # label_plot='Ordered exploration',
-        list_dicts=[{'run_per_solve': i}
-                    for i in rs],
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=False,
-        colors=['colormap'],
-        colormap=plt.cm.get_cmap('tab10'),
-        use_colorbar=False,
-        use_conf_interval=False,
-        save_fig=False,
-        ylim=[0.975, 1.0025],
-        xlim=[1e2, 1e6],
-        linewidth=1.5,
-        markersize=10,
-        style='.-',
-    )
+    # plot_1d_singleinstance_list(
+    #     df=df_progress_ternary,
+    #     x_axis='R_budget',
+    #     y_axis=stat_measure + '_perf_ratio',
+    #     ax=ax,
+    #     dict_fixed={'pcold': 1, 'phot': 50},
+    #     # label_plot='Ordered exploration',
+    #     list_dicts=[{'run_per_solve': i}
+    #                 for i in rs],
+    #     labels=labels,
+    #     prefix=prefix,
+    #     log_x=True,
+    #     log_y=False,
+    #     colors=['colormap'],
+    #     colormap=plt.cm.get_cmap('tab10'),
+    #     use_colorbar=False,
+    #     use_conf_interval=False,
+    #     save_fig=False,
+    #     ylim=[0.975, 1.0025],
+    #     xlim=[1e2, 1e6],
+    #     linewidth=1.5,
+    #     markersize=10,
+    #     style='.-',
+    # )
+    # ax.legend(loc='upper left', fontsize=10)
 # %%
 # Generate plots for inverse performance ratio of ensemble vs reads with best and worst performance
 for stat_measure in stat_measures:
@@ -2379,6 +2386,45 @@ for stat_measure in stat_measures:
 # sns.ecdfplot(data=df_results_all_stats[(df_results_all_stats['swe'] == default_sweeps)], y='mean_perf_ratio', ax=ax)
 # ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 # ax.set(ylim=[0.9,1.0025])
+
+# %%
+# Presentation figure!
+# Plot to visualize best found strategy in random search
+median_median_perf_ratio = df_progress_best['idxmedian_median_perf_ratio'].apply(pd.Series)
+median_median_perf_ratio.columns=['R_budget','R_explor','tau']
+median_median_perf_ratio['f_explor'] = median_median_perf_ratio['R_explor'] / median_median_perf_ratio['R_budget']
+median_median_perf_ratio['median_median_perf_ratio'] = df_progress_best['median_median_perf_ratio']
+
+f,ax = plt.subplots()
+sns.lineplot(data=df_virtual_best,x='reads',y='perf_ratio',ax=ax,estimator=None,ci=None)
+sns.scatterplot(
+    data=median_median_perf_ratio,
+    x='R_budget',
+    size='f_explor',
+    hue='f_explor',
+    style='tau',
+    y='median_median_perf_ratio',
+    ax=ax,
+    palette='magma',
+    hue_norm=(0, 2),
+    sizes=(20, 200),
+    legend='brief')
+# sns.lineplot(
+#     data=df_progress_end,
+#     x='R_budget',
+#     style='run_per_solve',
+#     hue='f_explor',
+#     y='median_perf_ratio',
+#     ax=ax,palette='magma',
+#     legend='brief',
+#     # units='experiment',
+#     hue_norm=(0, 2),
+#     estimator=np.median,
+#     ci=None)
+ax.set(xlim=[5e2,1e6])
+ax.set(ylim=[0.975,1.0025])
+ax.set(xscale='log')
+ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
 # %%
 # Computing up ternary search across parameter for instance 42

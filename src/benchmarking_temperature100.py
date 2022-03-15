@@ -513,6 +513,7 @@ metrics_list = ['min_energy', 'tts',
                 'perf_ratio', 'success_prob', 'mean_time', 'inv_perf_ratio']
 Tfactor_list = list(np.logspace(-1, 3, 35))
 schedules_list = ['geometric', 'linear']
+sweeps_list = [default_sweeps]
 # schedules_list = ['geometric']
 bootstrap_iterations = 1000
 s = 0.99  # This is the success probability for the TTS calculation
@@ -1430,13 +1431,91 @@ else:
     df_virtual_best = cleanup_df(df_virtual_best)
 
 # Dirty workaround to compute virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
-df_virtual_best = df_virtual_best.merge(df_results_all.groupby([
-    'instance', 'reads'
-])['perf_ratio'].max().reset_index().groupby(
-    ['reads']
-).median().reset_index(),
+params = ['schedule','sweeps','Tfactor']
+
+df_virtual_best = df_virtual_best.merge(
+    df_results_all.set_index(
+        params
+        ).groupby(['instance','reads']
+        )['perf_ratio'].max().reset_index().set_index(
+            ['instance']
+            ).groupby(['reads']
+            ).median().reset_index().sort_values(
+            ['reads']
+            ).expanding(min_periods=1).max(),
+        on=['reads'],
+        how='left')
+
+recipe_lazy = df_results_all.set_index(
+        ['instance']
+        ).groupby(params + ['reads'] 
+        )['perf_ratio'].median().reset_index().set_index(
+            params
+            ).groupby(['reads']
+            ).idxmax()
+
+df_virtual_best = df_virtual_best.merge(
+    df_results_all.set_index(
+        ['instance']
+        ).groupby(params + ['reads'] 
+        )['perf_ratio'].median().reset_index().set_index(
+            params
+            ).groupby(['reads']
+            ).max().reset_index().rename(columns={'perf_ratio':'lazy_perf_ratio'}))
+
+recipe_mean_best_params = df_results_all.set_index(
+    params
+    ).groupby(['instance','reads']
+        )['perf_ratio'].idxmax().apply(pd.Series).reset_index().set_index(
+            ['instance']
+            ).groupby(['reads']
+            ).mean().rename(columns={1:'sweeps',2:'Tfactor'})
+
+recipe_mean_best_params['sweeps']=recipe_mean_best_params['sweeps'].apply(lambda x: take_closest(sweeps_list,x))
+
+recipe_mean_best_params['Tfactor']=recipe_mean_best_params['Tfactor'].apply(lambda x: take_closest(Tfactor_list,x))
+
+recipe_mean_best_params['params'] = list(zip(
+    ['geometric']*len(recipe_mean_best_params),
+    recipe_mean_best_params['sweeps'],
+    recipe_mean_best_params['Tfactor'],
+    recipe_mean_best_params.index))
+
+df_virtual_best = df_virtual_best.merge(df_results_all_stats.set_index(
+    params + ['reads']
+    ).loc[pd.MultiIndex.from_tuples(recipe_mean_best_params['params']
+    )]['median_perf_ratio'].reset_index().rename(columns={'level_3':'reads','median_perf_ratio':'mean_param_perf_ratio'}
+    ).drop(columns=['level_0','level_1','level_2']),
     on=['reads'],
     how='left')
+
+recipe_median_best_params = df_results_all.set_index(
+    params
+    ).groupby(['instance','reads']
+        )['perf_ratio'].idxmax().apply(pd.Series).reset_index().set_index(
+            ['instance']
+            ).groupby(['reads']
+            ).median().rename(columns={1:'sweeps',2:'Tfactor'})
+
+recipe_median_best_params['sweeps']=recipe_median_best_params['sweeps'].apply(lambda x: take_closest(sweeps_list,x))
+
+recipe_median_best_params['Tfactor']=recipe_median_best_params['Tfactor'].apply(lambda x: take_closest(Tfactor_list,x))
+
+recipe_median_best_params['params'] = list(zip(
+    ['geometric']*len(recipe_median_best_params),
+    recipe_median_best_params['sweeps'],
+    recipe_median_best_params['Tfactor'],
+    recipe_median_best_params.index))
+
+df_virtual_best = df_virtual_best.merge(df_results_all_stats.set_index(
+    params + ['reads']
+    ).loc[pd.MultiIndex.from_tuples(recipe_median_best_params['params']
+    )]['median_perf_ratio'].reset_index().rename(columns={'level_3':'reads','median_perf_ratio':'median_param_perf_ratio'}
+    ).drop(columns=['level_0','level_1','level_2']),
+    on=['reads'],
+    how='left')
+    
+df_virtual_best['inv_lazy_perf_ratio'] = 1 - df_virtual_best['lazy_perf_ratio'] + EPSILON
 
 df_virtual_best['inv_perf_ratio'] = 1 - df_virtual_best['perf_ratio'] + EPSILON
 df_virtual_best = cleanup_df(df_virtual_best)
@@ -1459,20 +1538,48 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    # plot_1d_singleinstance(
-    #     df=df_virtual_best,
-    #     x_axis='reads',
-    #     y_axis='virt_worst_perf_ratio',
-    #     ax=ax,
-    #     label_plot='Virtual worst',
-    #     dict_fixed=None,
-    #     labels=labels,
-    #     prefix=prefix,
-    #     save_fig=False,
-    #     linewidth=2.5,
-    #     marker=None,
-    #     color=['r'],
-    # )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='lazy_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters (best in metric)',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
+    )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='mean_param_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters (mean best in dataset)',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['g'],
+    )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='median_param_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters (median best in dataset)',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['pink'],
+    )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1514,22 +1621,20 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    # plot_1d_singleinstance(
-    #     df=df_virtual_best,
-    #     x_axis='reads',
-    #     y_axis='virt_worst_inv_perf_ratio',
-    #     ax=ax,
-    #     label_plot='Virtual worst',
-    #     dict_fixed=None,
-    #     labels=labels,
-    #     prefix=prefix,
-    #     save_fig=False,
-    #     log_x=True,
-    #     log_y=False,
-    #     linewidth=2.5,
-    #     marker=None,
-    #     color=['r'],
-    # )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='inv_lazy_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
+    )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1588,6 +1693,20 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='lazy_perf_ratio',
+        ax=ax,
+        label_plot='Lazy approach',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['b'],
+    )
     for instance in instance_list:
         plot_1d_singleinstance_list(
             df=df_results_all,
@@ -1612,7 +1731,7 @@ for stat_measure in stat_measures:
             xlim=[2e2, 5e4],
         )
     ax.legend(labels=['Median Tfactor=100', 'Median Tfactor=1 (default)',
-              'Median Tfactor=22.5 (best TTS ensemble)', 'Median Virtual best Tfactor'])
+              'Median Tfactor=22.5 (best TTS ensemble)', 'Median Virtual best Tfactor', 'Median mean Tfactor'])
 
 # %%
 # Presentation Figure!
@@ -2139,23 +2258,20 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    # plot_1d_singleinstance(
-    #     df=df_virtual_best,
-    #     x_axis='reads',
-    #     y_axis='virt_worst_perf_ratio',
-    #     ax=ax,
-    #     label_plot='Virtual worst',
-    #     dict_fixed={'schedule': 'geometric'},
-    #     labels=labels,
-    #     prefix=prefix,
-    #     log_x=True,
-    #     log_y=False,
-    #     use_conf_interval=False,
-    #     save_fig=False,
-    #     linewidth=2.5,
-    #     marker=None,
-    #     color=['r'],
-    # )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='lazy_perf_ratio',
+        ax=ax,
+        label_plot='Lazy approach',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['b'],
+    )
     # plot_1d_singleinstance_list(
     #     df=df_progress,
     #     x_axis='cum_reads',

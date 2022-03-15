@@ -1,7 +1,10 @@
+
+from bisect import bisect_left
+from typing import List, Tuple, Union
+
 import numpy as np
 import pandas as pd
 from scipy import sparse, stats
-from typing import List, Union, Tuple
 
 EPSILON = 1e-10
 
@@ -454,3 +457,21 @@ def process_df_progress(
 
     return df_progress_best, df_progress_end
 
+
+def take_closest(myList, myNumber):
+    """
+    Assumes myList is sorted. Returns closest value to myNumber.
+
+    If two numbers are equally close, return the smallest number.
+    """
+    pos = bisect_left(myList, myNumber)
+    if pos == 0:
+        return myList[0]
+    if pos == len(myList):
+        return myList[-1]
+    before = myList[pos - 1]
+    after = myList[pos]
+    if after - myNumber < myNumber - before:
+        return after
+    else:
+        return before

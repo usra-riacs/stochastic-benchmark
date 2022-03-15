@@ -430,7 +430,7 @@ upper_bounds['perf_ratio'] = 1.0
 # %%
 # Function to generate stats aggregated dataframe
 # TODO: this can be generalized by acknowledging that the boots are the resource R
-# TODO: This function does not receive the metrics_list, lower_bounds, or upper_bounds. COnsider clipping values as well as confidence intervals
+# TODO: This function does not receive the metrics_list, lower_bounds, or upper_bounds or the pickle path. Consider clipping values as well as confidence intervals
 
 def generateStatsDataframe(
     df_all: List[dict] = None,
@@ -555,6 +555,7 @@ sweeps_list = [i for i in range(1, 21, 1)] + [
     i for i in range(20, 201, 10)] + [
     i for i in range(200, 501, 20)] + [
     i for i in range(500, 1001, 100)]
+Tfactor_list = [default_Tfactor]
 schedules_list = ['geometric', 'linear']
 # schedules_list = ['geometric']
 bootstrap_iterations = 1000
@@ -822,7 +823,8 @@ interesting_sweeps = [
 ]
 
 # Iterating for all values of bootstrapping downsampling proves to be very expensive, rather use steps of 10
-all_boots_list = list(range(1, 1001, 1))
+all_boots_list = boots_list
+# all_boots_list = list(range(1, 1001, 1))
 # all_boots_list = [i*10**j for j in range(0, 3) for i in range(1, 10)]
 parameters_detailed_dict = {
     'schedule': schedules_list,
@@ -1514,7 +1516,7 @@ stale_parameters = ['schedule', 'Tfactor']
 
 df_name = "df_results_virt" + suffix + ".pkl"
 df_path = os.path.join(results_path, df_name)
-use_raw_dataframes = True
+use_raw_dataframes = False
 if use_raw_dataframes or os.path.exists(df_path) is False:
     df_virtual_all = df_results_all.groupby(
         ['reads']
@@ -1582,24 +1584,114 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
         df_virtual_worst_min,
         on='reads',
         how='left')
+
+    # Dirty workaround to compute virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
+    params = ['schedule','sweeps','Tfactor']
+
+    df_virtual_best = df_virtual_best.merge(
+        df_results_all.set_index(
+            params
+            ).groupby(['instance','reads']
+            )['perf_ratio'].max().reset_index().set_index(
+                ['instance']
+                ).groupby(['reads']
+                ).median().reset_index().sort_values(
+                ['reads']
+                ).expanding(min_periods=1).max(),
+            on=['reads'],
+            how='left')
+
+    recipe_lazy = df_results_all.set_index(
+            ['instance']
+            ).groupby(params + ['reads'] 
+            )['perf_ratio'].median().reset_index().set_index(
+                params
+                ).groupby(['reads']
+                ).idxmax()
+
+    df_virtual_best = df_virtual_best.merge(
+        df_results_all.set_index(
+            ['instance']
+            ).groupby(params + ['reads'] 
+            )['perf_ratio'].median().reset_index().set_index(
+                params
+                ).groupby(['reads']
+                ).max().reset_index().rename(columns={'perf_ratio':'lazy_perf_ratio'}))
+
+    recipe_mean_best_params = df_results_all.set_index(
+        params
+        ).groupby(['instance','reads']
+            )['perf_ratio'].idxmax().apply(pd.Series).reset_index().set_index(
+                ['instance']
+                ).groupby(['reads']
+                ).mean().rename(columns={1:'sweeps',2:'Tfactor'})
+
+    recipe_mean_best_params['sweeps']=recipe_mean_best_params['sweeps'].apply(lambda x: take_closest(sweeps_list,x))
+
+    recipe_mean_best_params['Tfactor']=recipe_mean_best_params['Tfactor'].apply(lambda x: take_closest(Tfactor_list,x))
+
+    # Project the reads to the closes value in boots_list*sweeps
+    recipe_mean_best_params['boots'] = recipe_mean_best_params.index/recipe_mean_best_params['sweeps']
+    recipe_mean_best_params['boots']=recipe_mean_best_params['boots'].apply(lambda x: take_closest(boots_list,x))
+    recipe_mean_best_params.index = recipe_mean_best_params['boots']*recipe_mean_best_params['sweeps']
+    recipe_mean_best_params.index.rename('reads',inplace=True)
+
+    recipe_mean_best_params['params'] = list(zip(
+        ['geometric']*len(recipe_mean_best_params),
+        recipe_mean_best_params['sweeps'],
+        recipe_mean_best_params['Tfactor'],
+        recipe_mean_best_params.index))
+
+    df_virtual_best = df_virtual_best.merge(df_results_all_stats.set_index(
+        params + ['reads']
+        ).loc[pd.MultiIndex.from_tuples(recipe_mean_best_params['params']
+        )]['median_perf_ratio'].reset_index().rename(columns={'level_3':'reads','median_perf_ratio':'mean_param_perf_ratio'}
+        ).drop(columns=['level_0','level_1','level_2']),
+        on=['reads'],
+        how='left')
+
+    recipe_median_best_params = df_results_all.set_index(
+        params
+        ).groupby(['instance','reads']
+            )['perf_ratio'].idxmax().apply(pd.Series).reset_index().set_index(
+                ['instance']
+                ).groupby(['reads']
+                ).median().rename(columns={1:'sweeps',2:'Tfactor'})
+
+    recipe_median_best_params['sweeps']=recipe_median_best_params['sweeps'].apply(lambda x: take_closest(sweeps_list,x))
+
+    recipe_median_best_params['Tfactor']=recipe_median_best_params['Tfactor'].apply(lambda x: take_closest(Tfactor_list,x))
+
+    # Project the reads to the closes value in boots_list*sweeps
+    recipe_median_best_params['boots'] = recipe_median_best_params.index/recipe_median_best_params['sweeps']
+    recipe_median_best_params['boots']=recipe_median_best_params['boots'].apply(lambda x: take_closest(boots_list,x))
+    recipe_median_best_params.index = recipe_median_best_params['boots']*recipe_median_best_params['sweeps']
+    recipe_median_best_params.index.rename('reads',inplace=True)
+
+
+    recipe_median_best_params['params'] = list(zip(
+        ['geometric']*len(recipe_median_best_params),
+        recipe_median_best_params['sweeps'],
+        recipe_median_best_params['Tfactor'],
+        recipe_median_best_params.index))
+
+    df_virtual_best = df_virtual_best.merge(df_results_all_stats.set_index(
+        params + ['reads']
+        ).loc[pd.MultiIndex.from_tuples(recipe_median_best_params['params']
+        )]['median_perf_ratio'].reset_index().rename(columns={'level_3':'reads','median_perf_ratio':'median_param_perf_ratio'}
+        ).drop(columns=['level_0','level_1','level_2']),
+        on=['reads'],
+        how='left')
+        
+    df_virtual_best['inv_lazy_perf_ratio'] = 1 - df_virtual_best['lazy_perf_ratio'] + EPSILON
+
+    df_virtual_best['inv_perf_ratio'] = 1 - df_virtual_best['perf_ratio'] + EPSILON
+
     df_virtual_best = cleanup_df(df_virtual_best)
     df_virtual_best.to_pickle(df_path)
 else:
     df_virtual_best = pd.read_pickle(df_path)
     df_virtual_best = cleanup_df(df_virtual_best)
-    
-# Dirty workaround to compute virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
-df_virtual_best = df_virtual_best.merge(df_results_all.groupby([
-        'instance', 'reads'
-        ])['perf_ratio'].max().reset_index().groupby(
-            ['reads']
-        ).median().reset_index().sort_values('reads').expanding(min_periods=1).max(),
-        on=['reads'],
-        how='left')
-
-df_virtual_best['inv_perf_ratio'] = 1 - df_virtual_best['perf_ratio'] + EPSILON
-df_virtual_best = cleanup_df(df_virtual_best)
-df_virtual_best.to_pickle(df_path)
 
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance
@@ -1619,20 +1711,48 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    # plot_1d_singleinstance(
-    #     df=df_virtual_best,
-    #     x_axis='reads',
-    #     y_axis='virt_worst_perf_ratio',
-    #     ax=ax,
-    #     label_plot='Virtual worst',
-    #     dict_fixed=None,
-    #     labels=labels,
-    #     prefix=prefix,
-    #     save_fig=False,
-    #     linewidth=2.5,
-    #     marker=None,
-    #     color=['r'],
-    # )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='soft_lazy_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters (best in metric)',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
+    )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='soft_mean_param_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters (mean best in dataset)',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['g'],
+    )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='soft_median_param_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters (median best in dataset)',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['pink'],
+    )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1649,6 +1769,7 @@ for stat_measure in stat_measures:
         ylim=[0.975, 1.0025],
         xlim=[5e2, 5e4],
         use_colorbar=False,
+        use_conf_interval=False,
         linewidth=1.5,
         markersize=1,
         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
@@ -1674,22 +1795,20 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    # plot_1d_singleinstance(
-    #     df=df_virtual_best,
-    #     x_axis='reads',
-    #     y_axis='virt_worst_inv_perf_ratio',
-    #     ax=ax,
-    #     label_plot='Virtual worst',
-    #     dict_fixed=None,
-    #     labels=labels,
-    #     prefix=prefix,
-    #     save_fig=False,
-    #     log_x=True,
-    #     log_y=True,
-    #     linewidth=2.5,
-    #     marker=None,
-    #     color=['r'],
-    # )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='inv_lazy_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
+    )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1697,13 +1816,14 @@ for stat_measure in stat_measures:
         ax=ax,
         dict_fixed={'schedule': 'geometric'},
         list_dicts=[{'sweeps': i}
-                    for i in [10, 500, default_sweeps] + list(set(best_ensemble_sweeps))],
+                    for i in [10] + list(set(best_ensemble_sweeps))],
         labels=labels,
         prefix=prefix,
         log_x=True,
         log_y=True,
         save_fig=False,
         use_colorbar=False,
+        use_conf_interval=False,
         linewidth=1.5,
         markersize=1,
         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
@@ -2186,32 +2306,32 @@ for stat_measure in stat_measures:
         label_plot="Random exploration exploitation",
         color=['c'],
     )
-    plot_1d_singleinstance(
-        df=df_progress_ternary_best,
-        x_axis='R_budget',
-        # y_axis='mean_' + stat_measure + '_perf_ratio',
-        y_axis=stat_measure + '_median_perf_ratio',
-        ax=ax,
-        dict_fixed=None,
-        # label_plot='Ordered exploration',
-        # list_dicts=[{'R_budget': i}
-        #             for i in R_budgets],
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=False,
-        # colors=['colormap'],
-        # colormap=plt.cm.get_cmap('tab10'),
-        # use_colorbar=False,
-        use_conf_interval=False,
-        save_fig=False,
-        ylim=[0.975, 1.0025],
-        xlim=[1e2, R_budgets[-1]],
-        linewidth=1.5,
-        markersize=1,
-        label_plot="Ternary exploration exploitation",
-        color=['m'],
-    )
+    # plot_1d_singleinstance(
+    #     df=df_progress_ternary_best,
+    #     x_axis='R_budget',
+    #     # y_axis='mean_' + stat_measure + '_perf_ratio',
+    #     y_axis=stat_measure + '_median_perf_ratio',
+    #     ax=ax,
+    #     dict_fixed=None,
+    #     # label_plot='Ordered exploration',
+    #     # list_dicts=[{'R_budget': i}
+    #     #             for i in R_budgets],
+    #     labels=labels,
+    #     prefix=prefix,
+    #     log_x=True,
+    #     log_y=False,
+    #     # colors=['colormap'],
+    #     # colormap=plt.cm.get_cmap('tab10'),
+    #     # use_colorbar=False,
+    #     use_conf_interval=False,
+    #     save_fig=False,
+    #     ylim=[0.975, 1.0025],
+    #     xlim=[1e2, R_budgets[-1]],
+    #     linewidth=1.5,
+    #     markersize=1,
+    #     label_plot="Ternary exploration exploitation",
+    #     color=['m'],
+    # )
 
     
 # %%

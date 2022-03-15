@@ -1534,13 +1534,44 @@ else:
     df_virtual_best = cleanup_df(df_virtual_best)
 
 # Dirty workaround to compute virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
-df_virtual_best = df_virtual_best.merge(df_results_all.groupby([
-        'instance', 'reads'
-        ])['perf_ratio'].max().reset_index().groupby(
+params = ['schedule','sweeps','Tfactor']
+
+df_virtual_best = df_virtual_best.merge(
+    df_results_all.set_index(
+        params
+    ).groupby(
+        ['instance','reads']
+        )['perf_ratio'].max().reset_index().set_index(
+        ['instance']
+        ).groupby(
             ['reads']
-        ).median().reset_index().sort_values('reads').expanding(min_periods=1).max(),
+        ).median().reset_index().sort_values(
+            ['reads']
+            ).expanding(min_periods=1).max(),
         on=['reads'],
         how='left')
+
+
+
+recipe_lazy = df_results_all.set_index(
+        'instance'
+    ).groupby(params + ['reads']).median().reset_index().set_index(params).groupby(
+            ['reads']
+    )['perf_ratio'].idxmax()
+
+df_virtual_best = df_virtual_best.merge(
+    df_results_all.set_index(
+    ['instance']
+    ).groupby(
+        params + ['reads']
+        )['perf_ratio'].median().reset_index().set_index(
+            params
+            ).groupby(
+            ['reads']
+        ).max().reset_index().rename(columns={'perf_ratio':'lazy_perf_ratio'}))
+# Here I'm filtering for low noise data
+df_virtual_best['inv_lazy_perf_ratio'] = 1 - df_virtual_best['lazy_perf_ratio'] + EPSILON
+
 
 df_virtual_best['inv_perf_ratio'] = 1 - df_virtual_best['perf_ratio'] + EPSILON
 df_virtual_best = cleanup_df(df_virtual_best)
@@ -1549,27 +1580,27 @@ df_virtual_best.to_pickle(df_path)
 # Generate plots for performance ratio of ensemble vs reads
 for stat_measure in stat_measures:
     f, ax = plt.subplots()
-    for instance in instance_list:
-        plot_1d_singleinstance_list(
-            df=df_results_all,
-            x_axis='reads',
-            y_axis='perf_ratio',
-            ax=ax,
-            dict_fixed={'schedule': 'geometric'},
-            list_dicts=[{'Tfactor': i, 'instance': instance}
-                        for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
-            labels=labels,
-            prefix=prefix,
-            log_x=True,
-            log_y=False,
-            save_fig=False,
-            use_colorbar=False,
-            use_conf_interval=False,
-            marker=None,
-            alpha=0.15,
-            colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
-                    u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
-        )
+    # for instance in instance_list:
+    #     plot_1d_singleinstance_list(
+    #         df=df_results_all,
+    #         x_axis='reads',
+    #         y_axis='perf_ratio',
+    #         ax=ax,
+    #         dict_fixed={'schedule': 'geometric'},
+    #         list_dicts=[{'Tfactor': i, 'instance': instance}
+    #                     for i in [10, 100, default_Tfactor] + list(set(best_ensemble_Tfactor))],
+    #         labels=labels,
+    #         prefix=prefix,
+    #         log_x=True,
+    #         log_y=False,
+    #         save_fig=False,
+    #         use_colorbar=False,
+    #         use_conf_interval=False,
+    #         marker=None,
+    #         alpha=0.15,
+    #         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+    #                 u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf'],
+    #     )
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
@@ -1583,6 +1614,20 @@ for stat_measure in stat_measures:
         linewidth=2.5,
         marker=None,
         color=['k'],
+    )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='lazy_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
     )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
@@ -1624,6 +1669,20 @@ for stat_measure in stat_measures:
         linewidth=2.5,
         marker=None,
         color=['k'],
+    )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='inv_lazy_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
     )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,

@@ -677,7 +677,7 @@ ax = plot_1d_singleinstance_list(
     default_dict=default_dict.update(
         {'instance': 42, 'reads': default_sweeps*default_boots}),
     use_colorbar=False,
-    ylim=[0.9, 1.01],
+    ylim=[0.975, 1.0025],
     colors=['colormap'],
 )
 # %%
@@ -716,7 +716,7 @@ ax = plot_1d_singleinstance_list(
     save_fig=False,
     default_dict=default_dict,
     use_colorbar=False,
-    ylim=[0.95, 1.005],
+    ylim=[0.975, 1.0025],
     colors=['colormap'],
 )
 # %%
@@ -879,8 +879,8 @@ ax = plot_1d_singleinstance_list(
     default_dict=default_dict,
     use_colorbar=False,
     colors=['colormap'],
-    ylim=[0.95, 1.005],
-    # xlim=[1e2, 5e5],
+    ylim=[0.975, 1.0025],
+    xlim=[5e2, 2e4],
 )
 # %%
 # Plot with performance ratio vs reads for interesting sweeps
@@ -904,8 +904,8 @@ ax = plot_1d_singleinstance_list(
     default_dict=default_dict,
     use_colorbar=False,
     colors=['colormap'],
-    ylim=[0.95, 1.005],
-    # xlim=[1e2, 5e5],
+    ylim=[0.975, 1.0025],
+    xlim=[5e2, 2e4],
 )
 # %%
 # Plot with inverse performance ratio vs reads for interesting sweeps
@@ -930,7 +930,7 @@ ax = plot_1d_singleinstance_list(
     use_colorbar=False,
     colors=['colormap'],
     # ylim=[0.95, 1.005],
-    xlim=[1e3, default_sweeps*default_boots*1.1],
+    xlim=[5e2, 2e4],
 )
 # %%
 # Compute all instances with solver
@@ -1120,7 +1120,7 @@ plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    ylim=[0.95, 1.005],
+    ylim=[0.975, 1.0025],
 )
 # %%
 # Generate plots for performance ratio of ensemble vs reads
@@ -1158,7 +1158,7 @@ plot_1d_singleinstance_list(
     log_x=True,
     log_y=False,
     save_fig=False,
-    ylim=[0.95, 1.005],
+    ylim=[0.975, 1.0025],
 )
 # %%
 # Generate plots for performance ratio of ensemble vs reads
@@ -1177,7 +1177,7 @@ plot_1d_singleinstance_list(
     log_y=False,
     save_fig=False,
     # ylim=[0.9, 1.005],
-    # xlim=[1e2, 5e4],
+    xlim=[5e2, 2e4],
 )
 
 # %%
@@ -1455,11 +1455,12 @@ df_results_all_stats = generateStatsDataframe(
 # Create virtual best and virtual worst columns
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
+params = ['schedule','sweeps','Tfactor']
 stale_parameters = ['schedule', 'sweeps']
 
 df_name = "df_results_virt" + suffix + ".pkl"
 df_path = os.path.join(results_path, df_name)
-use_raw_dataframes = True
+use_raw_dataframes = False
 if use_raw_dataframes or os.path.exists(df_path) is False:
     df_virtual_all = df_results_all.groupby(
         ['reads']
@@ -1527,55 +1528,46 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
         df_virtual_worst_min,
         on='reads',
         how='left')
+
+    # Dirty workaround to compute virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
+    df_virtual_best = df_virtual_best.merge(
+        df_results_all.set_index(
+            params
+        ).groupby(
+            ['instance','reads']
+            )['perf_ratio'].max().reset_index().set_index(
+            ['instance']
+            ).groupby(
+                ['reads']
+            ).median().reset_index().sort_values(
+                ['reads']
+                ).expanding(min_periods=1).max(),
+            on=['reads'],
+            how='left')
+
+
+
+    recipe_lazy = df_results_all_stats[params + ['median_perf_ratio','reads']].set_index(
+                    params
+                    ).groupby(['reads']
+                    ).idxmax()
+
+    df_virtual_best = df_virtual_best.merge(
+            df_results_all_stats[params + ['median_perf_ratio','reads']].set_index(
+                    params
+                    ).groupby(['reads']
+                    ).max().reset_index().rename(columns={'median_perf_ratio':'lazy_perf_ratio'}))
+
+    df_virtual_best['inv_lazy_perf_ratio'] = 1 - df_virtual_best['lazy_perf_ratio'] + EPSILON
+
+    df_virtual_best['inv_perf_ratio'] = 1 - df_virtual_best['perf_ratio'] + EPSILON
     df_virtual_best = cleanup_df(df_virtual_best)
     df_virtual_best.to_pickle(df_path)
 else:
     df_virtual_best = pd.read_pickle(df_path)
     df_virtual_best = cleanup_df(df_virtual_best)
 
-# Dirty workaround to compute virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
-params = ['schedule','sweeps','Tfactor']
 
-df_virtual_best = df_virtual_best.merge(
-    df_results_all.set_index(
-        params
-    ).groupby(
-        ['instance','reads']
-        )['perf_ratio'].max().reset_index().set_index(
-        ['instance']
-        ).groupby(
-            ['reads']
-        ).median().reset_index().sort_values(
-            ['reads']
-            ).expanding(min_periods=1).max(),
-        on=['reads'],
-        how='left')
-
-
-
-recipe_lazy = df_results_all.set_index(
-        'instance'
-    ).groupby(params + ['reads']).median().reset_index().set_index(params).groupby(
-            ['reads']
-    )['perf_ratio'].idxmax()
-
-df_virtual_best = df_virtual_best.merge(
-    df_results_all.set_index(
-    ['instance']
-    ).groupby(
-        params + ['reads']
-        )['perf_ratio'].median().reset_index().set_index(
-            params
-            ).groupby(
-            ['reads']
-        ).max().reset_index().rename(columns={'perf_ratio':'lazy_perf_ratio'}))
-# Here I'm filtering for low noise data
-df_virtual_best['inv_lazy_perf_ratio'] = 1 - df_virtual_best['lazy_perf_ratio'] + EPSILON
-
-
-df_virtual_best['inv_perf_ratio'] = 1 - df_virtual_best['perf_ratio'] + EPSILON
-df_virtual_best = cleanup_df(df_virtual_best)
-df_virtual_best.to_pickle(df_path)
 # %%
 # Generate plots for performance ratio of ensemble vs reads
 for stat_measure in stat_measures:
@@ -1643,8 +1635,7 @@ for stat_measure in stat_measures:
         log_y=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        # xlim=[5e2, 5e4],
-        xlim=[1e3, 1e5],
+        xlim=[5e2, 2e4],
         use_colorbar=False,
         use_conf_interval=False,
         linewidth=2.5,
@@ -1697,7 +1688,7 @@ for stat_measure in stat_measures:
         log_x=True,
         log_y=True,
         save_fig=False,
-        xlim=[1e3, 1e5],
+        xlim=[5e2, 2e4],
         use_colorbar=False,
         linewidth=2.5,
         colors=[u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
@@ -1750,7 +1741,7 @@ for stat_measure in stat_measures:
         log_y=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        # xlim=[5e2, 5e4],
+        xlim=[5e2, 2e4],
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
@@ -2106,8 +2097,8 @@ plot_1d_singleinstance_list(
     use_colorbar=False,
     use_conf_interval=False,
     save_fig=False,
-    # ylim=[0.98, 1.0025],
-    # xlim=[rs[0]*default_sweeps, R_budgets[0]],
+    ylim=[0.975, 1.0025],
+    xlim=[5e2, 2e4],
     linewidth=1.5,
     marker=None,
 )
@@ -2135,8 +2126,8 @@ plot_1d_singleinstance_list(
     use_colorbar=False,
     use_conf_interval=False,
     save_fig=False,
-    ylim=[0.98, 1.0025],
-    # xlim=[rs[0]*default_sweeps, R_budgets[0]],
+    ylim=[0.975, 1.0025],
+    xlim=[5e2, 2e4],
     linewidth=1.5,
     marker=None,
 )
@@ -2164,8 +2155,8 @@ plot_1d_singleinstance_list(
     use_colorbar=False,
     use_conf_interval=False,
     save_fig=False,
-    # ylim=[0.98, 1.0025],
-    # xlim=[rs[0]*default_sweeps, R_budgets[0]],
+    ylim=[0.975, 1.0025],
+    xlim=[5e2, 2e4],
     linewidth=1.5,
     marker=None,
 )
@@ -2336,7 +2327,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        # xlim=[5e2, 5e4],
+        xlim=[5e2, 2e4],
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
@@ -2414,7 +2405,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        xlim=[1e3, 1e6],
+        xlim=[5e2, 2e4],
         linewidth=1.5,
         markersize=1,
         color=['c'],
@@ -2439,7 +2430,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        xlim=[1e3, 1e6],
+        xlim=[5e2, 2e4],
         linewidth=1.5,
         markersize=1,
         color=['m'],
@@ -2530,7 +2521,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        # xlim=[5e2, 5e4],
+        xlim=[5e2, 2e4],
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
@@ -2620,7 +2611,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[1e-10, 1e0],
-        xlim=[1e3, R_budgets[-1]],
+        xlim=[5e2, 2e4],
         linewidth=1.5,
         markersize=1,
         color=['c'],
@@ -2645,7 +2636,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[1e-10, 1e0],
-        xlim=[1e3, R_budgets[-1]],
+        xlim=[5e2, 2e4],
         linewidth=1.5,
         markersize=1,
         color=['m'],
@@ -2696,7 +2687,7 @@ for stat_measure in stat_measures:
         colors=['colormap'],
         style='--',
         ylim=[1e-10, 1e0],
-        xlim=[1e3, R_budgets[-1]],
+        xlim=[5e2, 2e4],
     )
     # plot_1d_singleinstance_list(
     #     df=df_best_random,
@@ -2895,7 +2886,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        # xlim=[5e2, 5e4],
+        xlim=[5e2, 2e4],
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
@@ -2944,7 +2935,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        xlim=[1e3, 1e6],
+        xlim=[5e2, 2e4],
         linewidth=1.5,
         markersize=10,
         style='.-',
@@ -3049,7 +3040,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[1e-10, 1e0],
-        xlim=[1e3, R_budgets[-1]],
+        xlim=[5e2, 2e4],
         linewidth=1.5,
         markersize=1,
     )
@@ -3075,7 +3066,7 @@ for stat_measure in stat_measures:
         markersize=10,
         style='.-',
         ylim=[9e-11, 1e0],
-        xlim=[1e3, 1e6],
+        xlim=[5e2, 2e4],
     )
 # %%
 # Computing up ternary search across parameter for instance 42
@@ -3332,7 +3323,7 @@ plot_1d_singleinstance(
     save_fig=False,
     default_dict=default_dict.update({'instance': instance}),
     ylim=[0.975, 1.0025],
-    xlim=[1e3, 1e6*1.1],
+    xlim=[5e2, 2e4],
     linewidth=2.5,
 )
 plot_1d_singleinstance_list(
@@ -3355,7 +3346,7 @@ plot_1d_singleinstance_list(
     default_dict=default_dict.update({'instance': instance}),
     use_colorbar=False,
     ylim=[0.975, 1.0025],
-    xlim=[1e3, 1e6*1.1],
+    xlim=[5e2, 2e4],
 )
 # plot_1d_singleinstance_list(
 #     df=df_progress_ternary_42,
@@ -3414,7 +3405,7 @@ plot_1d_singleinstance(
     save_fig=False,
     default_dict=default_dict.update({'instance': instance}),
     # ylim=[0.975, 1.0025],
-    xlim=[1e3, 1e6*1.1],
+    xlim=[5e2, 2e4],
     linewidth=2.5,
 )
 plot_1d_singleinstance_list(
@@ -3436,7 +3427,7 @@ plot_1d_singleinstance_list(
     default_dict=default_dict.update({'instance': instance}),
     use_colorbar=False,
     # ylim=[0.975, 1.0025],
-    xlim=[1e3, 1e6*1.1],
+    xlim=[5e2, 2e4],
 )
 # plot_1d_singleinstance_list(
 #     df=df_progress_ternary_42,

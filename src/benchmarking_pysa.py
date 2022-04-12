@@ -1515,6 +1515,7 @@ for stat_measure in stat_measures:
 # Create virtual best and virtual worst columns
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
+params = ['swe','rep','pcold', 'phot']
 stale_parameters = ['pcold', 'phot']
 
 df_name = "df_results_virt" + suffix + ".pkl"
@@ -1587,27 +1588,66 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
         df_virtual_worst_min,
         on=['reads'],
         how='left')
+
+
+    
+
+    recipe_lazy = df_results_all_stats[params + ['median_perf_ratio','reads']].set_index(
+                params
+                ).groupby(['reads']
+                ).idxmax()
+
+    df_virtual_best = df_virtual_best.merge(
+        df_results_all_stats[params + ['median_perf_ratio','reads']].set_index(
+                params
+                ).groupby(['reads']
+                ).max().reset_index().rename(columns={'median_perf_ratio':'lazy_perf_ratio'}))
+    
+    # Dirty workaround to compute virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
+    
+
+    df_virtual_best = df_virtual_best.merge(
+        df_results_all.set_index(
+            params
+        ).groupby(
+            ['instance','reads']
+            )['perf_ratio'].max().reset_index().set_index(
+            ['instance']
+            ).groupby(
+                ['reads']
+            ).median().reset_index().sort_values(
+                ['reads']
+                ).expanding(min_periods=1).max(),
+            on=['reads'],
+            how='left')
+
+    df_virtual_best['inv_lazy_perf_ratio'] = 1 - df_virtual_best['lazy_perf_ratio'] + EPSILON
+
+    df_virtual_best['inv_perf_ratio'] = 1 - df_virtual_best['perf_ratio'] + EPSILON
+    df_virtual_best = cleanup_df(df_virtual_best)
+    df_virtual_best.to_pickle(df_path)
+
+
     df_virtual_best = cleanup_df(df_virtual_best)
     df_virtual_best.to_pickle(df_path)
 else:
     df_virtual_best = pd.read_pickle(df_path)
     df_virtual_best = cleanup_df(df_virtual_best)
 
-# Dirty workaround to compute virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
-df_virtual_best = df_virtual_best.merge(df_results_all.groupby([
-        'instance', 'reads'
-        ])['perf_ratio'].max().reset_index().groupby(
-            ['reads']
-        ).median().reset_index().sort_values('reads').expanding(min_periods=1).max(),
-        on=['reads'],
-        how='left')
 
-df_virtual_best['inv_perf_ratio'] = 1 - df_virtual_best['perf_ratio'] + EPSILON
-df_virtual_best = cleanup_df(df_virtual_best)
-df_virtual_best.to_pickle(df_path)
+
+# Here I'm filtering for low noise data
+window_average = 20
+df_rolled = df_virtual_best.sort_index().rolling(window=window_average, min_periods=0).mean()
+df_virtual_best['soft_lazy_perf_ratio'] = df_rolled['lazy_perf_ratio']
+
 
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance
+soft_flag = True
+soft_str = ''
+if soft_flag:
+    soft_str += 'soft_'
 for stat_measure in stat_measures:
     f, ax = plt.subplots()
     plot_1d_singleinstance(
@@ -1624,20 +1664,20 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    # plot_1d_singleinstance(
-    #     df=df_virtual_best,
-    #     x_axis='reads',
-    #     y_axis='virt_worst_perf_ratio',
-    #     ax=ax,
-    #     label_plot='Virtual worst',
-    #     dict_fixed={'pcold': 1, 'phot': 50},
-    #     labels=labels,
-    #     prefix=prefix,
-    #     save_fig=False,
-    #     linewidth=2.5,
-    #     marker=None,
-    #     color=['r'],
-    # )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis=soft_str+'lazy_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
+    )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1681,22 +1721,20 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
-    # plot_1d_singleinstance(
-    #     df=df_virtual_best,
-    #     x_axis='reads',
-    #     y_axis='virt_worst_inv_perf_ratio',
-    #     ax=ax,
-    #     label_plot='Virtual worst',
-    #     dict_fixed={'pcold': 1, 'phot': 50},
-    #     labels=labels,
-    #     prefix=prefix,
-    #     save_fig=False,
-    #     log_x=True,
-    #     log_y=True,
-    #     linewidth=2.5,
-    #     marker=None,
-    #     color=['r'],
-    # )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='inv_lazy_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
+    )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
@@ -1896,6 +1934,20 @@ for stat_measure in stat_measures:
         marker=None,
         color=['k'],
     )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='lazy_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
+    )
     # plot_1d_singleinstance(
     #     df=df_virtual_best,
     #     x_axis='reads',
@@ -1957,8 +2009,9 @@ for stat_measure in stat_measures:
         save_fig=False,
         ylim=[0.975, 1.0025],
         xlim=[1e2, R_budgets[-1]],
-        linewidth=1.5,
-        markersize=1,
+        linewidth=2.5,
+        marker=None,
+        color=['m'],
     )
 # %%
 # Generate plots for inverse performance ratio of ensemble vs reads with best and worst performance
@@ -2396,7 +2449,6 @@ median_median_perf_ratio['f_explor'] = median_median_perf_ratio['R_explor'] / me
 median_median_perf_ratio['median_median_perf_ratio'] = df_progress_best['median_median_perf_ratio']
 
 f,ax = plt.subplots()
-sns.lineplot(data=df_virtual_best,x='reads',y='perf_ratio',ax=ax,estimator=None,ci=None)
 sns.scatterplot(
     data=median_median_perf_ratio,
     x='R_budget',
@@ -2421,6 +2473,8 @@ sns.scatterplot(
 #     hue_norm=(0, 2),
 #     estimator=np.median,
 #     ci=None)
+sns.lineplot(data=df_progress_best,x='R_budget',y='median_median_perf_ratio',ax=ax,estimator=None,ci=None,color='m', linewidth=2, label='Med best random search expl-expl')
+sns.lineplot(data=df_virtual_best,x='reads',y='perf_ratio',ax=ax,estimator=None,ci=None,color='k', linewidth=2, label='Med Virtual best')
 ax.set(xlim=[5e2,1e6])
 ax.set(ylim=[0.975,1.0025])
 ax.set(xscale='log')

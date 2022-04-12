@@ -1,7 +1,10 @@
+# %%
 import dimod
 import numpy as np
 import os
 from typing import List, Union
+import pandas as pd
+from retrieve_data import *
 # %%
 # Define function to compute random sampled energy
 
@@ -82,8 +85,35 @@ def createRandomSKModel(
             text_file.close()
 
 # %%
+# Create directories and specify instances details
+
+N = 200  # Number of variables
+prefix = "random_n_" + str(N) + "_inst_"
+instance_list = list(range(20)) + [42]
+# Specify and if non-existing, create directories for results
+current_path = os.getcwd()
+data_path = os.path.join(current_path, '../data/sk/')
+if not(os.path.exists(data_path)):
+    print('Data directory ' + data_path +
+          ' does not exist. We will create it.')
+    os.makedirs(data_path)
+dneal_results_path = os.path.join(data_path, 'dneal/')
+if not(os.path.exists(dneal_results_path)):
+    print('Dwave-neal results directory ' + dneal_results_path +
+          ' does not exist. We will create it.')
+    os.makedirs(dneal_results_path)
+
+dneal_pickle_path = os.path.join(dneal_results_path, 'pickles/')
+if not(os.path.exists(dneal_pickle_path)):
+    print('Dwave-neal pickles directory' + dneal_pickle_path +
+          ' does not exist. We will create it.')
+    os.makedirs(dneal_pickle_path)
+    
+results_path = dneal_results_path
+# %%
 # Compute random energy file
-compute_random = False
+
+compute_random = True
 if compute_random:
     for instance in instance_list:
         # Load problem instance
@@ -95,15 +125,15 @@ if compute_random:
         ising_model = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
         random_energy, _ = randomEnergySampler(
             ising_model, dwave_sampler=False)
-        with open(os.path.join(results_path, "random_energies.txt"), "a") as gs_file:
+        with open(os.path.join(data_path, "random_energies.txt"), "a") as gs_file:
             gs_file.write(prefix + str(instance) + " " +
-                          str(random_energy) + " " + "best_found pysa\n")
+                          str(random_energy) + " " + "random\n")
 
 
 
 # %%
 # Compute preliminary ground state file with best found solution by Dwave-neal
-compute_dneal_gs = False
+compute_dneal_gs = True
 if compute_dneal_gs:
     for instance in instance_list:
         # List all the pickled filed for an instance files
@@ -123,7 +153,9 @@ if compute_dneal_gs:
                 print(min_energy)
                 min_energies.append(min_energy)
                 min_df_samples = df_samples.copy()
-
-        with open(os.path.join(results_path, "gs_energies.txt"), "a") as gs_file:
-            gs_file.write(prefix + str(instance) + " " +
-                          str(np.nanmin(min_energies)) + "  best_found dneal\n")
+        
+        if len(min_energies) > 0:
+            with open(os.path.join(data_path, "gs_energies.txt"), "a") as gs_file:
+                gs_file.write(prefix + str(instance) + " " +
+                            str(np.nanmin(min_energies)) + "  best_found dneal\n")
+# %%

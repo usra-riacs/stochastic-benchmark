@@ -32,7 +32,7 @@ EPSILON = 1e-10
 
 # %%
 # Specify instance 42
-N = 100  # Number of variables
+N = 200  # Number of variables
 instance = 42
 np.random.seed(instance)  # Fixing the random seed to get the same result
 J = np.random.rand(N, N)
@@ -100,7 +100,7 @@ default_replicas = 1
 default_p_hot = 50.0
 default_p_cold = 1.0
 parameters_list = ['schedule', 'sweeps', 'Tfactor']
-suffix = ''
+suffix = '_200'
 ocean_df_flag = True
 results_path = dneal_results_path
 
@@ -245,7 +245,7 @@ def createDnealSamplesDataframe(
             )
             time_s = time.time() - start
             samples.info['timing'] = time_s
-            pickle.dump(samples, open(pickle_path, "wb"))
+            pickle.dump(samples, open(dict_pickle_name, "wb"))
             # Generate Dataframes
             df_samples = samples.to_pandas_dataframe(sample_column=True)
             df_samples['runtime (us)'] = int(
@@ -554,7 +554,7 @@ metrics_list = ['min_energy', 'tts',
 sweeps_list = [i for i in range(1, 21, 1)] + [
     i for i in range(20, 201, 10)] + [
     i for i in range(200, 501, 20)] + [
-    i for i in range(500, 1001, 100)]
+    i for i in range(500, 1001, 25)]
 Tfactor_list = [default_Tfactor]
 schedules_list = ['geometric', 'linear']
 # schedules_list = ['geometric']
@@ -583,7 +583,7 @@ parameters_dict = {
     'sweeps': sweeps_list,
     'Tfactor': [default_Tfactor],
 }
-use_raw_dataframes = False
+use_raw_dataframes = True
 use_raw_sample_pickles = False
 overwrite_pickles = False
 
@@ -1046,7 +1046,7 @@ df_results_all = createDnealResultsDataframes(
 )
 # %%
 # Generate stats results
-use_raw_full_dataframe = False
+use_raw_full_dataframe = True
 use_raw_dataframes = False
 use_raw_sample_pickles = False
 # TODO: this function assume we want all the combinatios of the parameters, while in reality, we might want to use those in a list
@@ -1734,7 +1734,21 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis=soft_str+'mean_param_perf_ratio',
+        y_axis='lazy_perf_ratio',
+        ax=ax,
+        label_plot='Suggested fixed parameters (best in metric)',
+        dict_fixed=None,
+        labels=labels,
+        prefix=prefix,
+        save_fig=False,
+        linewidth=2.5,
+        marker=None,
+        color=['r'],
+    )
+    plot_1d_singleinstance(
+        df=df_virtual_best,
+        x_axis='reads',
+        y_axis='mean_param_perf_ratio',
         ax=ax,
         label_plot='Suggested fixed parameters',
         dict_fixed=None,
@@ -2259,7 +2273,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        xlim=[5e2, 2e4],
+        xlim=[5e2, 5e4],
         linewidth=1.5,
         markersize=1,
         label_plot="Random exploration exploitation",
@@ -2515,42 +2529,40 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_best_perf_ratio',
+        y_axis='perf_ratio',
         ax=ax,
         label_plot='Virtual best',
-        dict_fixed={'schedule': 'geometric'},
+        dict_fixed=None,
         labels=labels,
         prefix=prefix,
-        log_x=True,
-        log_y=False,
         save_fig=False,
         linewidth=2.5,
         marker=None,
         color=['k'],
     )
-    plot_1d_singleinstance(
-        df=df_virtual_best,
-        x_axis='reads',
-        y_axis='virt_worst_perf_ratio',
-        ax=ax,
-        label_plot='Virtual worst',
-        dict_fixed={'schedule': 'geometric'},
-        labels=labels,
-        prefix=prefix,
-        log_x=True,
-        log_y=False,
-        use_conf_interval=False,
-        save_fig=False,
-        linewidth=2.5,
-        marker=None,
-        color=['r'],
-    )
+    # plot_1d_singleinstance(
+    #     df=df_virtual_best,
+    #     x_axis='reads',
+    #     y_axis='virt_worst_perf_ratio',
+    #     ax=ax,
+    #     label_plot='Virtual worst',
+    #     dict_fixed={'schedule': 'geometric'},
+    #     labels=labels,
+    #     prefix=prefix,
+    #     log_x=True,
+    #     log_y=False,
+    #     use_conf_interval=False,
+    #     save_fig=False,
+    #     linewidth=2.5,
+    #     marker=None,
+    #     color=['r'],
+    # )
     plot_1d_singleinstance_list(
         df=df_results_all_stats,
         x_axis='reads',
         y_axis=stat_measure + '_perf_ratio',
         ax=ax,
-        dict_fixed={'schedule': 'geometric'},
+        # dict_fixed={'schedule': 'geometric'},
         list_dicts=[{'sweeps': i}
                     for i in list(set(best_ensemble_sweeps)) + [default_sweeps]],
         labels=labels,
@@ -2560,7 +2572,7 @@ for stat_measure in stat_measures:
         use_conf_interval=False,
         save_fig=False,
         ylim=[0.975, 1.0025],
-        xlim=[5e2, 2e4],
+        xlim=[5e2, 5e4],
         use_colorbar=False,
         linewidth=1.5,
         markersize=1,
@@ -2621,7 +2633,7 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_best_inv_perf_ratio',
+        y_axis='inv_perf_ratio',
         ax=ax,
         label_plot='Virtual best',
         dict_fixed={'schedule': 'geometric'},
@@ -2637,7 +2649,7 @@ for stat_measure in stat_measures:
     plot_1d_singleinstance(
         df=df_virtual_best,
         x_axis='reads',
-        y_axis='virt_worst_inv_perf_ratio',
+        y_axis='inv_perf_ratio',
         ax=ax,
         label_plot='Virtual worst',
         dict_fixed={'schedule': 'geometric'},

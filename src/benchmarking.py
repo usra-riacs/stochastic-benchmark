@@ -1516,7 +1516,7 @@ stale_parameters = ['schedule', 'Tfactor']
 
 df_name = "df_results_virt" + suffix + ".pkl"
 df_path = os.path.join(results_path, df_name)
-use_raw_dataframes = False
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     df_virtual_all = df_results_all.groupby(
         ['reads']
@@ -1624,7 +1624,7 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
 
     recipe_mean_best_params['Tfactor']=recipe_mean_best_params['Tfactor'].apply(lambda x: take_closest(Tfactor_list,x))
 
-    # Project the reads to the closes value in boots_list*sweeps
+    # Project the reads to the closest value in boots_list*sweeps
     recipe_mean_best_params['boots'] = recipe_mean_best_params.index/recipe_mean_best_params['sweeps']
     recipe_mean_best_params['boots']=recipe_mean_best_params['boots'].apply(lambda x: take_closest(boots_list,x))
     recipe_mean_best_params.index = recipe_mean_best_params['boots']*recipe_mean_best_params['sweeps']
@@ -1690,9 +1690,10 @@ else:
 window_average = 60
 # df_rolled = df_virtual_best.sort_index(ascending=True).rolling(window=window_average, min_periods=0).mean()
 df_rolled = df_virtual_best.sort_index(ascending=True).ewm(alpha=0.9).mean()
+df_expand = df_virtual_best.sort_index(ascending=True).expanding(min_periods=1).max()
 df_virtual_best['soft_lazy_perf_ratio'] = df_rolled['lazy_perf_ratio']
 df_virtual_best['soft_median_param_perf_ratio'] = df_rolled['median_param_perf_ratio']
-df_virtual_best['soft_mean_param_perf_ratio'] = df_rolled['mean_param_perf_ratio']
+df_virtual_best['soft_mean_param_perf_ratio'] = df_expand['mean_param_perf_ratio']
 
 # %%
 # Generate plots for performance ratio of ensemble vs reads with best and worst performance

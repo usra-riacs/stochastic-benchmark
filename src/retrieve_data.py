@@ -175,43 +175,46 @@ def createPySAExperimentFileList(
     return fileList
 
 
-def getSchedule(filename):
+def getSchedule(filename,prefix):
     '''
     Extracts the schedule from the Dwave-neal experiment filename assuming the filename follows the naming convention prefix_instance_schedule_sweeps.extension
 
     Args:
         filename: the name of the file
+        prefix: the prefix of the files
 
     Returns:
         schedule: the schedule string
     '''
-    return filename.rsplit(".", 1)[0].rsplit("_", 2)[-2]
+    return filename.rsplit(".", 1)[0].split(prefix, 1)[1].split("_")[1]
 
 
-def getSweepsDnealExperiment(filename):
+def getSweepsDnealExperiment(filename,prefix):
     '''
     Extracts the sweeps from the Dwave-neal experiment filename assuming the filename follows the naming convention prefix_instance_schedule_sweeps.extension
 
     Args:
         filename: the name of the file
+        prefix: the prefix of the file
 
     Returns:
         sweep: the schedule string
     '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 1)[-1])
+    return int(filename.rsplit(".", 1)[0].split(prefix)[1].split("_")[2])
 
 
-def getInstanceDnealExperiment(filename):
+def getInstanceDnealExperiment(filename,prefix):
     '''
     Extracts the instance from the Dwave-neal experiment filename assuming the filename follows the naming convention prefix_instance_schedule_sweeps.extension
 
     Args:
         filename: the name of the file
+        prefix: the prefix of the files
 
     Returns:
         sweep: the sweep string
     '''
-    return int(filename.rsplit(".", 1)[0].rsplit("_", 3)[-3])
+    return int(filename.rsplit(".", 1)[0].split(prefix, 1)[1].split("_")[0])
 
 
 def createDnealExperimentFileList(
@@ -250,21 +253,21 @@ def createDnealExperimentFileList(
                  if(not f.startswith('gs_energies'))]
         # Below, select only specifed instances
         files = [f for f in files if(
-            getInstanceDnealExperiment(f) in instance_list)]
+            getInstanceDnealExperiment(f,prefix) in instance_list)]
         # Consider sweeps if provided list
         if sweep_list is not None:
             files = [f for f in files if(
-                getSweepsDnealExperiment(f) in sweep_list)]
+                getSweepsDnealExperiment(f,prefix) in sweep_list)]
         # Consider schedules if provided list
         if schedule_list is not None:
             files = [f for f in files if(
-                getSchedule(f) in schedule_list)]
+                getSchedule(f,prefix) in schedule_list)]
         for f in files:
             fileList.append(root+"/"+f)
 
         # sort filelist by instance
         fileList = sorted(
-            fileList, key=lambda x: getInstanceDnealExperiment(x))
+            fileList, key=lambda x: getInstanceDnealExperiment(x,prefix))
     return fileList
 
 
@@ -291,4 +294,7 @@ def loadEnergyFromFile(data_file, instance_name):
             if(line.split()[0] == instance_name):
                 energies.append(float(line.split()[1]))
 
+    if len(energies) == 0:
+        print("No energy found for instance: " + instance_name)
+        return None
     return min(energies)

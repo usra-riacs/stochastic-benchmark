@@ -205,7 +205,7 @@ def createDnealSamplesDataframeTemp(
     # Gather instance names
     # TODO: We need to adress renaming problems, one proposal is to be very judicious about the keys order in parameters and be consistent with naming, another idea is sorting them alphabetically before joining them
     dict_pickle_name = prefix + str(instance) + "_" + \
-        '_'.join(str(vals) for vals in parameters.values()) + suffix + ".p"
+        '_'.join(str(vals) for vals in parameters.values()) + ".p"
     df_samples_name = 'df_' + dict_pickle_name + 'kl'
     df_path = os.path.join(pickle_path, df_samples_name)
     if os.path.exists(df_path):
@@ -554,7 +554,7 @@ def generateStatsDataframe(
 instance = 42
 metrics_list = ['min_energy', 'tts',
                 'perf_ratio', 'success_prob', 'mean_time', 'inv_perf_ratio']
-Tfactor_list = list(np.logspace(-1, 3, 35))
+Tfactor_list = list(np.logspace(-1, 3, 33))
 schedules_list = ['geometric', 'linear']
 # schedules_list = ['geometric']
 bootstrap_iterations = 1000

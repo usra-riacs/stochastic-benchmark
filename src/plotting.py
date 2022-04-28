@@ -9,6 +9,56 @@ import functools
 from typing import List, Union
 import matplotlib.colors as mcolors
 
+
+
+# %%
+# Define plot longer labels
+EPSILON = 1e-10 # Epsilon to avoid negative inverse performance ratios
+gap = 1.0  # This is a percentual treshold of what the minimum energy should be
+s = 0.99  # This is the success probability for the TTS calculation
+labels = {
+    'N': 'Number of variables',
+    'instance': 'Random instance',
+    'replicas': 'Number of replicas',
+    'sweeps': 'Number of sweeps',
+    'rep': 'Number of replicas',
+    'swe': 'Number of sweeps',
+    'swe': 'Number of sweeps',
+    'pcold': 'Probability of dEmin flip at cold temperature',
+    'phot': 'Probability of dEmax flip at hot temperature',
+    'mean_time': 'Mean time [us]',
+    'success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
+    'median_success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
+    'mean_success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
+    'perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
+    'best_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
+    'median_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
+    'mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
+    'median_mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
+    'mean_mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
+    'median_median_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
+    'mean_median_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
+    'tts': 'TTS ' + str(100*s) + '% confidence  \n (within ' + str(gap) + '% of best found) [s]',
+    'median_tts': 'TTS ' + str(100*s) + '% confidence  \n (within ' + str(gap) + '% of best found) [s]',
+    'mean_tts': 'TTS ' + str(100*s) + '% confidence  \n (within ' + str(gap) + '% of best found) [s]',
+    'boots': 'Number of downsamples during bootrapping',
+    'reads': 'Total number of reads (proportional to time)',
+    'cum_reads': 'Total number of reads (proportional to time)',
+    'mean_cum_reads': 'Total number of reads (proportional to time)',
+    'min_energy': 'Minimum energy found',
+    'mean_time': 'Mean time [us]',
+    'Tfactor': 'Factor to multiply lower temperature by',
+    'experiment': 'Experiment',
+    'inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
+    'median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
+    'mean_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
+    'median_mean_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
+    'median_median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
+    'mean_mean_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
+    'mean_median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
+    'best_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
+}
+
 # %%
 
 

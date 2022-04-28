@@ -27,9 +27,6 @@ from do_dneal import *
 from util_benchmark import *
 
 idx = pd.IndexSlice
-
-EPSILON = 1e-10
-
 # %%
 # Specify instance 42
 N = 200  # Number of variables
@@ -130,7 +127,8 @@ default_reads = 1000
 default_boots = default_reads
 
 default_name = prefix + str(instance) + '_' + default_schedule + '_' + \
-    str(default_sweeps) + '.p'
+    str(default_sweeps) + '_' + \
+    str(default_Tfactor) + '.p'
 df_default_name = 'df_' + default_name + 'kl'
 rerun_default = False
 if not os.path.exists(os.path.join(dneal_pickle_path, default_name)) or rerun_default:
@@ -248,6 +246,7 @@ def createDnealSamplesDataframe(
             pickle.dump(samples, open(dict_pickle_name, "wb"))
             # Generate Dataframes
             df_samples = samples.to_pandas_dataframe(sample_column=True)
+            df_samples.drop(columns=['sample'], inplace=True)
             df_samples['runtime (us)'] = int(
                 1e6*samples.info['timing']/len(df_samples.index))
             df_samples.to_pickle(df_path)
@@ -559,8 +558,6 @@ Tfactor_list = [default_Tfactor]
 schedules_list = ['geometric', 'linear']
 # schedules_list = ['geometric']
 bootstrap_iterations = 1000
-s = 0.99  # This is the success probability for the TTS calculation
-gap = 1.0  # This is a percentual treshold of what the minimum energy should be
 conf_int = 68  #
 fail_value = np.inf
 # Confidence interval for bootstrapping, value used to get standard deviation
@@ -607,52 +604,6 @@ df_42 = createDnealResultsDataframes(
     ocean_df_flag=ocean_df_flag,
     suffix=suffix,
 )
-
-# %%
-# Define plot longer labels
-labels = {
-    'N': 'Number of variables',
-    'instance': 'Random instance',
-    'replicas': 'Number of replicas',
-    'sweeps': 'Number of sweeps',
-    'rep': 'Number of replicas',
-    'swe': 'Number of sweeps',
-    'swe': 'Number of sweeps',
-    'pcold': 'Probability of dEmin flip at cold temperature',
-    'phot': 'Probability of dEmax flip at hot temperature',
-    'mean_time': 'Mean time [us]',
-    'success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
-    'median_success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
-    'mean_success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
-    'perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'best_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'median_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'median_mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'mean_mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'median_median_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'mean_median_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'tts': 'TTS ' + str(100*s) + '% confidence  \n (within ' + str(gap) + '% of best found) [s]',
-    'median_tts': 'TTS ' + str(100*s) + '% confidence  \n (within ' + str(gap) + '% of best found) [s]',
-    'mean_tts': 'TTS ' + str(100*s) + '% confidence  \n (within ' + str(gap) + '% of best found) [s]',
-    'boots': 'Number of downsamples during bootrapping',
-    'reads': 'Total number of reads (proportional to time)',
-    'cum_reads': 'Total number of reads (proportional to time)',
-    'mean_cum_reads': 'Total number of reads (proportional to time)',
-    'min_energy': 'Minimum energy found',
-    'mean_time': 'Mean time [us]',
-    'Tfactor': 'Factor to multiply lower temperature by',
-    'experiment': 'Experiment',
-    'inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'mean_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'median_mean_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'median_median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'mean_mean_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'mean_median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'best_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    # 'tts': 'TTS to GS with 99% confidence \n [s * replica] ~ [MVM]',
-}
 
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples

@@ -85,36 +85,23 @@ def createRandomSKModel(
             text_file.close()
 
 # %%
-# Create directories and specify instances details
-
-N = 200  # Number of variables
-prefix = "random_n_" + str(N) + "_inst_"
-instance_list = list(range(20)) + [42]
-# Specify and if non-existing, create directories for results
-current_path = os.getcwd()
-data_path = os.path.join(current_path, '../data/sk/')
-if not(os.path.exists(data_path)):
-    print('Data directory ' + data_path +
-          ' does not exist. We will create it.')
-    os.makedirs(data_path)
-dneal_results_path = os.path.join(data_path, 'dneal/')
-if not(os.path.exists(dneal_results_path)):
-    print('Dwave-neal results directory ' + dneal_results_path +
-          ' does not exist. We will create it.')
-    os.makedirs(dneal_results_path)
-
-dneal_pickle_path = os.path.join(dneal_results_path, 'pickles/')
-if not(os.path.exists(dneal_pickle_path)):
-    print('Dwave-neal pickles directory' + dneal_pickle_path +
-          ' does not exist. We will create it.')
-    os.makedirs(dneal_pickle_path)
-    
-results_path = dneal_results_path
-# %%
 # Compute random energy file
+def computeRandomSK(
+    N,
+    prefix,
+    instance_list,
+    data_path,
+    ):
+    '''
+    Compute the random energy file for Sherry-Kirkpatrick model.
 
-compute_random = True
-if compute_random:
+    Args:
+        N: The number of variables in the model.
+        prefix: A string to prefix the file name.
+        instance_list: A list of integers to define the instances by setting the sandom seed in numpy.
+        data_path: A string to define the path to save the instances.
+        
+    '''
     for instance in instance_list:
         # Load problem instance
         np.random.seed(instance)
@@ -133,8 +120,21 @@ if compute_random:
 
 # %%
 # Compute preliminary ground state file with best found solution by Dwave-neal
-compute_dneal_gs = True
-if compute_dneal_gs:
+def computeDnealGS(
+    prefix,
+    instance_list,
+    dneal_pickle_path,
+    data_path,
+    ):
+    '''    
+    Compute the preliminary ground state file with best found solution by Dwave-neal.
+
+    Args:
+        prefix: A string to prefix the file name.
+        instance_list: A list of integers to define the instances by setting the sandom seed in numpy.
+        dneal_pickle_path: A string to define the path where the Dneal pickle paths are.
+        data_path: A string to define the path to save the instances.
+    '''
     for instance in instance_list:
         # List all the pickled filed for an instance files
         pickle_list = createDnealExperimentFileList(
@@ -159,3 +159,37 @@ if compute_dneal_gs:
                 gs_file.write(prefix + str(instance) + " " +
                             str(np.nanmin(min_energies)) + "  best_found dneal\n")
 # %%
+if __name__ == "__main__":
+    
+    # Create directories and specify instances details
+
+    N = 200  # Number of variables
+    prefix = "random_n_" + str(N) + "_inst_"
+    instance_list = list(range(20)) + [42]
+    # Specify and if non-existing, create directories for results
+    current_path = os.getcwd()
+    data_path = os.path.join(current_path, '../data/sk/')
+    if not(os.path.exists(data_path)):
+        print('Data directory ' + data_path +
+            ' does not exist. We will create it.')
+        os.makedirs(data_path)
+    dneal_results_path = os.path.join(data_path, 'dneal/')
+    if not(os.path.exists(dneal_results_path)):
+        print('Dwave-neal results directory ' + dneal_results_path +
+            ' does not exist. We will create it.')
+        os.makedirs(dneal_results_path)
+
+    dneal_pickle_path = os.path.join(dneal_results_path, 'pickles/')
+    if not(os.path.exists(dneal_pickle_path)):
+        print('Dwave-neal pickles directory' + dneal_pickle_path +
+            ' does not exist. We will create it.')
+        os.makedirs(dneal_pickle_path)
+        
+    results_path = dneal_results_path
+        
+    compute_random = False
+    if compute_random:
+        computeRandomSK(N = N, prefix = prefix, instance_list = instance_list, data_path = data_path)
+    compute_dneal_gs = False
+    if compute_dneal_gs:
+        computeDnealGS(prefix=prefix, instance_list=instance_list, dneal_pickle_path=dneal_pickle_path, data_path=data_path)

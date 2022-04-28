@@ -7,6 +7,7 @@ import pandas as pd
 from scipy import sparse, stats
 
 EPSILON = 1e-10
+fail_value = np.inf
 
 # %%
 # Define the default solver parameters

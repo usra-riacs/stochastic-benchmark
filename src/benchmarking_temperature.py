@@ -35,7 +35,7 @@ EPSILON = 1e-10
 
 # %%
 # Specify instance 42
-N = 100  # Number of variables
+N = 200  # Number of variables
 instance = 42
 np.random.seed(instance)  # Fixing the random seed to get the same result
 J = np.random.rand(N, N)
@@ -113,6 +113,7 @@ pickle_path = dneal_pickle_path
 model_random = dimod.BinaryQuadraticModel.from_ising(h, J, offset=0.0)
 
 prefix = "random_n_" + str(N) + "_inst_"
+suffix = '_200T'
 # TODO: this is prefix for file but we should get a nicer description for the plots
 instance_name = prefix + str(instance)
 
@@ -606,52 +607,6 @@ df_42 = createDnealResultsDataframes(
     ocean_df_flag=ocean_df_flag,
     suffix=suffix,
 )
-
-# %%
-# Define plot longer labels
-labels = {
-    'N': 'Number of variables',
-    'instance': 'Random instance',
-    'replicas': 'Number of replicas',
-    'sweeps': 'Number of sweeps',
-    'rep': 'Number of replicas',
-    'swe': 'Number of sweeps',
-    'swe': 'Number of sweeps',
-    'pcold': 'Probability of dEmin flip at cold temperature',
-    'phot': 'Probability of dEmax flip at hot temperature',
-    'mean_time': 'Mean time [us]',
-    'success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
-    'median_success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
-    'mean_success_prob': 'Success probability \n (within ' + str(gap) + '% of best found)',
-    'perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'best_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'median_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'median_mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'mean_mean_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'median_median_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'mean_median_perf_ratio': 'Performance ratio \n (random - best found) / (random - min)',
-    'tts': 'TTS ' + str(100*s) + '% confidence  \n (within ' + str(gap) + '% of best found) [s]',
-    'median_tts': 'TTS ' + str(100*s) + '% confidence  \n (within ' + str(gap) + '% of best found) [s]',
-    'mean_tts': 'TTS ' + str(100*s) + '% confidence  \n (within ' + str(gap) + '% of best found) [s]',
-    'boots': 'Number of downsamples during bootrapping',
-    'reads': 'Total number of reads (proportional to time)',
-    'cum_reads': 'Total number of reads (proportional to time)',
-    'mean_cum_reads': 'Total number of reads (proportional to time)',
-    'min_energy': 'Minimum energy found',
-    'mean_time': 'Mean time [us]',
-    'Tfactor': 'Factor to multiply lower temperature by',
-    'experiment': 'Experiment',
-    'inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'mean_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'median_mean_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'median_median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'mean_mean_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'mean_median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    'best_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
-    # 'tts': 'TTS to GS with 99% confidence \n [s * replica] ~ [MVM]',
-}
 
 # %%
 # Performance ratio vs sweeps for different bootstrap downsamples
@@ -2722,7 +2677,7 @@ for stat_measure in stat_measures:
 # Computing up ternary search across parameter
 # We assume that the performance of the parameter is unimodal (in decreases and the increases)
 # r = 1  # resource per parameter setting (runs)
-df_name = "df_progress_ternaryT.pkl"
+df_name = "df_progress_ternary" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 df_search = df_results_all_stats[
     parameters + ['boots',
@@ -3072,7 +3027,7 @@ for stat_measure in stat_measures:
 # Computing up ternary search across parameter for instance 42
 # We assume that the performance of the parameter is unimodal (in decreases and the increases)
 rs = [1, 5, 10]
-df_name = "df_progress_ternary_42T.pkl"
+df_name = "df_progress_ternary_42" + suffix + ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 search_metric = 'perf_ratio'
 compute_metric = 'perf_ratio'
@@ -3190,7 +3145,7 @@ repetitions = 10  # Times to run the algorithm
 # rs = [1, 5, 10]  # resources per parameter setting (runs)
 # frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 # R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
-df_name = "df_progress_42T.pkl"
+df_name = "df_progress_42" + suffix ".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
 compute_metric = 'perf_ratio'
 df_search = df_42[

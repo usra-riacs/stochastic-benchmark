@@ -29,7 +29,7 @@ from util_benchmark import *
 idx = pd.IndexSlice
 # %%
 # Specify instance 42
-N = 200  # Number of variables
+N = 100  # Number of variables
 instance = 42
 np.random.seed(instance)  # Fixing the random seed to get the same result
 J = np.random.rand(N, N)
@@ -97,7 +97,7 @@ default_replicas = 1
 default_p_hot = 50.0
 default_p_cold = 1.0
 parameters_list = ['schedule', 'sweeps', 'Tfactor']
-suffix = '_200'
+suffix = ''
 ocean_df_flag = True
 results_path = dneal_results_path
 
@@ -199,7 +199,7 @@ def createDnealSamplesDataframe(
     # Gather instance names
     # TODO: We need to adress renaming problems, one proposal is to be very judicious about the keys order in parameters and be consistent with naming, another idea is sorting them alphabetically before joining them
     dict_pickle_name = prefix + str(instance) + "_" + \
-        '_'.join(str(vals) for vals in parameters.values()) + suffix + ".p"
+        '_'.join(str(vals) for vals in parameters.values()) + ".p"
     df_samples_name = 'df_' + dict_pickle_name + 'kl'
     df_path = os.path.join(pickle_path, df_samples_name)
     if os.path.exists(df_path):
@@ -555,8 +555,8 @@ sweeps_list = [i for i in range(1, 21, 1)] + [
     i for i in range(200, 501, 20)] + [
     i for i in range(500, 1001, 25)]
 Tfactor_list = [default_Tfactor]
-schedules_list = ['geometric', 'linear']
-# schedules_list = ['geometric']
+# schedules_list = ['geometric', 'linear']
+schedules_list = ['geometric']
 bootstrap_iterations = 1000
 conf_int = 68  #
 fail_value = np.inf
@@ -564,7 +564,9 @@ fail_value = np.inf
 confidence_level = 68
 # TODO: Repeated parameter confidence_interval
 # TODO: Revisit use_raw_pickles and overwrite_pickles logic
-boots_list = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+# boots_list = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
+boots_list = [int(i*10**j) for j in [1, 2]
+              for i in [1, 1.5, 2, 3, 5, 7]] + [int(1e3)]
 # TODO there should be an attribute to the parameters and if they vary logarithmically, have a function that generates the list of values "equally" spaced in logarithmic space
 sim_ann_sampler = neal.SimulatedAnnealingSampler()
 
@@ -782,8 +784,8 @@ parameters_detailed_dict = {
     'sweeps': interesting_sweeps,
 }
 
-use_raw_dataframes = False
-use_raw_sample_pickles = False
+use_raw_dataframes = True
+use_raw_sample_pickles = True
 df_42 = createDnealResultsDataframes(
     df=df_42,
     instance_list=[instance],
@@ -889,8 +891,8 @@ training_instance_list = [i for i in range(20)]
 # Merge all results dataframes in a single one
 schedules_list = ['geometric']
 df_list = []
-use_raw_dataframes = False
-use_raw_sample_pickles = False
+use_raw_dataframes = True
+use_raw_sample_pickles = True
 for instance in instance_list:
     df_name = "df_results_" + str(instance) + suffix + ".pkl"
     df_path = os.path.join(results_path, df_name)
@@ -965,8 +967,8 @@ df_results_all.to_pickle(df_path)
 # %%
 # Run all the instances with solver
 overwrite_pickles = False
-use_raw_dataframes = False
-use_raw_sample_pickles = False
+use_raw_dataframes = True
+use_raw_sample_pickles = True
 # schedules_list = ['geometric', 'linear']
 schedules_list = ['geometric']
 parameters_dict = {
@@ -998,8 +1000,8 @@ df_results_all = createDnealResultsDataframes(
 # %%
 # Generate stats results
 use_raw_full_dataframe = True
-use_raw_dataframes = False
-use_raw_sample_pickles = False
+use_raw_dataframes = True
+use_raw_sample_pickles = True
 # TODO: this function assume we want all the combinatios of the parameters, while in reality, we might want to use those in a list
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
@@ -1069,6 +1071,7 @@ plot_1d_singleinstance_list(
     log_y=False,
     save_fig=False,
     ylim=[0.975, 1.0025],
+    colors=['colormap'],
 )
 # %%
 # Generate plots for performance ratio of ensemble vs reads
@@ -1080,7 +1083,7 @@ plot_1d_singleinstance_list(
     ax=ax,
     dict_fixed={'schedule': 'geometric', 'sweeps': 500},
     list_dicts=[{'boots': j}
-                for j in all_boots_list[::10]],
+                for j in all_boots_list],
     labels=labels,
     prefix=prefix,
     log_x=True,
@@ -1135,7 +1138,7 @@ plot_1d_singleinstance_list(
 best_ensemble_sweeps = []
 df_list = []
 stat_measures = ['mean', 'median']
-use_raw_dataframes = False
+use_raw_dataframes = True
 for stat_measure in stat_measures:
     best_sweep = df_results_all_stats[df_results_all_stats['boots'] == default_boots].nsmallest(
         1, stat_measure + '_tts')['sweeps'].values[0]
@@ -1370,7 +1373,7 @@ for instance in [3, 0, 7, 42]:
 
 # %%
 # Regenerate the dataframe with the statistics to get the complete performance plot
-use_raw_full_dataframe = False
+use_raw_full_dataframe = True
 df_results_all_stats = generateStatsDataframe(
     df_all=df_results_all,
     stat_measures=['mean', 'median'],
@@ -1802,14 +1805,13 @@ for stat_measure in stat_measures:
     )
 # %%
 # Random search for the ensemble
-repetitions = 10  # Times to run the algorithm
-# rs = [1, 5, 10]  # resources per parameter setting (runs)
-rs = [1, 2, 5, 10, 20, 50, 100]  # resources per parameter setting (runs)
+repetitions = 2  # Times to run the algorithm
+rs = [10, 20, 50, 100, 200, 500, 1000]  # resources per parameter setting (reads/sweeps = boots)
 # frac_r_exploration = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
 frac_r_exploration = [0.05, 0.1, 0.2, 0.5, 0.75]
 # R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 # R_budgets = [1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
-R_budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7] for j in [1, 2, 3, 4, 5]] + [1e6]
+R_budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7] for j in [3, 4, 5]] + [1e6] # Total search budget (runs)
 experiments = rs * repetitions
 df_name = "df_progress_total" + suffix + ".pkl"
 df_path = os.path.join(results_path, df_name)
@@ -1820,10 +1822,15 @@ df_search = df_results_all_stats[
 ].set_index(
     parameters_list + ['boots']
 )
+df_reads = df_results_all_stats[
+    parameters_list + ['reads']
+].set_index(
+    parameters_list
+)
 parameter_sets = itertools.product(
     *(parameters_dict[Name] for Name in parameters_dict))
 parameter_sets = list(parameter_sets)
-use_raw_dataframes = False
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:
@@ -1842,14 +1849,22 @@ if use_raw_dataframes or os.path.exists(df_path) is False:
                         parameter_sets, k=int(R_exploration / r))
                     # Conservative estimate of very unlikely scenario that we choose all sweeps=1
                     # % Question: Should we replace these samples?
-                    if r*random_parameter_sets[0][1] > R_exploration:
+
+                    
+                    all_reads = df_reads.loc[
+                        idx[:, random_parameter_sets[0][1], :]
+                    ]
+                    actual_reads = take_closest(all_reads.values,r*random_parameter_sets[0][1])[0]
+                    # Start random exploration with best found point
+                    series_list = [df_search.loc[df_search.loc[idx[:,random_parameter_sets[0][1],:,actual_reads / random_parameter_sets[0][1]]].idxmax()[compute_metric]]]
+                    total_reads = actual_reads
+
+                    if total_reads > R_exploration:
                         # TODO: There should be a better way of having parameters that affect runtime making an appear. An idea, having a function f(params) = runs that we can call
                         print(
                             "R_exploration must be larger than single exploration step")
                         continue
                         # We allow it to run at least once assuming that
-                    series_list = []
-                    total_reads = 0
                     for random_parameter_set in random_parameter_sets:
                         total_reads += r*random_parameter_set[1]
                         if total_reads > R_exploration:
@@ -1923,7 +1938,7 @@ df_progress_total = cleanup_df(df_progress_total)
 experiments = rs * repetitions
 df_name = "df_progress_total_ternary" + suffix +".pkl"
 df_path = os.path.join(dneal_results_path, df_name)
-use_raw_dataframes = False
+use_raw_dataframes = True
 if use_raw_dataframes or os.path.exists(df_path) is False:
     progress_list = []
     for R_budget in R_budgets:

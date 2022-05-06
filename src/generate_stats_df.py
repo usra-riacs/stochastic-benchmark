@@ -26,24 +26,24 @@ else:
     ocean_df_flag = False
 compute_best_found_flag = False
 use_raw_dataframes = True
-# instances_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/instances"
-# data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
-# if ocean_df_flag:
-#     pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal/pickles"
-#     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal"
-# else:
-#     pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa/pickles"
-#     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa"
-
-
-instances_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/instances"
-data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+instances_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/instances"
+data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
 if ocean_df_flag:
-    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/pickles"
-    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/"
+    pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal/pickles"
+    results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal"
 else:
-    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/pickles"
-    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/"
+    pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa/pickles"
+    results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa"
+
+
+# instances_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/instances"
+# data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+# if ocean_df_flag:
+#     pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/pickles"
+#     results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/"
+# else:
+#     pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/pickles"
+#     results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/"
 
 schedules = []
 sweeps = []

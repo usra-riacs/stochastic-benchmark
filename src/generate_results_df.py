@@ -809,15 +809,15 @@ def createResultsDataframes(
                         pickle.dump(results, f)
         # TODO: Organize these column names to be created automatically from metric list
         df_results = pd.DataFrame(results,
-                                  columns=[
-                                      'instance'] + parameter_names + ['boots',
-                                                              'min_energy', 'min_energy_conf_interval_lower', 'min_energy_conf_interval_upper',
-                                                              'perf_ratio', 'perf_ratio_conf_interval_lower', 'perf_ratio_conf_interval_upper',
-                                                              'success_prob', 'success_prob_conf_interval_lower', 'success_prob_conf_interval_upper',
-                                                              'rtt', 'rtt_conf_interval_lower', 'rtt_conf_interval_upper',
-                                                              'mean_time', 'mean_time_conf_interval_lower', 'mean_time_conf_interval_upper',
-                                                              'inv_perf_ratio', 'inv_perf_ratio_conf_interval_lower', 'inv_perf_ratio_conf_interval_upper',
-                                                              ])
+                                  columns=['instance'] + parameter_names + 
+                                  ['boots',
+                                    'min_energy', 'min_energy_conf_interval_lower', 'min_energy_conf_interval_upper',
+                                    'perf_ratio', 'perf_ratio_conf_interval_lower', 'perf_ratio_conf_interval_upper',
+                                    'success_prob', 'success_prob_conf_interval_lower', 'success_prob_conf_interval_upper',
+                                    'rtt', 'rtt_conf_interval_lower', 'rtt_conf_interval_upper',
+                                    'mean_time', 'mean_time_conf_interval_lower', 'mean_time_conf_interval_upper',
+                                    'inv_perf_ratio', 'inv_perf_ratio_conf_interval_lower', 'inv_perf_ratio_conf_interval_upper',
+                                    ])
         if df is not None:
             df_new = pd.concat(
                 [df, df_results], axis=0, ignore_index=True)

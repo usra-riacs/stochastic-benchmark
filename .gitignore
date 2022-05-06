@@ -138,3 +138,5 @@ data/sk/*/pickles/*
 data/sk/*/pickles_bak/*
 data/sk/*/unique_gs/*
 data/sk/*/data/*
+*[0-9]_df_results.pkl
+*.pickle

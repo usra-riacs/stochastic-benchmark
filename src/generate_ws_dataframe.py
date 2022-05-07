@@ -22,7 +22,7 @@ jobid = 42
 
 # Input Parameters
 total_reads = 1000
-overwrite_pickles = False
+overwrite_pickles = True
 # if int(str(sys.argv[2])) == 1:
 if 0 == 1:
     ocean_df_flag = True
@@ -83,7 +83,7 @@ all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
 # sweeps.append(all_sweeps[sweep_idx])
 sweeps = all_sweeps
 # sizes.append(int(str(sys.argv[1])))
-sizes = [200]
+sizes = [100]
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
 # instances.append(int(jobid))
@@ -173,7 +173,7 @@ for size in sizes:
             df_results_list.append(pd.read_pickle(df_path))
         df_results_all = pd.concat(df_results_list, ignore_index=True)
         df_results_all.to_pickle(df_path_all)
-        
+
 # %%
 # Function to interpolate dataframes across a resource column
 def interpolate_df(
@@ -214,7 +214,7 @@ def interpolate_df(
     for r_parameters in resource_proportional_parameters:
         if r_parameters in parameter_names:
             r_indices.append(parameter_names.index(r_parameters))
-    
+
     for instance in instances:
         for parameter_set in parameter_sets:
             if parameter_set not in df_index.index.to_list():
@@ -833,7 +833,7 @@ else:
                         lo[numeric_parameter] = 0
                     val_up[numeric_parameter] = param_lists[numeric_parameter][up[numeric_parameter]]
                     val_lo[numeric_parameter] = param_lists[numeric_parameter][lo[numeric_parameter]]
-                
+
                 resource_factor = 1
                 ternary_parameter_set_lo = [0]*len(parameter_names)
                 for i, parameter_name in enumerate(parameter_names):
@@ -844,7 +844,6 @@ else:
                         ternary_parameter_set_lo[i] = df_results_interpolated[parameter_name][0]
                     if parameter_name in resource_proportional_parameters:
                         resource_factor *= val_lo[parameter_name]
-                        
 
                 perf_lo = df_search.loc[
                     idx[tuple(ternary_parameter_set_lo) + (r,)
@@ -877,7 +876,7 @@ else:
                 ternary_parameter_set_x1 = ternary_parameter_set_lo.copy()
                 ternary_parameter_set_x2 = ternary_parameter_set_lo.copy()
                 ternary_parameter_set_up = ternary_parameter_set_lo.copy()
-                
+
                 for numeric_parameter in numeric_parameters:
                     ternary_parameter_set_up[numeric_indices[numeric_parameter]] = val_up[numeric_parameter]
                 for r_index in r_indices:
@@ -984,7 +983,6 @@ else:
                                 perf_lo = df_search.loc[
                                 idx[tuple(ternary_parameter_set_lo) + (r,)
                                     ]][search_metric]
-                            
 
 
                 exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
@@ -1126,13 +1124,14 @@ if draw_plots:
 # %%
 # Data Analysis plot to see correlations among parameters for all the dataset
 # Given the amount of data we donwsample only using 1% of all the data to get some general idea of the distribution of the parameters
-# sns.pairplot(data=df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
-g = sns.PairGrid(data=df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
-g.map_upper(sns.scatterplot, hue_norm=(0.5,1))
-g.map_lower(sns.scatterplot, hue_norm=(0.5,1))
-# g.map_lower(sns.kdeplot)
-g.map_diag(sns.histplot, multiple="stack", bins=10, kde=True, hue_norm=(0.5,1))
-g.add_legend()
+if draw_plots:
+	# sns.pairplot(data=df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
+	g = sns.PairGrid(data=df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
+	g.map_upper(sns.scatterplot, hue_norm=(0.5,1))
+	g.map_lower(sns.scatterplot, hue_norm=(0.5,1))
+	# g.map_lower(sns.kdeplot)
+	g.map_diag(sns.histplot, multiple="stack", bins=10, kde=True, hue_norm=(0.5,1))
+	g.add_legend()
 # %%
 # Strategy Plot: Suggested parameters
 if draw_plots:

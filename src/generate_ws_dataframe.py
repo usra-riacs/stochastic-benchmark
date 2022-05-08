@@ -1,17 +1,14 @@
 # %%
-import pandas as pd
-import numpy as np
-import os
 import datetime
-import sys
 import itertools
-import pickle
 import os
-import functools
-from typing import List, Tuple, Union
+import random
 from bisect import bisect_left
 from math import hypot
-import random
+from typing import List, Tuple, Union
+
+import numpy as np
+import pandas as pd
 
 idx = pd.IndexSlice
 
@@ -21,13 +18,13 @@ jobid = 42
 
 # Input Parameters
 total_reads = 1000
-overwrite_pickles = True
+overwrite_pickles = False
 # if int(str(sys.argv[2])) == 1:
-if 0 == 1:
+if 1 == 1:
     ocean_df_flag = True
 else:
     ocean_df_flag = False
-use_raw_dataframes = True
+use_raw_dataframes = False
 draw_plots = True
 # instances_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/instances"
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
@@ -86,8 +83,8 @@ sizes = [100]
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
 # instances.append(int(jobid))
-instances = [i for i in range(0,20)] + [42]
-training_instances = [i for i in range(0,20)]
+instances = [i for i in range(0, 20)] + [42]
+training_instances = [i for i in range(0, 20)]
 Tcfactors = [0.0]
 Thfactors = list(np.linspace(-3, 1, num=33, endpoint=True))
 # Thfactors = [0.0]
@@ -100,7 +97,7 @@ bootstrap_iterations = 1000
 
 # Create dictionaries for upper and lower bounds of confidence intervals
 metrics = ['min_energy', 'rtt',
-                'perf_ratio', 'success_prob', 'mean_time', 'inv_perf_ratio']
+           'perf_ratio', 'success_prob', 'mean_time', 'inv_perf_ratio']
 lower_bounds = {key: None for key in metrics}
 lower_bounds['success_prob'] = 0.0
 lower_bounds['mean_time'] = 0.0
@@ -113,16 +110,18 @@ upper_bounds['perf_ratio'] = 1.0
 # %%
 # Function to interpolate dataframes across a resource column
 def interpolate_df(
-        dataframe: pd.DataFrame = None,
-        resource_column: str = 'reads',
-        prefix: str = '',
-        parameters_dict: dict = None,
-        default_boots: int = 1000,
-        minimum_boots: int = 1,
-        resource_proportional_parameters: list = ['sweep', 'replica'],
-        idx = pd.IndexSlice,
-        save_pickle: bool = True,
-    ):
+    dataframe: pd.DataFrame = None,
+    resource_column: str = 'reads',
+    prefix: str = '',
+    parameters_dict: dict = None,
+    default_boots: int = 1000,
+    minimum_boots: int = 1,
+    resource_proportional_parameters: list = ['sweep', 'replica'],
+    idx=pd.IndexSlice,
+    results_path: str = None,
+    save_pickle: bool = True,
+    overwrite_pickles: bool = True,
+):
     if dataframe is None:
         print('Error: Dataframe is None')
         return None
@@ -130,7 +129,6 @@ def interpolate_df(
         print('Error: Dataframe is empty')
         return None
     df = dataframe.copy()
-    dataframes = []
     parameter_names = list(parameters_dict.keys())
     parameter_sets = itertools.product(
         *(parameters_dict[Name] for Name in parameters_dict))
@@ -151,48 +149,73 @@ def interpolate_df(
         if r_parameters in parameter_names:
             r_indices.append(parameter_names.index(r_parameters))
 
+    dataframes = []
     for instance in instances:
-        for parameter_set in parameter_sets:
-            if parameter_set not in df_index.index.to_list():
-                print('Parameter set',parameter_set,'not found')
-                continue# For each parameter setting remove repeated reads
-            df_values = df_index.loc[idx[parameter_set]].copy()
-            if 'instance' in df.columns:
-                df_values = df_values.loc[df_values['instance'] == instance].copy()
-            df_original = df_values.drop_duplicates(
-                subset=resource_column, keep='first').copy()
-            resource_factor = 1
-            for r_index in r_indices:
-                resource_factor *= parameter_set[r_index]
-            # Set interpolation points for the responses at all the relevant reads values
-            interpolate_resource = resouce_values[
-                np.where(
-                    (resouce_values <= default_boots*resource_factor) & 
-                    (resouce_values >= minimum_boots*resource_factor)
+        df_name_partial = prefix.rsplit(
+            '.')[0] + str(instance) + '_partial.pkl'
+        df_path_partial = os.path.join(results_path, df_name_partial)
+        if os.path.exists(df_path_partial) and not overwrite_pickles:
+            print('Loaded partial dataframe from file')
+            df_interpolate = pd.read_pickle(df_path_partial)
+        else:
+            dataframes_instance = []
+            for parameter_set in parameter_sets:
+                if parameter_set not in df_index.index.to_list():
+                    print('Parameter set', parameter_set, 'not found')
+                    continue  # For each parameter setting remove repeated reads
+                df_values = df_index.loc[idx[parameter_set]].copy()
+                if 'instance' in df.columns:
+                    df_values = df_values.loc[df_values['instance'] == instance].copy(
+                    )
+                df_original = df_values.drop_duplicates(
+                    subset=resource_column, keep='first').copy()
+                resource_factor = 1
+                for r_index in r_indices:
+                    resource_factor *= parameter_set[r_index]
+                # Set interpolation points for the responses at all the relevant reads values
+                interpolate_resource = resouce_values[
+                    np.where(
+                        (resouce_values <= default_boots*resource_factor) &
+                        (resouce_values >= minimum_boots*resource_factor)
                     )
                 ]
-            # Create a dataframe with the interesting reads as index and all the columns
-            dummy_df = pd.DataFrame(
-                np.NaN,
-                index = interpolate_resource,
-                columns = df_original.columns
+                # Create a dataframe with the interesting reads as index and all the columns
+                dummy_df = pd.DataFrame(
+                    np.NaN,
+                    index=interpolate_resource,
+                    columns=df_original.columns
                 )
-            dummy_df.drop(columns=resource_column, inplace=True)
-            # Fill out the values that we have certain
-            df_interpolate = dummy_df.combine_first(
-                df_original.set_index(resource_column)).copy()
-            # Interpolate for all the other values (not extrapolated)
-            df_interpolate = df_interpolate.interpolate(
-                method='linear', limit_area='inside'
+                dummy_df.drop(columns=resource_column, inplace=True)
+                # Fill out the values that we have certain
+                df_interpolate = dummy_df.combine_first(
+                    df_original.set_index(resource_column)).copy()
+                # Interpolate for all the other values (not extrapolated)
+                df_interpolate = df_interpolate.interpolate(
+                    method='linear', limit_area='inside'
                 ).dropna(how='all').reset_index().rename(
-                    columns={'index':resource_column}).copy()
-            # Computing the boots column
-            df_interpolate['boots'] = df_interpolate[resource_column]/resource_factor
-            # Reading the parameter columns
-            for key, value in zip(parameter_names,parameter_set):
-                df_interpolate[key] = value
-            if 'instance' in df.columns:
-                df_interpolate['instance'] = instance
+                    columns={'index': resource_column})
+                # Computing the boots column
+                df_interpolate['boots'] = df_interpolate[resource_column] / \
+                    resource_factor
+                # Reading the parameter columns
+                for key, value in zip(parameter_names, parameter_set):
+                    df_interpolate[key] = value
+                if 'instance' in df.columns:
+                    df_interpolate['instance'] = instance
+                dataframes_instance.append(df_interpolate)
+            df_interpolate = pd.concat(
+                dataframes_instance).reset_index(drop=True)
+            df_interpolate.to_pickle(df_path_partial)
+
+    dataframes = []
+    if len(instances) == 1:
+        dataframes = dataframes_instance
+    else:
+        for instance in instances:
+            df_name_partial = prefix.rsplit(
+                '.')[0] + str(instance) + '_partial.pkl'
+            df_path_partial = os.path.join(results_path, df_name_partial)
+            df_interpolate = pd.read_pickle(df_path_partial)
             dataframes.append(df_interpolate)
 
     if all([len(i) == 0 for i in dataframes]):
@@ -205,6 +228,8 @@ def interpolate_df(
         df_interpolated.to_pickle(df_path_interpolated)
     return df_interpolated
 # %%
+
+
 def take_closest(myList, myNumber):
     """
     Assumes myList is sorted. Returns closest value to myNumber.
@@ -292,11 +317,11 @@ for parameter_name in parameter_names:
         stale_parameters.append(parameter_name)
     else:
         varying_parameters.append(parameter_name)
-        if isinstance(locals()[parameter_name+'s'][0],int) or isinstance(locals()[parameter_name+'s'][0],float):
+        if isinstance(locals()[parameter_name+'s'][0], int) or isinstance(locals()[parameter_name+'s'][0], float):
             numeric_parameters.append(parameter_name)
 included_parameters = df_results_all[numeric_parameters].values
 # Set the parameter sets as those in the results dataframe
-df_results_all['params'] = df_results_all[parameter_names].apply(tuple, axis = 1)
+df_results_all['params'] = df_results_all[parameter_names].apply(tuple, axis=1)
 parameter_sets = list(set(df_results_all['params'].values))
 # %%
 # Main execution
@@ -310,8 +335,10 @@ for size in sizes:
         df_stats = None
     else:
         df_stats = pd.read_pickle(df_path_stats)
-        df_name_stats_interpolated = df_name_stats.rsplit('.')[0] + '_interp.pkl'
-        df_path_stats_interpolated = os.path.join(results_path, df_name_stats_interpolated)
+        df_name_stats_interpolated = df_name_stats.rsplit('.')[
+            0] + '_interp.pkl'
+        df_path_stats_interpolated = os.path.join(
+            results_path, df_name_stats_interpolated)
         if os.path.exists(df_path_stats_interpolated) and not overwrite_pickles:
             df_stats_interpolated = pd.read_pickle(df_path_stats_interpolated)
         else:
@@ -323,10 +350,11 @@ for size in sizes:
                 default_boots=default_boots,
                 minimum_boots=minimum_boots,
                 resource_proportional_parameters=['sweep', 'replica'],
-                idx = idx,
+                idx=idx,
+                results_path=results_path,
                 save_pickle=True,
+                overwrite_pickles=overwrite_pickles,
             )
-    
 
     df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
     df_path_interpolated = os.path.join(results_path, df_name_interpolated)
@@ -341,8 +369,10 @@ for size in sizes:
             default_boots=default_boots,
             minimum_boots=minimum_boots,
             resource_proportional_parameters=['sweep', 'replica'],
-            idx = idx,
+            idx=idx,
+            results_path=results_path,
             save_pickle=True,
+            overwrite_pickles=overwrite_pickles,
         )
 
 # %%
@@ -357,6 +387,10 @@ df_name_recipe_lazy = df_name_all.rsplit('.')[0] + '_recipe_lazy.pkl'
 df_path_recipe_lazy = os.path.join(results_path, df_name_recipe_lazy)
 df_name_recipe_mean_best = df_name_all.rsplit('.')[0] + '_recipe_mean_best.pkl'
 df_path_recipe_mean_best = os.path.join(results_path, df_name_recipe_mean_best)
+
+response_column = 'perf_ratio'
+response_direction = 1
+
 if os.path.exists(df_path_virtual) and os.path.exists(df_path_recipe_mean_best) and os.path.exists(df_path_recipe_lazy) and not use_raw_dataframes:
     df_virtual = pd.read_pickle(df_path_virtual)
     recipe_lazy = pd.read_pickle(df_path_recipe_lazy)
@@ -365,100 +399,101 @@ else:
 
     # Computation of virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
 
-    response_column='perf_ratio'
-    response_direction=1
-
     # df_virtual = df_virtual.merge(
-    if response_direction == -1: # Minimization
-        df_virtual = df_results_interpolated[[response_column] + parameter_names + ['instance','reads']].set_index(
-                parameter_names
-                ).groupby(['instance','reads']
-                )[response_column].min().reset_index().set_index(
-                    ['instance']
-                    ).groupby(['reads']
-                    ).median().reset_index().sort_values(
-                    ['reads']).rename(columns={response_column: 'virt_best_'+response_column})
-    else: # Maximization
-        df_virtual = df_results_interpolated[[response_column] + parameter_names + ['instance','reads']].set_index(
-                parameter_names
-                ).groupby(['instance','reads']
-                )[response_column].max().reset_index().set_index(
-                    ['instance']
-                    ).groupby(['reads']
-                    ).median().reset_index().sort_values(
-                    ['reads']).rename(columns={response_column: 'virt_best_'+response_column})
-            #     ).expanding(min_periods=1).max(),
-            # on=['reads'],
-            # how='left')
+    if response_direction == -1:  # Minimization
+        df_virtual = df_results_interpolated[[response_column] + parameter_names + ['instance', 'reads']].set_index(
+            parameter_names
+        ).groupby(['instance', 'reads']
+                  )[response_column].min().reset_index().set_index(
+            ['instance']
+        ).groupby(['reads']
+                  ).median().reset_index().sort_values(
+            ['reads']).rename(columns={response_column: 'virt_best_'+response_column})
+    else:  # Maximization
+        df_virtual = df_results_interpolated[[response_column] + parameter_names + ['instance', 'reads']].set_index(
+            parameter_names
+        ).groupby(['instance', 'reads']
+                  )[response_column].max().reset_index().set_index(
+            ['instance']
+        ).groupby(['reads']
+                  ).median().reset_index().sort_values(
+            ['reads']).rename(columns={response_column: 'virt_best_'+response_column})
+        #     ).expanding(min_periods=1).max(),
+        # on=['reads'],
+        # how='left')
     # TODO Generalize direction of search
 
     df_virtual = df_virtual.merge(df_results_interpolated[
-        [response_column] + parameter_names + ['instance','reads']
-        ].set_index(
-                parameter_names
-                ).groupby(['instance','reads']
-                )[response_column].max().reset_index().set_index(
-                    ['instance']
-                    ).groupby(['reads']
-                    ).max().reset_index().sort_values(
-                    ['reads']).rename(columns={response_column: 'envelope_'+response_column}),
+        [response_column] + parameter_names + ['instance', 'reads']
+    ].set_index(
+        parameter_names
+    ).groupby(['instance', 'reads']
+              )[response_column].max().reset_index().set_index(
+        ['instance']
+    ).groupby(['reads']
+              ).max().reset_index().sort_values(
+        ['reads']).rename(columns={response_column: 'envelope_'+response_column}),
         on=['reads'],
         how='left')
 
     # Recipe to obtain parameter setting that optimizes the median of the response (across instances) in the statistics dataframe for each read
     recipe_lazy = df_stats_interpolated[
-            ['median_'+response_column] + parameter_names + ['reads']
-        ].set_index(
-            parameter_names
-        ).groupby(['reads']
-            ).idxmax().rename(
-                columns={'median_'+response_column:'recipe'})
+        ['median_'+response_column] + parameter_names + ['reads']
+    ].set_index(
+        parameter_names
+    ).groupby(['reads']
+              ).idxmax().rename(
+        columns={'median_'+response_column: 'recipe'})
 
     df_virtual = df_virtual.merge(
         df_stats_interpolated[
             ['median_'+response_column] + parameter_names + ['reads']
         ].set_index(
-                parameter_names
-                ).groupby(['reads']
-                ).max().reset_index().rename(columns={'median_perf_ratio':'lazy_perf_ratio'}))
+            parameter_names
+        ).groupby(['reads']
+                  ).max().reset_index().rename(columns={'median_perf_ratio': 'lazy_perf_ratio'}))
 
     recipe_lazy = recipe_lazy.merge(
         recipe_lazy['recipe'].apply(pd.Series).rename(
-            columns={i: parameter_names[i] for i in range(len(parameter_names))}
-            ).reset_index(),
-            on=['reads'],
-            how='left')
+            columns={i: parameter_names[i]
+                     for i in range(len(parameter_names))}
+        ).reset_index(),
+        on=['reads'],
+        how='left')
 
-    recipe_lazy=recipe_lazy.merge(
+    recipe_lazy = recipe_lazy.merge(
         df_stats_interpolated[
             ['median_'+response_column] + parameter_names + ['reads']
         ].set_index(
-                parameter_names
-                ).groupby(['reads']
-                ).max().reset_index(),
-            on=['reads'],
-            how='left')
+            parameter_names
+        ).groupby(['reads']
+                  ).max().reset_index(),
+        on=['reads'],
+        how='left')
 
     # Recipe to obtain parameter setting that optimizes the response  in the results dataframe for each instance and read, then takes the mean of the parameters across instances, for each read.
     # There is an extra projection step into the parameter values
     recipe_mean_best_params = df_results_interpolated[
-            [response_column] + parameter_names + ['instance','reads']
-        ].set_index(
+        [response_column] + parameter_names + ['instance', 'reads']
+    ].set_index(
         numeric_parameters
-        ).groupby(['instance','reads']
-            )[response_column].idxmax().apply(pd.Series).reset_index().set_index(
-                ['instance']
-                ).groupby(['reads']
-                ).mean().rename(columns={i: numeric_parameters[i] for i in range(len(numeric_parameters))}).reset_index()
+    ).groupby(['instance', 'reads']
+              )[response_column].idxmax().apply(pd.Series).reset_index().set_index(
+        ['instance']
+    ).groupby(['reads']
+              ).mean().rename(columns={i: numeric_parameters[i] for i in range(len(numeric_parameters))}).reset_index()
 
     for stale_parameter in stale_parameters:
-        recipe_mean_best_params[stale_parameter] = locals()[stale_parameter+'s'][0]
+        recipe_mean_best_params[stale_parameter] = locals()[
+            stale_parameter+'s'][0]
 
     # Project the numeric parameters in the recipe to the evaluated parameters
     for numeric_parameter in numeric_parameters:
         # parameter_list = locals()[numeric_parameter+'s']
-        parameter_list = np.sort(df_results_interpolated[numeric_parameter].unique())
-        recipe_mean_best_params[numeric_parameter]=recipe_mean_best_params[numeric_parameter].apply(lambda x: take_closest(parameter_list,x))
+        parameter_list = np.sort(
+            df_results_interpolated[numeric_parameter].unique())
+        recipe_mean_best_params[numeric_parameter] = recipe_mean_best_params[numeric_parameter].apply(
+            lambda x: take_closest(parameter_list, x))
 
     # # Project the reads to the closest value in boots_list*sweeps
     # recipe_mean_best_params['boots'] = recipe_mean_best_params.index/recipe_mean_best_params['sweeps']
@@ -467,33 +502,39 @@ else:
     # recipe_mean_best_params.index.rename('reads',inplace=True)
 
     # Join parameters in recipe to single column
-    recipe_mean_best_params['params'] = recipe_mean_best_params[parameter_names].apply(tuple, axis = 1)
-    df_results_interpolated['params'] = df_results_interpolated[parameter_names].apply(tuple, axis = 1)
+    recipe_mean_best_params['params'] = recipe_mean_best_params[parameter_names].apply(
+        tuple, axis=1)
+    df_results_interpolated['params'] = df_results_interpolated[parameter_names].apply(
+        tuple, axis=1)
 
     # Projecting parameter setting absent in the original dataframe to one that is available using the Euclidean norm.
     # TODO The euclidean norm does not take into account the fact that the scale of the parameters is different. Moreover, it does not work with non-numerical data
     # TODO performance improvement here. This is by no means efficient.
-    dist_eucl = lambda a, b: hypot(b[0]-a[0], b[0]-a[0])
+    def dist_eucl(a, b): return hypot(b[0]-a[0], b[0]-a[0])
     if not all([i in df_results_all['params'].values for i in recipe_mean_best_params['params'].values]):
         for index, row in recipe_mean_best_params.iterrows():
             if row['params'] not in set(df_results_all['params'].tolist()):
                 non_included_parameters = row[numeric_parameters].values
-                print('These parameters are not included in the original database', non_included_parameters)
-                new_parameters = min(included_parameters, key=lambda co: dist_eucl(co, non_included_parameters))
+                print('These parameters are not included in the original database',
+                      non_included_parameters)
+                new_parameters = min(included_parameters, key=lambda co: dist_eucl(
+                    co, non_included_parameters))
                 print('Projected parameters as', new_parameters)
                 for i, numeric_parameter in enumerate(numeric_parameters):
                     recipe_mean_best_params[numeric_parameter][index] = new_parameters[i]
 
     # Join parameters in recipe to single column
-    recipe_mean_best_params['params'] = recipe_mean_best_params[parameter_names].apply(tuple, axis = 1)
-    recipe_mean_best_params['recipe'] = recipe_mean_best_params[parameter_names + ['reads']].apply(tuple, axis = 1)
+    recipe_mean_best_params['params'] = recipe_mean_best_params[parameter_names].apply(
+        tuple, axis=1)
+    recipe_mean_best_params['recipe'] = recipe_mean_best_params[parameter_names + [
+        'reads']].apply(tuple, axis=1)
 
     dummy_df = df_stats_interpolated[
-            ['median_'+response_column] + parameter_names + ['reads']    
-        ].set_index(
+        ['median_'+response_column] + parameter_names + ['reads']
+    ].set_index(
         parameter_names + ['reads']
-        ).loc[pd.MultiIndex.from_tuples(recipe_mean_best_params['recipe']
-        )].copy()
+    ).loc[pd.MultiIndex.from_tuples(recipe_mean_best_params['recipe']
+                                    )].copy()
 
     dummy_df.index.rename(parameter_names + ['reads'], inplace=True)
 
@@ -589,7 +630,7 @@ def process_df_progress(
     ).expanding(min_periods=1).min()[expanding_metric]
     df_progress['best_perf_ratio'] = 1 - \
         df_progress['best_inv_perf_ratio'] + EPSILON
-    
+
     if 'f_explor' not in df_progress:
         df_progress['f_explor'] = df_progress['R_explor'] / \
             df_progress['R_budget']
@@ -630,30 +671,35 @@ def process_df_progress(
 
     for column in df_progress_best.columns:
         if 'idx' in column:
-            df_progress_best=df_progress_best.merge(df_progress_best[
+            df_progress_best = df_progress_best.merge(df_progress_best[
                 'idxmean_median_perf_ratio'
-                ].apply(pd.Series).rename(
-                columns={i: experiment_setting[i] for i in range(len(experiment_setting))}
-                ), on='R_budget', how='left')
+            ].apply(pd.Series).rename(
+                columns={i: experiment_setting[i]
+                         for i in range(len(experiment_setting))}
+            ), on='R_budget', how='left')
 
     if 'f_explor' not in df_progress_best.columns:
         df_progress_best['f_explor'] = df_progress_best['R_explor'] / \
             df_progress_best['R_budget']
     return df_progress_best, df_progress_end
 
+
 # %%
 # Random search for the ensemble
 repetitions = 10  # Times to run the algorithm
-rs = [10, 20, 50, 100, 200, 500, 1000]  # resources per parameter setting (reads/resource_factor = boots)
+# resources per parameter setting (reads/resource_factor = boots)
+rs = [10, 20, 50, 100, 200, 500, 1000]
 frac_r_exploration = [0.05, 0.1, 0.2, 0.5, 0.75]
-R_budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7] for j in [3, 4, 5]] + [1e6] # Total search budget (reads)
+R_budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7]
+             for j in [3, 4, 5]] + [1e6]  # Total search budget (reads)
 experiments = rs * repetitions
 df_name_progress = df_name_all.rsplit('.')[0] + '_progress_binary.pkl'
 df_path_progress = os.path.join(results_path, df_name_progress)
 search_metric = 'median_'+response_column
 compute_metric = 'median_'+response_column
 df_search = df_stats_interpolated[
-    parameter_names + list(set([compute_metric] + [search_metric])) + ['boots','reads']
+    parameter_names +
+    list(set([compute_metric] + [search_metric])) + ['boots', 'reads']
 ].set_index(
     parameter_names + ['boots']
 ).sort_index()
@@ -668,7 +714,7 @@ resource_proportional_parameters = ['sweep', 'replica']
 for r_parameters in resource_proportional_parameters:
     if r_parameters in parameter_names:
         r_indices.append(parameter_names.index(r_parameters))
-use_raw_dataframes = True
+use_raw_dataframes = False
 if os.path.exists(df_path_progress) and not use_raw_dataframes:
     df_progress_total = pd.read_pickle(df_path_progress)
 else:
@@ -690,16 +736,17 @@ else:
                     # Conservative estimate of very unlikely scenario that we choose all sweeps=1
                     # % Question: Should we replace these samples? We are replacing now
 
-                    
                     all_reads = df_reads.loc[
                         idx[random_parameter_sets[0]]
                     ]
                     resource_factor = 1
                     for r_index in r_indices:
                         resource_factor *= random_parameter_sets[0][r_index]
-                    actual_reads = take_closest(all_reads.values,r*resource_factor)[0]
+                    actual_reads = take_closest(
+                        all_reads.values, r*resource_factor)[0]
                     # Start random exploration with best found point
-                    series_list = [df_search.loc[idx[random_parameter_sets[0]+((actual_reads / resource_factor),)]]]
+                    series_list = [
+                        df_search.loc[idx[random_parameter_sets[0]+((actual_reads / resource_factor),)]]]
                     total_reads = actual_reads
 
                     if total_reads > R_exploration:
@@ -755,7 +802,8 @@ else:
                     progress_list.append(exploitation_step)
     df_progress_total = pd.concat(progress_list, axis=0)
     df_progress_total.reset_index(inplace=True)
-    df_progress_total['f_explor'] = df_progress_total['R_explor'] / df_progress_total['R_budget']
+    df_progress_total['f_explor'] = df_progress_total['R_explor'] / \
+        df_progress_total['R_budget']
     df_progress_total.to_pickle(df_path_progress)
 # for stat_measure in ['median']:
 #     if 'best_' + stat_measure + '_perf_ratio' not in df_progress_total.columns:
@@ -787,21 +835,21 @@ df_progress_best, df_progress_end = process_df_progress(
 experiments = rs * repetitions
 df_name_progress_ternary = df_name_all.rsplit('.')[0] + '_progress_ternary.pkl'
 df_path_progress_ternary = os.path.join(results_path, df_name_progress_ternary)
-use_raw_dataframes = True
+use_raw_dataframes = False
 if os.path.exists(df_path_progress_ternary) and not use_raw_dataframes:
     df_progress_total_ternary = pd.read_pickle(df_path_progress_ternary)
 else:
     progress_list = []
     for R_budget in R_budgets:
-    # for R_budget in [1e4]:
+        # for R_budget in [1e4]:
         for frac_expl_total in frac_r_exploration:
-        # for frac_expl_total in [0.25, 0.5]:
+            # for frac_expl_total in [0.25, 0.5]:
             # budget for exploration (runs)
             R_exploration = int(R_budget*frac_expl_total)
             # budget for exploitation (runs)
             R_exploitation = R_budget - R_exploration
             for r in rs:
-            # for r in [10]:
+                # for r in [10]:
                 series_list = []
                 # Dictionaries containing the parameters indices
                 up = dict.fromkeys(numeric_parameters)
@@ -815,15 +863,20 @@ else:
                 param_lists = dict.fromkeys(numeric_parameters)
                 numeric_indices = dict.fromkeys(numeric_parameters)
                 for numeric_parameter in numeric_parameters:
-                    numeric_indices[numeric_parameter] = parameter_names.index(numeric_parameter)
-                    param_lists[numeric_parameter]=list(df_results_interpolated[numeric_parameter].unique())
+                    numeric_indices[numeric_parameter] = parameter_names.index(
+                        numeric_parameter)
+                    param_lists[numeric_parameter] = list(
+                        df_results_interpolated[numeric_parameter].unique())
                     param_lists[numeric_parameter].sort()
                     if numeric_parameter == 'Thfactor':
                         # Workaround for incomplete experiments, setting index to 24 in Thfactor such that it is always zero
-                        up[numeric_parameter] = param_lists[numeric_parameter].index(0.0)
-                        lo[numeric_parameter] = param_lists[numeric_parameter].index(0.0)
+                        up[numeric_parameter] = param_lists[numeric_parameter].index(
+                            0.0)
+                        lo[numeric_parameter] = param_lists[numeric_parameter].index(
+                            0.0)
                     else:
-                        up[numeric_parameter] = len(param_lists[numeric_parameter]) - 1
+                        up[numeric_parameter] = len(
+                            param_lists[numeric_parameter]) - 1
                         lo[numeric_parameter] = 0
                     val_up[numeric_parameter] = param_lists[numeric_parameter][up[numeric_parameter]]
                     val_lo[numeric_parameter] = param_lists[numeric_parameter][lo[numeric_parameter]]
@@ -852,13 +905,13 @@ else:
                     idx[tuple(ternary_parameter_set_lo) + (r,)
                         ]])
 
-
                 # First step (before first exploration)
                 first_step = df_search.reset_index().set_index(
                     parameter_names).loc[tuple(ternary_parameter_set_lo)].copy()
                 first_step['cum_reads'] = first_step['reads']
                 first_step.sort_values(['cum_reads'], inplace=True)
-                first_step = first_step[first_step['cum_reads'] <= total_reads].copy()
+                first_step = first_step[first_step['cum_reads']
+                                        <= total_reads].copy()
                 first_step[compute_metric].fillna(
                     0, inplace=True)
                 first_step['run_per_solve'] = r
@@ -872,7 +925,8 @@ else:
                 ternary_parameter_set_up = ternary_parameter_set_lo.copy()
 
                 for numeric_parameter in numeric_parameters:
-                    ternary_parameter_set_up[numeric_indices[numeric_parameter]] = val_up[numeric_parameter]
+                    ternary_parameter_set_up[numeric_indices[numeric_parameter]
+                                             ] = val_up[numeric_parameter]
                 for r_index in r_indices:
                     resource_factor *= ternary_parameter_set_up[r_index]
 
@@ -898,19 +952,21 @@ else:
                                 continue
                             if lo[numeric_parameter] > up[numeric_parameter]:
                                 continue
-                            x1[numeric_parameter] = int(lo[numeric_parameter] + (up[numeric_parameter] - lo[numeric_parameter]) / 3)
-                            x2[numeric_parameter] = int(up[numeric_parameter] - (up[numeric_parameter] - lo[numeric_parameter]) / 3)
+                            x1[numeric_parameter] = int(
+                                lo[numeric_parameter] + (up[numeric_parameter] - lo[numeric_parameter]) / 3)
+                            x2[numeric_parameter] = int(
+                                up[numeric_parameter] - (up[numeric_parameter] - lo[numeric_parameter]) / 3)
                             val_x1[numeric_parameter] = param_lists[numeric_parameter][x1[numeric_parameter]]
 
                             resource_factor = 1
-                            ternary_parameter_set_x1[numeric_indices[numeric_parameter]] = val_x1[numeric_parameter]
+                            ternary_parameter_set_x1[numeric_indices[numeric_parameter]
+                                                     ] = val_x1[numeric_parameter]
                             for r_index in r_indices:
                                 resource_factor *= ternary_parameter_set_x1[r_index]
                             perf_x1 = df_search.loc[
                                 idx[tuple(ternary_parameter_set_x1) + (r,)
                                     ]][search_metric]
-                        
-                                    
+
                             total_reads += r*resource_factor
                             if total_reads > R_exploration:
                                 break
@@ -919,7 +975,8 @@ else:
                                     ]])
                             val_x2[numeric_parameter] = param_lists[numeric_parameter][x2[numeric_parameter]]
 
-                            ternary_parameter_set_x2[numeric_indices[numeric_parameter]] = val_x2[numeric_parameter]
+                            ternary_parameter_set_x2[numeric_indices[numeric_parameter]
+                                                     ] = val_x2[numeric_parameter]
                             for r_index in r_indices:
                                 resource_factor *= ternary_parameter_set_x2[r_index]
 
@@ -936,12 +993,13 @@ else:
                             if perf_x2 == perf_up:
                                 up[numeric_parameter] -= 1
                                 val_up[numeric_parameter] = param_lists[numeric_parameter][up[numeric_parameter]]
-                                ternary_parameter_set_up[numeric_indices[numeric_parameter]] = val_up[numeric_parameter]
+                                ternary_parameter_set_up[numeric_indices[numeric_parameter]
+                                                         ] = val_up[numeric_parameter]
                                 for r_index in r_indices:
                                     resource_factor *= ternary_parameter_set_up[r_index]
                                 perf_up = df_search.loc[
-                                idx[tuple(ternary_parameter_set_up) + (r,)
-                                    ]][search_metric]
+                                    idx[tuple(ternary_parameter_set_up) + (r,)
+                                        ]][search_metric]
                                 total_reads += r*resource_factor
                                 if total_reads > R_exploration:
                                     break
@@ -951,12 +1009,13 @@ else:
                             elif perf_x1 == perf_lo:
                                 lo[numeric_parameter] += 1
                                 val_lo[numeric_parameter] = param_lists[numeric_parameter][lo[numeric_parameter]]
-                                ternary_parameter_set_lo[numeric_indices[numeric_parameter]] = val_lo[numeric_parameter]
+                                ternary_parameter_set_lo[numeric_indices[numeric_parameter]
+                                                         ] = val_lo[numeric_parameter]
                                 for r_index in r_indices:
                                     resource_factor *= ternary_parameter_set_lo[r_index]
                                 perf_lo = df_search.loc[
-                                idx[tuple(ternary_parameter_set_lo) + (r,)
-                                    ]][search_metric]
+                                    idx[tuple(ternary_parameter_set_lo) + (r,)
+                                        ]][search_metric]
                                 total_reads += r*resource_factor
                                 if total_reads > R_exploration:
                                     break
@@ -966,18 +1025,19 @@ else:
                             elif perf_x1 > perf_x2:
                                 up[numeric_parameter] = x2[numeric_parameter]
                                 val_up[numeric_parameter] = param_lists[numeric_parameter][up[numeric_parameter]]
-                                ternary_parameter_set_up[numeric_indices[numeric_parameter]] = val_up[numeric_parameter]
+                                ternary_parameter_set_up[numeric_indices[numeric_parameter]
+                                                         ] = val_up[numeric_parameter]
                                 perf_up = df_search.loc[
-                                idx[tuple(ternary_parameter_set_up) + (r,)
-                                    ]][search_metric]
+                                    idx[tuple(ternary_parameter_set_up) + (r,)
+                                        ]][search_metric]
                             else:
                                 lo[numeric_parameter] = x1[numeric_parameter]
                                 val_lo[numeric_parameter] = param_lists[numeric_parameter][lo[numeric_parameter]]
-                                ternary_parameter_set_lo[numeric_indices[numeric_parameter]] = val_lo[numeric_parameter]
+                                ternary_parameter_set_lo[numeric_indices[numeric_parameter]
+                                                         ] = val_lo[numeric_parameter]
                                 perf_lo = df_search.loc[
-                                idx[tuple(ternary_parameter_set_lo) + (r,)
-                                    ]][search_metric]
-
+                                    idx[tuple(ternary_parameter_set_lo) + (r,)
+                                        ]][search_metric]
 
                 exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
                     parameter_names + ['boots'])
@@ -997,7 +1057,8 @@ else:
                 exploitation_step['cum_reads'] = exploitation_step['reads'] + \
                     exploration_step['cum_reads'].max()
                 exploitation_step.sort_values(['cum_reads'], inplace=True)
-                exploitation_step = exploitation_step[exploitation_step['cum_reads'] < R_budget].copy()
+                exploitation_step = exploitation_step[exploitation_step['cum_reads'] < R_budget].copy(
+                )
                 exploitation_step[compute_metric].fillna(
                     0, inplace=True)
                 exploitation_step[compute_metric].clip(
@@ -1011,7 +1072,8 @@ else:
                 progress_list.append(exploitation_step)
     df_progress_total_ternary = pd.concat(progress_list, axis=0)
     df_progress_total_ternary.reset_index(inplace=True)
-    df_progress_total['f_explor'] = df_progress_total['R_explor'] / df_progress_total['R_budget']
+    df_progress_total['f_explor'] = df_progress_total['R_explor'] / \
+        df_progress_total['R_budget']
     df_progress_total_ternary.to_pickle(df_path_progress_ternary)
 
 
@@ -1074,66 +1136,77 @@ labels = {
 
 # %%
 if draw_plots:
-    import seaborn as sns
     import matplotlib.pyplot as plt
+    import seaborn as sns
 # %%
 # Windows Stickers Plot
 if draw_plots:
     # Windows sticker plot with virtual best, suggested parameters, best from TTS, default parameters, random search, and ternary search
     fig, ax = plt.subplots()
-    sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual, ax=ax, estimator=None, label='Median virtual best')
-    sns.lineplot(x='reads', y='lazy_perf_ratio', data=df_virtual, ax=ax, estimator=None, label='Median suggested mean parameter')
+    sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual,
+                 ax=ax, estimator=None, label='Median virtual best')
+    sns.lineplot(x='reads', y='lazy_perf_ratio', data=df_virtual,
+                 ax=ax, estimator=None, label='Median suggested mean parameter')
     best_tts_param = df_stats_interpolated.nsmallest(
-                    1, 'median_rtt'
-                    ).set_index(parameter_names).index.values
+        1, 'median_rtt'
+    ).set_index(parameter_names).index.values
     best_tts = df_stats_interpolated[parameter_names + ['reads', 'median_perf_ratio']].set_index(
         parameter_names
-        ).loc[
-            best_tts_param].reset_index()
+    ).loc[
+        best_tts_param].reset_index()
     default_params = []
     if parameters_dict is not None:
         for i, j in parameters_dict.items():
             default_params.append(default_parameters[i][0])
     default_performance = df_stats_interpolated[parameter_names + ['reads', 'median_perf_ratio']].set_index(
         parameter_names
-        ).loc[
-            tuple(default_params)].reset_index()
-    sns.lineplot(x='reads', y='median_perf_ratio', data=best_tts, ax=ax, estimator=None, label='Median best TTS parameter \n' + " ".join([str(parameter_names[i] + ':' + str(best_tts_param[0][i])) for i in range(len(parameter_names))]))
-    sns.lineplot(x='reads', y='median_perf_ratio', data=default_performance, ax=ax, estimator=None, label='Median default parameter \n' + " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]))
-    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best, ax=ax, estimator=None, label='Median best random search expl-expl')
-    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best_ternary, ax=ax, estimator=None, label='Median best ternary search expl-expl')
+    ).loc[
+        tuple(default_params)].reset_index()
+    sns.lineplot(x='reads', y='median_perf_ratio', data=best_tts, ax=ax, estimator=None, label='Median best TTS parameter \n' +
+                 " ".join([str(parameter_names[i] + ':' + str(best_tts_param[0][i])) for i in range(len(parameter_names))]))
+    sns.lineplot(x='reads', y='median_perf_ratio', data=default_performance, ax=ax, estimator=None, label='Median default parameter \n' +
+                 " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]))
+    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best,
+                 ax=ax, estimator=None, label='Median best random search expl-expl')
+    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best_ternary,
+                 ax=ax, estimator=None, label='Median best ternary search expl-expl')
     ax.set(xscale='log')
-    ax.set(ylim=[0.98,1.001])
-    ax.set(xlim=[5e2,5e4])
+    ax.set(ylim=[0.98, 1.001])
+    ax.set(xlim=[5e2, 5e4])
     ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
     ax.set(xlabel='Total number of spin variable reads (proportional to time)')
     if ocean_df_flag:
         solver = 'dneal'
     else:
         solver = 'pysa'
-    ax.set(title='Windows sticker plot \n instances SK ' + prefix.rsplit('_inst')[0] + '\n solver ' + solver )
+    ax.set(title='Windows sticker plot \n instances SK ' +
+           prefix.rsplit('_inst')[0] + '\n solver ' + solver)
     plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
-          fancybox=True)
+               fancybox=True)
 
 # %%
 # Data Analysis plot to see correlations among parameters for all the dataset
 # Given the amount of data we donwsample only using 1% of all the data to get some general idea of the distribution of the parameters
 if draw_plots:
-	# sns.pairplot(data=df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
-	g = sns.PairGrid(data=df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
-	g.map_upper(sns.scatterplot, hue_norm=(0.5,1))
-	g.map_lower(sns.scatterplot, hue_norm=(0.5,1))
-	# g.map_lower(sns.kdeplot)
-	g.map_diag(sns.histplot, multiple="stack", bins=10, kde=True, hue_norm=(0.5,1))
-	g.add_legend()
+    # sns.pairplot(data=df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
+    g = sns.PairGrid(data=df_stats_interpolated[varying_parameters + [
+                     'median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
+    g.map_upper(sns.scatterplot, hue_norm=(0.5, 1))
+    g.map_lower(sns.scatterplot, hue_norm=(0.5, 1))
+    # g.map_lower(sns.kdeplot)
+    g.map_diag(sns.histplot, multiple="stack",
+               bins=10, kde=False, hue_norm=(0.5, 1))
+    g.add_legend()
 # %%
 # Strategy Plot: Suggested parameters
 if draw_plots:
     # Strategy plot showing how the best parameters change with respect to the resource budget
     for parameter_name in varying_parameters:
         fig, ax = plt.subplots()
-        sns.lineplot(x='reads', y=parameter_name, data=recipe_lazy, ax=ax, estimator=None, label='Suggested ' + parameter_name + '\n median over instances, then best parameter, \n and projected into database for every resource budget')
-        sns.lineplot(x='reads', y=parameter_name, data=recipe_mean_best_params, ax=ax, estimator=None, label='Suggested ' + parameter_name + '\n best parameters for every instance and resource budget, \n median over instances, mean over parameters, \n and projected into database for every read')
+        sns.lineplot(x='reads', y=parameter_name, data=recipe_lazy, ax=ax, estimator=None, label='Suggested ' + parameter_name +
+                     '\n median over instances, then best parameter, \n and projected into database for every resource budget')
+        sns.lineplot(x='reads', y=parameter_name, data=recipe_mean_best_params, ax=ax, estimator=None, label='Suggested ' + parameter_name +
+                     '\n best parameters for every instance and resource budget, \n median over instances, mean over parameters, \n and projected into database for every read')
         ax.set(xscale='log')
         # ax.set(ylim=[0.98,1.001])
         # ax.set(xlim=[5e2,5e4])
@@ -1143,22 +1216,27 @@ if draw_plots:
             solver = 'dneal'
         else:
             solver = 'pysa'
-        ax.set(title='Strategy plot: Suggested parameters \n instances SK '  + prefix.rsplit('_inst')[0] + '\n solver ' + solver )
+        ax.set(title='Strategy plot: Suggested parameters \n instances SK ' +
+               prefix.rsplit('_inst')[0] + '\n solver ' + solver)
         plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
-            fancybox=True)
+                   fancybox=True)
 
 # %%
 # Strategy Plot: Random search
 if draw_plots:
     # Strategy plot showing how the best hyperparameters of the random search change with respect to the resource budget
-    mean_median_perf_ratio = df_progress_best['idxmean_median_perf_ratio'].apply(pd.Series)
-    mean_median_perf_ratio.columns=['R_budget','R_explor','tau']
-    mean_median_perf_ratio['f_explor'] = mean_median_perf_ratio['R_explor'] / mean_median_perf_ratio['R_budget']
+    mean_median_perf_ratio = df_progress_best['idxmean_median_perf_ratio'].apply(
+        pd.Series)
+    mean_median_perf_ratio.columns = ['R_budget', 'R_explor', 'tau']
+    mean_median_perf_ratio['f_explor'] = mean_median_perf_ratio['R_explor'] / \
+        mean_median_perf_ratio['R_budget']
     mean_median_perf_ratio['median_median_perf_ratio'] = df_progress_best['mean_median_perf_ratio']
 
-    f,ax = plt.subplots()
-    sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual, ax=ax, estimator=None, label='Median virtual best')
-    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best, ax=ax, estimator=None, label='Median best random search expl-expl')
+    f, ax = plt.subplots()
+    sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual,
+                 ax=ax, estimator=None, label='Median virtual best')
+    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best,
+                 ax=ax, estimator=None, label='Median best random search expl-expl')
     sns.scatterplot(
         data=mean_median_perf_ratio,
         x='R_budget',
@@ -1171,25 +1249,30 @@ if draw_plots:
         hue_norm=(0, 2),
         sizes=(20, 200),
         legend='brief')
-    ax.set(xlim=[5e2,2e4])
-    ax.set(ylim=[0.975,1.0025])
+    ax.set(xlim=[5e2, 2e4])
+    ax.set(ylim=[0.975, 1.0025])
     ax.set(xscale='log')
-    ax.set(title='Strategy plot: Random search \n instances SK '  + prefix.rsplit('_inst')[0] + '\n solver ' + solver )
+    ax.set(title='Strategy plot: Random search \n instances SK ' +
+           prefix.rsplit('_inst')[0] + '\n solver ' + solver)
     plt.legend(loc='center left', bbox_to_anchor=(0.6, 0.4),
-        fancybox=True)
+               fancybox=True)
 
 # %%
 # Strategy Plot: Ternary search
 if draw_plots:
     # Strategy plot showing how the best hyperparameters of the ternary search change with respect to the resource budget
-    ternary_perf_ratio = df_progress_best_ternary['idxmean_median_perf_ratio'].apply(pd.Series)
-    ternary_perf_ratio.columns=['R_budget','R_explor', 'tau']
-    ternary_perf_ratio['f_explor'] = ternary_perf_ratio['R_explor'] / ternary_perf_ratio['R_budget']
+    ternary_perf_ratio = df_progress_best_ternary['idxmean_median_perf_ratio'].apply(
+        pd.Series)
+    ternary_perf_ratio.columns = ['R_budget', 'R_explor', 'tau']
+    ternary_perf_ratio['f_explor'] = ternary_perf_ratio['R_explor'] / \
+        ternary_perf_ratio['R_budget']
     ternary_perf_ratio['median_median_perf_ratio'] = df_progress_best_ternary['mean_median_perf_ratio']
 
-    f,ax = plt.subplots()
-    sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual, ax=ax, estimator=None, label='Median virtual best')
-    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best_ternary, ax=ax, estimator=None, label='Median best ternary search expl-expl')
+    f, ax = plt.subplots()
+    sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual,
+                 ax=ax, estimator=None, label='Median virtual best')
+    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best_ternary,
+                 ax=ax, estimator=None, label='Median best ternary search expl-expl')
     sns.scatterplot(
         data=ternary_perf_ratio,
         x='R_budget',
@@ -1202,12 +1285,13 @@ if draw_plots:
         hue_norm=(0, 2),
         sizes=(20, 200),
         legend='brief')
-    ax.set(xlim=[5e3,5e5])
-    ax.set(ylim=[0.999,1.00025])
+    ax.set(xlim=[5e3, 1e6])
+    ax.set(ylim=[0.999, 1.00025])
     ax.set(xscale='log')
-    ax.set(title='Strategy plot: Ternary search \n instances SK '  + prefix.rsplit('_inst')[0] + '\n solver ' + solver )
+    ax.set(title='Strategy plot: Ternary search \n instances SK ' +
+           prefix.rsplit('_inst')[0] + '\n solver ' + solver)
     plt.legend(loc='center left', bbox_to_anchor=(0.6, 0.4),
-        fancybox=True)
+               fancybox=True)
 
 
 # %%

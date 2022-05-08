@@ -39,11 +39,11 @@ draw_plots = True
 instances_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/instances"
 data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/"
 if ocean_df_flag:
-    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/pickles"
-    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/"
+    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/dneal/pickles"
+    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/dneal/"
 else:
-    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/pickles"
-    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa"
+    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/pysa/pickles"
+    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/pysa"
 
 schedules = []
 sweeps = []
@@ -79,7 +79,7 @@ all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
 # sweeps.append(all_sweeps[sweep_idx])
 sweeps = all_sweeps
 # sizes.append(int(str(sys.argv[1])))
-sizes = [100]
+sizes = [200]
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
 # instances.append(int(jobid))

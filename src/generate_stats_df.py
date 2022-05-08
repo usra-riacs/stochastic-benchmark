@@ -25,7 +25,7 @@ if int(str(sys.argv[2])) == 1:
 else:
     ocean_df_flag = False
 compute_best_found_flag = False
-use_raw_dataframes = True
+use_raw_dataframes = False
 # instances_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/instances"
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
 # if ocean_df_flag:

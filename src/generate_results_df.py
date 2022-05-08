@@ -12,7 +12,7 @@ from typing import List, Tuple, Union
 
 
 # %%
-# jobid = int(os.getenv('PBS_ARRAY_INDEX'))
+jobid = int(os.getenv('PBS_ARRAY_INDEX'))
 # jobid = 42
 
 
@@ -81,8 +81,8 @@ sizes.append(int(str(sys.argv[1])))
 # sizes = [100,200]
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
-# instances.append(int(jobid))
-instances = [i for i in range(0,20)] + [42]
+instances.append(int(jobid))
+# instances = [i for i in range(0,20)] + [42]
 Tcfactors = [0.0]
 Thfactors = list(np.linspace(-3, 1, num=33, endpoint=True))
 # Thfactors = [0.0]

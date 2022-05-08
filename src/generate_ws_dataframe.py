@@ -36,14 +36,13 @@ draw_plots = True
 #     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa"
 
 
-instances_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/instances"
-data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/"
+data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+instances_path = os.path.join(data_path,'instances/')
 if ocean_df_flag:
-    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/dneal/pickles"
-    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/dneal/"
+    results_path = os.path.join(data_path,'dneal/')
 else:
-    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/pysa/pickles"
-    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/pysa"
+    results_path = os.path.join(data_path,'pysa/')
+pickles_path = os.path.join(results_path,'pickles')
 
 schedules = []
 sweeps = []
@@ -79,7 +78,7 @@ all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
 # sweeps.append(all_sweeps[sweep_idx])
 sweeps = all_sweeps
 # sizes.append(int(str(sys.argv[1])))
-sizes = [200]
+sizes = [100200]
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
 # instances.append(int(jobid))
@@ -325,7 +324,7 @@ df_results_all['params'] = df_results_all[parameter_names].apply(tuple, axis=1)
 parameter_sets = list(set(df_results_all['params'].values))
 # %%
 # Main execution
-
+generate_interpolated_results = True
 # Interpolate results accross resources
 for size in sizes:
     prefix = "random_n_"+str(size)+"_inst_"
@@ -356,24 +355,25 @@ for size in sizes:
                 overwrite_pickles=overwrite_pickles,
             )
 
-    df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
-    df_path_interpolated = os.path.join(results_path, df_name_interpolated)
-    if os.path.exists(df_path_interpolated) and not overwrite_pickles:
-        df_results_interpolated = pd.read_pickle(df_path_interpolated)
-    else:
-        df_results_interpolated = interpolate_df(
-            dataframe=df_results_all,
-            resource_column='reads',
-            prefix=df_name_all,
-            parameters_dict=parameters_dict,
-            default_boots=default_boots,
-            minimum_boots=minimum_boots,
-            resource_proportional_parameters=['sweep', 'replica'],
-            idx=idx,
-            results_path=results_path,
-            save_pickle=True,
-            overwrite_pickles=overwrite_pickles,
-        )
+    if generate_interpolated_results:
+        df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
+        df_path_interpolated = os.path.join(results_path, df_name_interpolated)
+        if os.path.exists(df_path_interpolated) and not overwrite_pickles:
+            df_results_interpolated = pd.read_pickle(df_path_interpolated)
+        else:
+            df_results_interpolated = interpolate_df(
+                dataframe=df_results_all,
+                resource_column='reads',
+                prefix=df_name_all,
+                parameters_dict=parameters_dict,
+                default_boots=default_boots,
+                minimum_boots=minimum_boots,
+                resource_proportional_parameters=['sweep', 'replica'],
+                idx=idx,
+                results_path=results_path,
+                save_pickle=True,
+                overwrite_pickles=overwrite_pickles,
+            )
 
 # %%
 
@@ -1162,17 +1162,24 @@ if draw_plots:
         parameter_names
     ).loc[
         tuple(default_params)].reset_index()
+    random_params = df_stats_interpolated.sample(n=1).set_index(parameter_names).index.values
+    random_performance = df_stats_interpolated[parameter_names + ['reads', 'median_perf_ratio']].set_index(
+        parameter_names
+    ).loc[
+        random_params].reset_index()
     sns.lineplot(x='reads', y='median_perf_ratio', data=best_tts, ax=ax, estimator=None, label='Median best TTS parameter \n' +
                  " ".join([str(parameter_names[i] + ':' + str(best_tts_param[0][i])) for i in range(len(parameter_names))]))
     sns.lineplot(x='reads', y='median_perf_ratio', data=default_performance, ax=ax, estimator=None, label='Median default parameter \n' +
                  " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]))
+    sns.lineplot(x='reads', y='median_perf_ratio', data=random_performance, ax=ax, estimator=None, label='Median random parameter \n' +
+                 " ".join([str(parameter_names[i] + ':' + str(random_params[0][i])) for i in range(len(parameter_names))]))
     sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best,
                  ax=ax, estimator=None, label='Median best random search expl-expl')
     sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best_ternary,
                  ax=ax, estimator=None, label='Median best ternary search expl-expl')
     ax.set(xscale='log')
     ax.set(ylim=[0.98, 1.001])
-    ax.set(xlim=[5e2, 5e4])
+    ax.set(xlim=[5e2, 5e5])
     ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
     ax.set(xlabel='Total number of spin variable reads (proportional to time)')
     if ocean_df_flag:
@@ -1189,14 +1196,28 @@ if draw_plots:
 # Given the amount of data we donwsample only using 1% of all the data to get some general idea of the distribution of the parameters
 if draw_plots:
     # sns.pairplot(data=df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
-    g = sns.PairGrid(data=df_stats_interpolated[varying_parameters + [
-                     'median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
-    g.map_upper(sns.scatterplot, hue_norm=(0.5, 1))
-    g.map_lower(sns.scatterplot, hue_norm=(0.5, 1))
+    data_analysis_df = df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(n=500)
+    if 'Thfactor' in data_analysis_df.columns:
+        data_analysis_df['10**Thfactor'] = np.power(10,data_analysis_df['Thfactor'])
+        data_analysis_df.drop(['Thfactor'], axis=1, inplace=True)
+
+    data_analysis_df['-log10(1-perf_ratio)'] = -np.round(np.log10(1-data_analysis_df['median_perf_ratio']+EPSILON),decimals=0)
+    data_analysis_df.drop(['median_perf_ratio'], axis=1, inplace=True)
+    g = sns.PairGrid(
+        data_analysis_df, 
+        hue='-log10(1-perf_ratio)', 
+        palette="crest", 
+        # diag_sharey=False, 
+        corner=True,
+        )
+    # g.map_upper(sns.scatterplot)
+    g.map_offdiag(sns.scatterplot)
     # g.map_lower(sns.kdeplot)
     g.map_diag(sns.histplot, multiple="stack",
-               bins=10, kde=False, hue_norm=(0.5, 1))
+               bins=10, kde=False, log_scale=True)
     g.add_legend()
+    for ax in g.axes.flatten():
+        pass
 # %%
 # Strategy Plot: Suggested parameters
 if draw_plots:

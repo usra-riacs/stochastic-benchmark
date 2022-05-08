@@ -26,24 +26,24 @@ else:
     ocean_df_flag = False
 compute_best_found_flag = False
 use_raw_dataframes = True
-instances_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/instances"
-data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
-if ocean_df_flag:
-    pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal/pickles"
-    results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal"
-else:
-    pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa/pickles"
-    results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa"
-
-
-# instances_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/instances"
-# data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+# instances_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/instances"
+# data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
 # if ocean_df_flag:
-#     pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/pickles"
-#     results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/"
+#     pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal/pickles"
+#     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal"
 # else:
-#     pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/pickles"
-#     results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/"
+#     pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa/pickles"
+#     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa"
+
+
+instances_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/instances"
+data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+if ocean_df_flag:
+    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/pickles"
+    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/"
+else:
+    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/pickles"
+    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/"
 
 schedules = []
 sweeps = []
@@ -78,7 +78,7 @@ all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
 # sweep_idx = jobid % len(sweeps)
 # sweeps.append(all_sweeps[sweep_idx])
 sweeps = all_sweeps
-# sizes.append(int(str(sys.argv[1])))
+sizes.append(int(str(sys.argv[1])))
 # sizes = [100]
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))

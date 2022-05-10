@@ -18,14 +18,15 @@ jobid = 42
 
 # Input Parameters
 total_reads = 1000
-overwrite_pickles = True
+overwrite_pickles = False
 # if int(str(sys.argv[2])) == 1:
 if 0 == 1:
     ocean_df_flag = True
 else:
     ocean_df_flag = False
 use_raw_dataframes = True
-draw_plots = True
+draw_plots = False
+statistic = '90'
 
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
 data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
@@ -245,7 +246,6 @@ def take_closest(myList, myNumber):
 merge_all_results = True
 default_boots = total_reads
 minimum_boots = 1
-statistic = '50'
 
 # Define parameters dict
 default_parameters = {
@@ -308,7 +308,7 @@ if merge_all_results:
 for size in sizes:
     prefix = "random_n_"+str(size)+"_inst_"
     # TODO fix this
-    df_name_stats = prefix + 'df_stats'+statistic+'.pkl'
+    df_name_stats = prefix + 'df_stats.pkl'
     # df_name_stats = prefix + 'df_stats.pkl'
     df_path_stats = os.path.join(results_path, df_name_stats)
     if not os.path.exists(df_path_stats):
@@ -336,7 +336,7 @@ generate_interpolated_results = False
 for size in sizes:
     prefix = "random_n_"+str(size)+"_inst_"
     # TODO fix this
-    df_name_stats = prefix + 'df_stats'+statistic+'.pkl'
+    df_name_stats = prefix + 'df_stats.pkl'
     # df_name_stats = prefix + 'df_stats.pkl'
     df_path_stats = os.path.join(results_path, df_name_stats)
     if not os.path.exists(df_path_stats):
@@ -364,12 +364,13 @@ for size in sizes:
                 overwrite_pickles=overwrite_pickles,
             )
 
-    if generate_interpolated_results:
-        df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
-        df_path_interpolated = os.path.join(results_path, df_name_interpolated)
-        if os.path.exists(df_path_interpolated) and not overwrite_pickles:
-            df_results_interpolated = pd.read_pickle(df_path_interpolated)
-        else:
+
+    df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
+    df_path_interpolated = os.path.join(results_path, df_name_interpolated)
+    if os.path.exists(df_path_interpolated) and not overwrite_pickles:
+        df_results_interpolated = pd.read_pickle(df_path_interpolated)
+    else:
+        if generate_interpolated_results:
             df_results_interpolated = interpolate_df(
                 dataframe=df_results_all,
                 resource_column='reads',
@@ -383,6 +384,8 @@ for size in sizes:
                 save_pickle=True,
                 overwrite_pickles=overwrite_pickles,
             )
+        else:
+            df_results_interpolated = None
 
 # %%
 
@@ -405,7 +408,7 @@ if os.path.exists(df_path_recipe_lazy) and not use_raw_dataframes:
     recipe_lazy = pd.read_pickle(df_path_recipe_lazy)
 else:
 
-    # Recipe to obtain parameter setting that optimizes the median of the response (across instances) in the statistics dataframe for each read
+    # Recipe to obtain parameter setting that optimizes the quantile of the response (across instances) in the statistics dataframe for each read
     recipe_lazy = df_stats_interpolated[
         [statistic+'_'+response_column] + parameter_names + ['reads']
     ].set_index(
@@ -525,7 +528,7 @@ df_path_virtual = os.path.join(results_path, df_name_virtual)
 if os.path.exists(df_path_virtual) and not use_raw_dataframes:
     df_virtual = pd.read_pickle(df_path_virtual)
 else:
-    # Computation of virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
+    # Computation of virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the quantile of this idealized solver (that has the best parameters for each case) across the instances is computed
     if statistic == 'median':
         percentile = 50
     else:
@@ -1194,7 +1197,7 @@ if draw_plots:
     sns.lineplot(x='reads', y=statistic+'_lazy_perf_ratio', data=df_virtual,
                  ax=ax, estimator=None, label='Quantile '+statistic+' suggested mean parameter')
     best_tts_param = df_stats_interpolated.nsmallest(
-        1, statistic+'_rtt'
+        1, str(100-int(statistic))+'_rtt'
     ).set_index(parameter_names).index.values
     best_tts = df_stats_interpolated[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
         parameter_names
@@ -1226,7 +1229,7 @@ if draw_plots:
                  ax=ax, estimator=None, label='Quantile '+statistic+'  best ternary search expl-expl')
     ax.set(xscale='log')
     ax.set(ylim=[0.98, 1.001])
-    ax.set(xlim=[5e2, 5e5])
+    ax.set(xlim=[5e2, 1e6])
     ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
     ax.set(xlabel='Total number of spin variable reads (proportional to time)')
     if ocean_df_flag:
@@ -1301,20 +1304,20 @@ if draw_plots:
     strategy_random.columns = ['R_budget', 'R_explor', 'tau']
     strategy_random['f_explor'] = strategy_random['R_explor'] / \
         strategy_random['R_budget']
-    strategy_random['perf_ratio'] = df_progress_best['mean_'+statistic+'_perf_ratio']
+    strategy_random['mean_perf_ratio'] = df_progress_best['mean_'+statistic+'_perf_ratio']
 
     f, ax = plt.subplots()
-    sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual,
-                 ax=ax, estimator=None, label='Median virtual best')
+    sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio', data=df_virtual,
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  virtual best')
     sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best,
-                 ax=ax, estimator=None, label='Median best random search expl-expl')
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  best random search expl-expl')
     sns.scatterplot(
         data=strategy_random,
         x='R_budget',
         size='f_explor',
         hue='f_explor',
         style='tau',
-        y='median_'+statistic+'_perf_ratio',
+        y='mean_perf_ratio',
         ax=ax,
         palette='magma',
         hue_norm=(0, 2),
@@ -1323,7 +1326,7 @@ if draw_plots:
     ax.set(xlim=[5e2, 5e4])
     ax.set(ylim=[0.975, 1.0025])
     ax.set(xscale='log')
-    ax.set(title='Strategy plot: Random search \n instances SK ' +
+    ax.set(title='Strategy plot: Quantile '+statistic+' best random search \n instances SK ' +
            prefix.rsplit('_inst')[0] + '\n solver ' + solver)
     plt.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),
                fancybox=True)
@@ -1332,25 +1335,25 @@ if draw_plots:
 # Strategy Plot: Ternary search
 if draw_plots:
     # Strategy plot showing how the best hyperparameters of the ternary search change with respect to the resource budget
-    strategy_ternary = df_progress_best_ternary['idxmean_median_perf_ratio'].apply(
+    strategy_ternary = df_progress_best_ternary['idxmean_'+statistic+'_perf_ratio'].apply(
         pd.Series)
     strategy_ternary.columns = ['R_budget', 'R_explor', 'tau']
     strategy_ternary['f_explor'] = strategy_ternary['R_explor'] / \
         strategy_ternary['R_budget']
-    strategy_ternary['median_median_perf_ratio'] = df_progress_best_ternary['mean_median_perf_ratio']
+    strategy_ternary['mean_perf_ratio'] = df_progress_best_ternary['mean_'+statistic+'_perf_ratio']
 
     f, ax = plt.subplots()
-    sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual,
-                 ax=ax, estimator=None, label='Median virtual best')
-    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best_ternary,
-                 ax=ax, estimator=None, label='Median best ternary search expl-expl')
+    sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio', data=df_virtual,
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  virtual best')
+    sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best_ternary,
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  best ternary search expl-expl')
     sns.scatterplot(
         data=strategy_ternary,
         x='R_budget',
         size='f_explor',
         hue='f_explor',
         style='tau',
-        y='median_median_perf_ratio',
+        y='mean_perf_ratio',
         ax=ax,
         palette='magma',
         hue_norm=(0, 2),
@@ -1359,7 +1362,7 @@ if draw_plots:
     ax.set(xlim=[5e3, 1e6])
     ax.set(ylim=[0.999, 1.00025])
     ax.set(xscale='log')
-    ax.set(title='Strategy plot: Ternary search \n instances SK ' +
+    ax.set(title='Strategy plot: Quantile '+statistic+' best ternary search \n instances SK ' +
            prefix.rsplit('_inst')[0] + '\n solver ' + solver)
     plt.legend(loc='center left', bbox_to_anchor=(0.6, 0.4),
                fancybox=True)

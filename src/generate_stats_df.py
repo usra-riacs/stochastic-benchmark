@@ -19,8 +19,8 @@ jobid = 42
 # Input Parameters
 total_reads = 1000
 overwrite_pickles = False
-if 0 == 1:
-# if int(str(sys.argv[2])) == 1:
+# if 0 == 1:
+if int(str(sys.argv[2])) == 1:
     ocean_df_flag = True
 else:
     ocean_df_flag = False
@@ -52,8 +52,8 @@ sweeps = [1000]
 replicas = [8]
 Tcfactors = [0]
 Thfactors = [-1.5]
-# sizes.append(int(str(sys.argv[1])))
-sizes = [100]
+sizes.append(int(str(sys.argv[1])))
+# sizes = [100]
 # instances.append(int(jobid))
 
 

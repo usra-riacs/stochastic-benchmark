@@ -6,7 +6,7 @@ import random
 from bisect import bisect_left
 from math import hypot
 from typing import List, Tuple, Union
-
+import sys
 import numpy as np
 import pandas as pd
 
@@ -19,17 +19,21 @@ jobid = 42
 # Input Parameters
 total_reads = 1000
 overwrite_pickles = False
-# if int(str(sys.argv[2])) == 1:
-if 0 == 1:
+sizes = []
+sizes.append(int(str(sys.argv[1])))
+# sizes = [100]
+if int(str(sys.argv[2])) == 1:
+# if 1 == 1:
     ocean_df_flag = True
 else:
     ocean_df_flag = False
 use_raw_dataframes = True
 draw_plots = False
-statistic = '90'
+# statistic = '50'
+statistic = str(sys.argv[3])
 
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
-data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/"
 instances_path = os.path.join(data_path, 'instances/')
 if ocean_df_flag:
     results_path = os.path.join(data_path, 'dneal/')
@@ -40,7 +44,6 @@ pickles_path = os.path.join(results_path, 'pickles')
 schedules = []
 sweeps = []
 replicas = []
-sizes = []
 instances = []
 Tcfactors = []
 Thfactors = []
@@ -53,9 +56,6 @@ sweeps = [1000]
 replicas = [8]
 Tcfactors = [0]
 Thfactors = [-1.5]
-# sizes.append(int(str(sys.argv[1])))
-# sizes = [100]
-# instances.append(int(jobid))
 
 
 all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
@@ -70,8 +70,6 @@ all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
 # sweep_idx = jobid % len(sweeps)
 # sweeps.append(all_sweeps[sweep_idx])
 sweeps = all_sweeps
-# sizes.append(int(str(sys.argv[1])))
-sizes = [100]
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
 # instances.append(int(jobid))
@@ -331,6 +329,7 @@ for size in sizes:
     included_parameters = df_stats[numeric_parameters].values
 # %%
 # Main execution
+generate_interpolated_stats = True
 generate_interpolated_results = False
 # Interpolate results accross resources
 for size in sizes:
@@ -350,19 +349,22 @@ for size in sizes:
         if os.path.exists(df_path_stats_interpolated) and not overwrite_pickles:
             df_stats_interpolated = pd.read_pickle(df_path_stats_interpolated)
         else:
-            df_stats_interpolated = interpolate_df(
-                dataframe=df_stats,
-                resource_column='reads',
-                prefix=df_name_stats,
-                parameters_dict=parameters_dict,
-                default_boots=default_boots,
-                minimum_boots=minimum_boots,
-                resource_proportional_parameters=['sweep', 'replica'],
-                idx=idx,
-                results_path=results_path,
-                save_pickle=True,
-                overwrite_pickles=overwrite_pickles,
-            )
+            if generate_interpolated_stats:
+                df_stats_interpolated = interpolate_df(
+                    dataframe=df_stats,
+                    resource_column='reads',
+                    prefix=df_name_stats,
+                    parameters_dict=parameters_dict,
+                    default_boots=default_boots,
+                    minimum_boots=minimum_boots,
+                    resource_proportional_parameters=['sweep', 'replica'],
+                    idx=idx,
+                    results_path=results_path,
+                    save_pickle=True,
+                    overwrite_pickles=overwrite_pickles,
+                )
+            else:
+                df_stats_interpolated = None
 
 
     df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
@@ -1184,6 +1186,7 @@ labels = {
 }
 
 # %%
+# Import plotting libraries
 if draw_plots:
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -1369,6 +1372,8 @@ if draw_plots:
 
 
 # %%
-# Generate distributions for the
+# Generate distributions for the parameters given the best performance
 # results_df = df_results_all.groupby(['reads','instance']).apply(lambda x: x.nlargest(1,'perf_ratio'))
 # sns.displot(data=results_df[(results_df['reads'] == 1e3) | (results_df['reads'] == 2e3) | (results_df['reads'] == 5e3)], x='sweep', hue='reads', bins=21, multiple="dodge")
+
+# %%

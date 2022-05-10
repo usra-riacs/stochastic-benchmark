@@ -140,4 +140,4 @@ data/sk/*/unique_gs/*
 data/sk/*/data/*
 *[0-9]_df_results.pkl
 *.pickle
-*partial.pkl
+*partial*.pkl

@@ -19,31 +19,22 @@ jobid = 42
 # Input Parameters
 total_reads = 1000
 overwrite_pickles = False
-# if 0 == 1:
-if int(str(sys.argv[2])) == 1:
+if 0 == 1:
+# if int(str(sys.argv[2])) == 1:
     ocean_df_flag = True
 else:
     ocean_df_flag = False
 compute_best_found_flag = False
 use_raw_dataframes = False
-# instances_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/instances"
+
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
-# if ocean_df_flag:
-#     pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal/pickles"
-#     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal"
-# else:
-#     pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa/pickles"
-#     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa"
-
-
-instances_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/instances"
 data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+instances_path = os.path.join(data_path, 'instances/')
 if ocean_df_flag:
-    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/pickles"
-    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/"
+    results_path = os.path.join(data_path, 'dneal/')
 else:
-    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/pickles"
-    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/"
+    results_path = os.path.join(data_path, 'pysa/')
+pickles_path = os.path.join(results_path, 'pickles')
 
 schedules = []
 sweeps = []
@@ -61,8 +52,8 @@ sweeps = [1000]
 replicas = [8]
 Tcfactors = [0]
 Thfactors = [-1.5]
-sizes.append(int(str(sys.argv[1])))
-# sizes = [100]
+# sizes.append(int(str(sys.argv[1])))
+sizes = [100]
 # instances.append(int(jobid))
 
 
@@ -78,8 +69,6 @@ all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
 # sweep_idx = jobid % len(sweeps)
 # sweeps.append(all_sweeps[sweep_idx])
 sweeps = all_sweeps
-sizes.append(int(str(sys.argv[1])))
-# sizes = [100]
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
 # instances.append(int(jobid))
@@ -115,7 +104,7 @@ upper_bounds['perf_ratio'] = 1.0
 def conf_interval(
     x: pd.Series,
     key_string: str,
-    stat_measure: str = 'median',
+    stat_measure = 'median',
     confidence_level: float = 68,
     bootstrap_iterations: int = 1000,
 ):
@@ -130,7 +119,7 @@ def conf_interval(
     Returns:
         pd.Series: Series with median and confidence interval
     '''
-    key_estimator_string = stat_measure + '_' + key_string
+    key_estimator_string = str(stat_measure) + '_' + key_string
     mean_deviation = np.sqrt(sum((x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower'])*(
         x[key_string + '_conf_interval_upper']-x[key_string + '_conf_interval_lower']))/(4*len(x[key_string])))
     
@@ -148,10 +137,34 @@ def conf_interval(
                 print("Data contain nans but no nan-aware version of `{func}` found")
             else:
                 f = nanf
+    elif isinstance(stat_measure, int) or isinstance(stat_measure, float):
+        f = getattr(np, 'nanpercentile')
+        # TODO I need to see how to instantiate this
     else:
         f = stat_measure
     
-    center = f(x[key_string])
+    if isinstance(stat_measure, int) or isinstance(stat_measure, float):
+        center = np.nanpercentile(x[key_string], stat_measure)
+        # TODO Fix this
+        lower_interval = center
+        upper_interval = center
+        bootstrap_confidence_interval = False
+        if bootstrap_confidence_interval:
+                boot_dist = []
+                # Rationale here is that we perform bootstrapping over the entire data set but considering original confidence intervals, which we assume resemble standard deviation from a normally distributed error population. This is in line with the data generation but we might want to fix it
+                for i in range(int(bootstrap_iterations)):
+                    resampler = np.random.randint(0, len(x[key_string]), len(x[key_string]), dtype=np.intp)  # intp is indexing dtype
+                    sample = x[key_string].values.take(resampler, axis=0)
+                    sample_ci_upper = x[key_string + '_conf_interval_upper'].values.take(resampler, axis=0)
+                    sample_ci_lower = x[key_string + '_conf_interval_upper'].values.take(resampler, axis=0)
+                    sample_std = (sample_ci_upper-sample_ci_lower)/2
+                    sample_error = np.random.normal(0, sample_std, len(sample))
+                    boot_dist.append(np.percentile(sample + sample_error, q=stat_measure/100))
+                np.array(boot_dist)
+                p = 50 - confidence_level / 2, 50 + confidence_level / 2
+                (lower_interval, upper_interval) = np.nanpercentile(boot_dist, p, axis=0)
+    else:
+        center = f(x[key_string])
     if stat_measure == 'mean':
         # center = np.mean(x[key_string])
         lower_interval = center - mean_deviation
@@ -162,21 +175,6 @@ def conf_interval(
             np.sqrt(np.pi*len(x[key_string])/(2*len(x[key_string])-1))
         lower_interval = center - median_deviation
         upper_interval = center + median_deviation
-    else:
-        # TODO I need to debug this part
-        boot_dist = []
-        # Rationale here is that we perform bootstrapping over the entire data set but considering original confidence intervals, which we assume resemble standard deviation from a normally distributed error population. THis is in line with the data generation but we might want to fix it
-        for i in range(int(bootstrap_iterations)):
-            resampler = np.random.randint(0, len(x[key_string], len(x[key_string]), dtype=np.intp))  # intp is indexing dtype
-            sample = x[key_string].values.take(resampler, axis=0)
-            sample_ci_upper = x[key_string + '_conf_interval_upper'].values.take(resampler, axis=0)
-            sample_ci_lower = x[key_string + '_conf_interval_upper'].values.take(resampler, axis=0)
-            sample_std = (sample_ci_upper-sample_ci_lower)/2
-            sample_error = np.random.normal(0, sample_std, len(sample))
-            boot_dist.append(f(sample + sample_error))
-        np.array(boot_dist)
-        p = 50 - confidence_level / 2, 50 + confidence_level / 2
-        (lower_interval, upper_interval) = np.nanpercentile(boot_dist, p, axis=0)
 
     result = {
         key_estimator_string: center,
@@ -241,7 +239,7 @@ def generateStatsDataframe(
         df_all_stats = pd.read_pickle(df_path)
     else:
         df_all_stats = pd.DataFrame()
-    if all([stat_measure + '_' + metric + '_conf_interval_' + limit in df_all_stats.columns for stat_measure in stat_measures for metric in metrics for limit in ['lower', 'upper']]) and not use_raw_dataframes:
+    if all([str(stat_measure) + '_' + metric + '_conf_interval_' + limit in df_all_stats.columns for stat_measure in stat_measures for metric in metrics for limit in ['lower', 'upper']]) and not use_raw_dataframes:
         pass
     else:
         df_all_groups = df_all[
@@ -274,10 +272,10 @@ def generateStatsDataframe(
 
     for stat_measure in stat_measures:
         for key, value in lower_bounds.items():
-            df_stats[stat_measure + '_' + key + '_conf_interval_lower'].clip(
+            df_stats[str(stat_measure) + '_' + key + '_conf_interval_lower'].clip(
                 lower=value, inplace=True)
         for key, value in upper_bounds.items():
-            df_stats[stat_measure + '_' + key + '_conf_interval_upper'].clip(
+            df_stats[str(stat_measure) + '_' + key + '_conf_interval_upper'].clip(
                 upper=value, inplace=True)
     # TODO Implement resource_factor as in generate_ws_dataframe.py
     if 'replica' in parameters_names:
@@ -287,6 +285,7 @@ def generateStatsDataframe(
 
     if save_pickle:
         # df_stats = cleanup_df(df_stats)
+        print(df_path)
         df_stats.to_pickle(df_path)
 
     return df_stats
@@ -364,7 +363,7 @@ for size in sizes:
         df_results_all = None
     df_results_all_stats = generateStatsDataframe(
         df_all=df_results_all,
-        stat_measures=['median'],
+        stat_measures=['median', 10, 50, 90],
         instance_list=training_instances,
         parameters_dict=parameters_dict,
         metrics = metrics,

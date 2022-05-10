@@ -18,31 +18,23 @@ jobid = 42
 
 # Input Parameters
 total_reads = 1000
-overwrite_pickles = False
+overwrite_pickles = True
 # if int(str(sys.argv[2])) == 1:
-if 1 == 1:
+if 0 == 1:
     ocean_df_flag = True
 else:
     ocean_df_flag = False
-use_raw_dataframes = False
+use_raw_dataframes = True
 draw_plots = True
-# instances_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/instances"
+
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
-# if ocean_df_flag:
-#     pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal/pickles"
-#     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal"
-# else:
-#     pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa/pickles"
-#     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa"
-
-
 data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
-instances_path = os.path.join(data_path,'instances/')
+instances_path = os.path.join(data_path, 'instances/')
 if ocean_df_flag:
-    results_path = os.path.join(data_path,'dneal/')
+    results_path = os.path.join(data_path, 'dneal/')
 else:
-    results_path = os.path.join(data_path,'pysa/')
-pickles_path = os.path.join(results_path,'pickles')
+    results_path = os.path.join(data_path, 'pysa/')
+pickles_path = os.path.join(results_path, 'pickles')
 
 schedules = []
 sweeps = []
@@ -78,7 +70,7 @@ all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
 # sweeps.append(all_sweeps[sweep_idx])
 sweeps = all_sweeps
 # sizes.append(int(str(sys.argv[1])))
-sizes = [100200]
+sizes = [100]
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
 # instances.append(int(jobid))
@@ -250,9 +242,10 @@ def take_closest(myList, myNumber):
 
 # %%
 # Join all the results in a single dataframe
-
+merge_all_results = True
 default_boots = total_reads
 minimum_boots = 1
+statistic = '50'
 
 # Define parameters dict
 default_parameters = {
@@ -290,45 +283,61 @@ parameter_names = list(parameters_dict.keys())
 parameter_sets = itertools.product(
     *(parameters_dict[Name] for Name in parameters_dict))
 parameter_sets = list(parameter_sets)
-complete_files = []
+
+if merge_all_results:
+    for size in sizes:
+        prefix = "random_n_"+str(size)+"_inst_"
+        df_name_all = prefix + 'df_results.pkl'
+        df_path_all = os.path.join(results_path, df_name_all)
+        if os.path.exists(df_path_all) and not use_raw_dataframes:
+            df_results_all = pd.read_pickle(df_path_all)
+        else:
+            df_results_list = []
+            for instance in instances:
+                df_name = prefix + str(instance) + '_df_results.pkl'
+                df_path = os.path.join(results_path, df_name)
+                df_results_list.append(pd.read_pickle(df_path))
+            df_results_all = pd.concat(df_results_list, ignore_index=True)
+            df_results_all.to_pickle(df_path_all)
+        # Set the parameter sets as those in the results dataframe
+        df_results_all['params'] = df_results_all[parameter_names].apply(
+            tuple, axis=1)
+        parameter_sets = list(set(df_results_all['params'].values))
+
 
 for size in sizes:
     prefix = "random_n_"+str(size)+"_inst_"
-    df_name_all = prefix + 'df_results.pkl'
-    df_path_all = os.path.join(results_path, df_name_all)
-    if os.path.exists(df_path_all) and not use_raw_dataframes:
-        df_results_all = pd.read_pickle(df_path_all)
+    # TODO fix this
+    df_name_stats = prefix + 'df_stats'+statistic+'.pkl'
+    # df_name_stats = prefix + 'df_stats.pkl'
+    df_path_stats = os.path.join(results_path, df_name_stats)
+    if not os.path.exists(df_path_stats):
+        df_stats = None
     else:
-        df_results_list = []
-        for instance in instances:
-            df_name = prefix + str(instance) + '_df_results.pkl'
-            df_path = os.path.join(results_path, df_name)
-            df_results_list.append(pd.read_pickle(df_path))
-        df_results_all = pd.concat(df_results_list, ignore_index=True)
-        df_results_all.to_pickle(df_path_all)
-
-
-stale_parameters = []
-varying_parameters = []
-numeric_parameters = []
-for parameter_name in parameter_names:
-    if len(locals()[parameter_name+'s']) == 1:
-        stale_parameters.append(parameter_name)
-    else:
-        varying_parameters.append(parameter_name)
-        if isinstance(locals()[parameter_name+'s'][0], int) or isinstance(locals()[parameter_name+'s'][0], float):
-            numeric_parameters.append(parameter_name)
-included_parameters = df_results_all[numeric_parameters].values
-# Set the parameter sets as those in the results dataframe
-df_results_all['params'] = df_results_all[parameter_names].apply(tuple, axis=1)
-parameter_sets = list(set(df_results_all['params'].values))
+        df_stats = pd.read_pickle(df_path_stats)
+    # TODO This creates the lists only for the last size. Maybe introduce a dictionary instead
+    df_stats['params'] = df_stats[parameter_names].apply(tuple, axis=1)
+    parameter_sets = list(set(df_stats['params'].values))
+    stale_parameters = []
+    varying_parameters = []
+    numeric_parameters = []
+    for parameter_name in parameter_names:
+        if len(locals()[parameter_name+'s']) == 1:
+            stale_parameters.append(parameter_name)
+        else:
+            varying_parameters.append(parameter_name)
+            if isinstance(locals()[parameter_name+'s'][0], int) or isinstance(locals()[parameter_name+'s'][0], float):
+                numeric_parameters.append(parameter_name)
+    included_parameters = df_stats[numeric_parameters].values
 # %%
 # Main execution
-generate_interpolated_results = True
+generate_interpolated_results = False
 # Interpolate results accross resources
 for size in sizes:
     prefix = "random_n_"+str(size)+"_inst_"
-    df_name_stats = prefix + 'df_stats.pkl'
+    # TODO fix this
+    df_name_stats = prefix + 'df_stats'+statistic+'.pkl'
+    # df_name_stats = prefix + 'df_stats.pkl'
     df_path_stats = os.path.join(results_path, df_name_stats)
     if not os.path.exists(df_path_stats):
         df_stats = None
@@ -380,78 +389,30 @@ for size in sizes:
 # Create virtual best and virtual worst columns
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
-
-df_name_virtual = df_name_all.rsplit('.')[0] + '_virtual.pkl'
-df_path_virtual = os.path.join(results_path, df_name_virtual)
-df_name_recipe_lazy = df_name_all.rsplit('.')[0] + '_recipe_lazy.pkl'
-df_path_recipe_lazy = os.path.join(results_path, df_name_recipe_lazy)
-df_name_recipe_mean_best = df_name_all.rsplit('.')[0] + '_recipe_mean_best.pkl'
-df_path_recipe_mean_best = os.path.join(results_path, df_name_recipe_mean_best)
+# TODO This is only performed for the last size. Maybe introduce a dictionary instead
 
 response_column = 'perf_ratio'
 response_direction = 1
+df_name_all = prefix + 'df_results.pkl'
 
-if os.path.exists(df_path_virtual) and os.path.exists(df_path_recipe_mean_best) and os.path.exists(df_path_recipe_lazy) and not use_raw_dataframes:
-    df_virtual = pd.read_pickle(df_path_virtual)
+
+def dist_eucl(a, b): return hypot(b[0]-a[0], b[0]-a[0])
+
+
+df_name_recipe_lazy = df_name_all.rsplit('.')[0] + '_recipe_lazy' + statistic + '.pkl'
+df_path_recipe_lazy = os.path.join(results_path, df_name_recipe_lazy)
+if os.path.exists(df_path_recipe_lazy) and not use_raw_dataframes:
     recipe_lazy = pd.read_pickle(df_path_recipe_lazy)
-    recipe_mean_best_params = pd.read_pickle(df_path_recipe_mean_best)
 else:
-
-    # Computation of virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
-
-    # df_virtual = df_virtual.merge(
-    if response_direction == -1:  # Minimization
-        df_virtual = df_results_interpolated[[response_column] + parameter_names + ['instance', 'reads']].set_index(
-            parameter_names
-        ).groupby(['instance', 'reads']
-                  )[response_column].min().reset_index().set_index(
-            ['instance']
-        ).groupby(['reads']
-                  ).median().reset_index().sort_values(
-            ['reads']).rename(columns={response_column: 'virt_best_'+response_column})
-    else:  # Maximization
-        df_virtual = df_results_interpolated[[response_column] + parameter_names + ['instance', 'reads']].set_index(
-            parameter_names
-        ).groupby(['instance', 'reads']
-                  )[response_column].max().reset_index().set_index(
-            ['instance']
-        ).groupby(['reads']
-                  ).median().reset_index().sort_values(
-            ['reads']).rename(columns={response_column: 'virt_best_'+response_column})
-        #     ).expanding(min_periods=1).max(),
-        # on=['reads'],
-        # how='left')
-    # TODO Generalize direction of search
-
-    df_virtual = df_virtual.merge(df_results_interpolated[
-        [response_column] + parameter_names + ['instance', 'reads']
-    ].set_index(
-        parameter_names
-    ).groupby(['instance', 'reads']
-              )[response_column].max().reset_index().set_index(
-        ['instance']
-    ).groupby(['reads']
-              ).max().reset_index().sort_values(
-        ['reads']).rename(columns={response_column: 'envelope_'+response_column}),
-        on=['reads'],
-        how='left')
 
     # Recipe to obtain parameter setting that optimizes the median of the response (across instances) in the statistics dataframe for each read
     recipe_lazy = df_stats_interpolated[
-        ['median_'+response_column] + parameter_names + ['reads']
+        [statistic+'_'+response_column] + parameter_names + ['reads']
     ].set_index(
         parameter_names
     ).groupby(['reads']
               ).idxmax().rename(
-        columns={'median_'+response_column: 'recipe'})
-
-    df_virtual = df_virtual.merge(
-        df_stats_interpolated[
-            ['median_'+response_column] + parameter_names + ['reads']
-        ].set_index(
-            parameter_names
-        ).groupby(['reads']
-                  ).max().reset_index().rename(columns={'median_perf_ratio': 'lazy_perf_ratio'}))
+        columns={statistic+'_'+response_column: 'recipe'})
 
     recipe_lazy = recipe_lazy.merge(
         recipe_lazy['recipe'].apply(pd.Series).rename(
@@ -463,7 +424,7 @@ else:
 
     recipe_lazy = recipe_lazy.merge(
         df_stats_interpolated[
-            ['median_'+response_column] + parameter_names + ['reads']
+            [statistic+'_'+response_column] + parameter_names + ['reads']
         ].set_index(
             parameter_names
         ).groupby(['reads']
@@ -471,6 +432,17 @@ else:
         on=['reads'],
         how='left')
 
+    recipe_lazy.to_pickle(df_path_recipe_lazy)
+
+
+df_name_recipe_mean_best = df_name_all.rsplit(
+    '.')[0] + '_recipe_mean_best'+statistic+'.pkl'
+df_path_recipe_mean_best = os.path.join(results_path, df_name_recipe_mean_best)
+
+
+if os.path.exists(df_path_recipe_mean_best) and not use_raw_dataframes:
+    recipe_mean_best_params = pd.read_pickle(df_path_recipe_mean_best)
+else:
     # Recipe to obtain parameter setting that optimizes the response  in the results dataframe for each instance and read, then takes the mean of the parameters across instances, for each read.
     # There is an extra projection step into the parameter values
     recipe_mean_best_params = df_results_interpolated[
@@ -510,10 +482,9 @@ else:
     # Projecting parameter setting absent in the original dataframe to one that is available using the Euclidean norm.
     # TODO The euclidean norm does not take into account the fact that the scale of the parameters is different. Moreover, it does not work with non-numerical data
     # TODO performance improvement here. This is by no means efficient.
-    def dist_eucl(a, b): return hypot(b[0]-a[0], b[0]-a[0])
-    if not all([i in df_results_all['params'].values for i in recipe_mean_best_params['params'].values]):
+    if not all([i in parameter_sets for i in recipe_mean_best_params['params'].values]):
         for index, row in recipe_mean_best_params.iterrows():
-            if row['params'] not in set(df_results_all['params'].tolist()):
+            if row['params'] not in set(parameter_sets):
                 non_included_parameters = row[numeric_parameters].values
                 print('These parameters are not included in the original database',
                       non_included_parameters)
@@ -530,7 +501,82 @@ else:
         'reads']].apply(tuple, axis=1)
 
     dummy_df = df_stats_interpolated[
-        ['median_'+response_column] + parameter_names + ['reads']
+        [statistic+'_'+response_column] + parameter_names + ['reads']
+    ].set_index(
+        parameter_names + ['reads']
+    ).loc[pd.MultiIndex.from_tuples(recipe_mean_best_params['recipe']
+                                    )].copy()
+
+    dummy_df.index.rename(parameter_names + ['reads'], inplace=True)
+
+    recipe_mean_best_params = recipe_mean_best_params.merge(
+        dummy_df.reset_index()[
+            [statistic+'_'+response_column] + ['reads']
+        ],
+        on=['reads'],
+        how='left')
+
+    recipe_mean_best_params.to_pickle(df_path_recipe_mean_best)
+
+
+df_name_virtual = df_name_all.rsplit('.')[0] + '_virtual'+statistic+'.pkl'
+df_path_virtual = os.path.join(results_path, df_name_virtual)
+
+if os.path.exists(df_path_virtual) and not use_raw_dataframes:
+    df_virtual = pd.read_pickle(df_path_virtual)
+else:
+    # Computation of virtual best perf_ratio as commended by Davide, several points: 1) the perf_ratio is computed as the maximum (we are assuming we care about the max) of for each instance for each read, 2) the median of this idealized solver (that has the best parameters for each case) across the instances is computed
+    if statistic == 'median':
+        percentile = 50
+    else:
+        percentile = float(statistic)
+    # df_virtual = df_virtual.merge(
+    if response_direction == -1:  # Minimization
+        df_virtual = df_results_interpolated[[response_column] + parameter_names + ['instance', 'reads']].set_index(
+            parameter_names
+        ).groupby(['instance', 'reads']
+                  )[response_column].min().reset_index().set_index(
+            ['instance']
+        ).groupby(['reads']
+                  ).quantile(percentile/100.0).reset_index().sort_values(
+            ['reads']).rename(columns={response_column: 'virt_best_'+statistic+'_'+response_column})
+    else:  # Maximization
+        df_virtual = df_results_interpolated[[response_column] + parameter_names + ['instance', 'reads']].set_index(
+            parameter_names
+        ).groupby(['instance', 'reads']
+                  )[response_column].max().reset_index().set_index(
+            ['instance']
+        ).groupby(['reads']
+                  ).quantile(percentile/100.0).reset_index().sort_values(
+            ['reads']).rename(columns={response_column: 'virt_best_'+statistic+'_'+response_column})
+        #     ).expanding(min_periods=1).max(),
+        # on=['reads'],
+        # how='left')
+    # TODO Generalize direction of search
+
+    df_virtual = df_virtual.merge(df_results_interpolated[
+        [response_column] + parameter_names + ['instance', 'reads']
+    ].set_index(
+        parameter_names
+    ).groupby(['instance', 'reads']
+              )[response_column].max().reset_index().set_index(
+        ['instance']
+    ).groupby(['reads']
+              ).max().reset_index().sort_values(
+        ['reads']).rename(columns={response_column: 'envelope_'+response_column}),
+        on=['reads'],
+        how='left')
+
+    df_virtual = df_virtual.merge(
+        df_stats_interpolated[
+            [statistic+'_'+response_column] + parameter_names + ['reads']
+        ].set_index(
+            parameter_names
+        ).groupby(['reads']
+                  ).max().reset_index().rename(columns={statistic+'_perf_ratio': statistic+'_lazy_perf_ratio'}))
+
+    dummy_df = df_stats_interpolated[
+        [statistic+'_'+response_column] + parameter_names + ['reads']
     ].set_index(
         parameter_names + ['reads']
     ).loc[pd.MultiIndex.from_tuples(recipe_mean_best_params['recipe']
@@ -540,24 +586,20 @@ else:
 
     df_virtual = df_virtual.merge(
         dummy_df.reset_index()[
-            ['median_'+response_column] + ['reads']
-        ],
-        on=['reads'],
-        how='left')
-
-    recipe_mean_best_params = recipe_mean_best_params.merge(
-        dummy_df.reset_index()[
-            ['median_'+response_column] + ['reads']
+            [statistic+'_'+response_column] + ['reads']
         ],
         on=['reads'],
         how='left')
 
     df_virtual.to_pickle(df_path_virtual)
 
-    recipe_lazy.to_pickle(df_path_recipe_lazy)
-
-    recipe_mean_best_params.to_pickle(df_path_recipe_mean_best)
-
+# %%
+# Function to perform percentile aggregation
+def percentile(n):
+    def percentile_(x):
+        return np.nanpercentile(x, n)
+    percentile_.__name__ = '%s' % n
+    return percentile_
 # %%
 # Function to perform alternative processing of progress dataframes
 
@@ -565,7 +607,7 @@ else:
 def process_df_progress(
     df_progress: pd.DataFrame = None,
     compute_metrics: list = ['perf_ratio'],
-    stat_measures: list = ['median'],
+    stat_measures: list = ['mean'],
     maximizing: bool = True,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     '''
@@ -586,6 +628,10 @@ def process_df_progress(
     '''
     if df_progress is None:
         return None
+    
+    for stat_measure in stat_measures:
+        if type(stat_measure) == int:
+            stat_measure = 'percentile('+stat_measure+')'
 
     experiment_setting = ['R_budget', 'R_explor', 'run_per_solve']
     individual_run = experiment_setting.copy()
@@ -672,7 +718,7 @@ def process_df_progress(
     for column in df_progress_best.columns:
         if 'idx' in column:
             df_progress_best = df_progress_best.merge(df_progress_best[
-                'idxmean_median_perf_ratio'
+                column
             ].apply(pd.Series).rename(
                 columns={i: experiment_setting[i]
                          for i in range(len(experiment_setting))}
@@ -693,10 +739,10 @@ frac_r_exploration = [0.05, 0.1, 0.2, 0.5, 0.75]
 R_budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7]
              for j in [3, 4, 5]] + [1e6]  # Total search budget (reads)
 experiments = rs * repetitions
-df_name_progress = df_name_all.rsplit('.')[0] + '_progress_binary.pkl'
+df_name_progress = df_name_all.rsplit('.')[0] + '_progress_binary'+statistic+'.pkl'
 df_path_progress = os.path.join(results_path, df_name_progress)
-search_metric = 'median_'+response_column
-compute_metric = 'median_'+response_column
+search_metric = statistic+'_'+response_column
+compute_metric = statistic+'_'+response_column
 df_search = df_stats_interpolated[
     parameter_names +
     list(set([compute_metric] + [search_metric])) + ['boots', 'reads']
@@ -820,7 +866,7 @@ else:
 # %%
 df_progress_best, df_progress_end = process_df_progress(
     df_progress=df_progress_total,
-    compute_metrics=['median_perf_ratio'],
+    compute_metrics=[statistic+'_perf_ratio'],
     stat_measures=['mean'],
     maximizing=True,
 )
@@ -833,7 +879,7 @@ df_progress_best, df_progress_end = process_df_progress(
 # R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 # R_budgets = [1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 experiments = rs * repetitions
-df_name_progress_ternary = df_name_all.rsplit('.')[0] + '_progress_ternary.pkl'
+df_name_progress_ternary = df_name_all.rsplit('.')[0] + '_progress_ternary'+statistic+'.pkl'
 df_path_progress_ternary = os.path.join(results_path, df_name_progress_ternary)
 use_raw_dataframes = False
 if os.path.exists(df_path_progress_ternary) and not use_raw_dataframes:
@@ -1080,7 +1126,7 @@ else:
 # %%
 df_progress_best_ternary, df_progress_end_ternary = process_df_progress(
     df_progress=df_progress_total_ternary,
-    compute_metrics=['median_perf_ratio'],
+    compute_metrics=[statistic+'_perf_ratio'],
     stat_measures=['mean'],
     maximizing=True,
 )
@@ -1143,14 +1189,14 @@ if draw_plots:
 if draw_plots:
     # Windows sticker plot with virtual best, suggested parameters, best from TTS, default parameters, random search, and ternary search
     fig, ax = plt.subplots()
-    sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual,
-                 ax=ax, estimator=None, label='Median virtual best')
-    sns.lineplot(x='reads', y='lazy_perf_ratio', data=df_virtual,
-                 ax=ax, estimator=None, label='Median suggested mean parameter')
+    sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio', data=df_virtual,
+                 ax=ax, estimator=None, label='Quantile '+statistic+' virtual best')
+    sns.lineplot(x='reads', y=statistic+'_lazy_perf_ratio', data=df_virtual,
+                 ax=ax, estimator=None, label='Quantile '+statistic+' suggested mean parameter')
     best_tts_param = df_stats_interpolated.nsmallest(
-        1, 'median_rtt'
+        1, statistic+'_rtt'
     ).set_index(parameter_names).index.values
-    best_tts = df_stats_interpolated[parameter_names + ['reads', 'median_perf_ratio']].set_index(
+    best_tts = df_stats_interpolated[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
         parameter_names
     ).loc[
         best_tts_param].reset_index()
@@ -1158,25 +1204,26 @@ if draw_plots:
     if parameters_dict is not None:
         for i, j in parameters_dict.items():
             default_params.append(default_parameters[i][0])
-    default_performance = df_stats_interpolated[parameter_names + ['reads', 'median_perf_ratio']].set_index(
+    default_performance = df_stats_interpolated[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
         parameter_names
     ).loc[
         tuple(default_params)].reset_index()
-    random_params = df_stats_interpolated.sample(n=1).set_index(parameter_names).index.values
-    random_performance = df_stats_interpolated[parameter_names + ['reads', 'median_perf_ratio']].set_index(
+    random_params = df_stats_interpolated.sample(
+        n=1).set_index(parameter_names).index.values
+    random_performance = df_stats_interpolated[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
         parameter_names
     ).loc[
         random_params].reset_index()
-    sns.lineplot(x='reads', y='median_perf_ratio', data=best_tts, ax=ax, estimator=None, label='Median best TTS parameter \n' +
+    sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=best_tts, ax=ax, estimator=None, label='Quantile '+statistic+' best TTS parameter \n' +
                  " ".join([str(parameter_names[i] + ':' + str(best_tts_param[0][i])) for i in range(len(parameter_names))]))
-    sns.lineplot(x='reads', y='median_perf_ratio', data=default_performance, ax=ax, estimator=None, label='Median default parameter \n' +
+    sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=default_performance, ax=ax, estimator=None, label='Quantile '+statistic+' default parameter \n' +
                  " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]))
-    sns.lineplot(x='reads', y='median_perf_ratio', data=random_performance, ax=ax, estimator=None, label='Median random parameter \n' +
+    sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=random_performance, ax=ax, estimator=None, label='Quantile '+statistic+' random parameter \n' +
                  " ".join([str(parameter_names[i] + ':' + str(random_params[0][i])) for i in range(len(parameter_names))]))
-    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best,
-                 ax=ax, estimator=None, label='Median best random search expl-expl')
-    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best_ternary,
-                 ax=ax, estimator=None, label='Median best ternary search expl-expl')
+    sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best,
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  best random search expl-expl')
+    sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best_ternary,
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  best ternary search expl-expl')
     ax.set(xscale='log')
     ax.set(ylim=[0.98, 1.001])
     ax.set(xlim=[5e2, 5e5])
@@ -1196,20 +1243,23 @@ if draw_plots:
 # Given the amount of data we donwsample only using 1% of all the data to get some general idea of the distribution of the parameters
 if draw_plots:
     # sns.pairplot(data=df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(frac=0.01), hue='median_perf_ratio', palette="crest")
-    data_analysis_df = df_stats_interpolated[varying_parameters + ['median_perf_ratio']].sample(n=500)
+    data_analysis_df = df_stats_interpolated[varying_parameters + [
+        statistic+'_perf_ratio']].sample(n=500)
     if 'Thfactor' in data_analysis_df.columns:
-        data_analysis_df['10**Thfactor'] = np.power(10,data_analysis_df['Thfactor'])
+        data_analysis_df['10**Thfactor'] = np.power(
+            10, data_analysis_df['Thfactor'])
         data_analysis_df.drop(['Thfactor'], axis=1, inplace=True)
 
-    data_analysis_df['-log10(1-perf_ratio)'] = -np.round(np.log10(1-data_analysis_df['median_perf_ratio']+EPSILON),decimals=0)
-    data_analysis_df.drop(['median_perf_ratio'], axis=1, inplace=True)
+    data_analysis_df['-log10(1-perf_ratio)'] = -np.round(
+        np.log10(1-data_analysis_df[statistic+'_perf_ratio']+EPSILON), decimals=0)
+    data_analysis_df.drop([statistic+'_perf_ratio'], axis=1, inplace=True)
     g = sns.PairGrid(
-        data_analysis_df, 
-        hue='-log10(1-perf_ratio)', 
-        palette="crest", 
-        # diag_sharey=False, 
+        data_analysis_df,
+        hue='-log10(1-perf_ratio)',
+        palette="crest",
+        # diag_sharey=False,
         corner=True,
-        )
+    )
     # g.map_upper(sns.scatterplot)
     g.map_offdiag(sns.scatterplot)
     # g.map_lower(sns.kdeplot)
@@ -1225,9 +1275,9 @@ if draw_plots:
     for parameter_name in varying_parameters:
         fig, ax = plt.subplots()
         sns.lineplot(x='reads', y=parameter_name, data=recipe_lazy, ax=ax, estimator=None, label='Suggested ' + parameter_name +
-                     '\n median over instances, then best parameter, \n and projected into database for every resource budget')
+                     '\n quantile over instances, then best parameter, \n and projected into database for every resource budget')
         sns.lineplot(x='reads', y=parameter_name, data=recipe_mean_best_params, ax=ax, estimator=None, label='Suggested ' + parameter_name +
-                     '\n best parameters for every instance and resource budget, \n median over instances, mean over parameters, \n and projected into database for every read')
+                     '\n best parameters for every instance and resource budget, \n quantile over instances, mean over parameters, \n and projected into database for every read')
         ax.set(xscale='log')
         # ax.set(ylim=[0.98,1.001])
         # ax.set(xlim=[5e2,5e4])
@@ -1246,48 +1296,48 @@ if draw_plots:
 # Strategy Plot: Random search
 if draw_plots:
     # Strategy plot showing how the best hyperparameters of the random search change with respect to the resource budget
-    mean_median_perf_ratio = df_progress_best['idxmean_median_perf_ratio'].apply(
+    strategy_random = df_progress_best['idxmean_'+statistic+'_perf_ratio'].apply(
         pd.Series)
-    mean_median_perf_ratio.columns = ['R_budget', 'R_explor', 'tau']
-    mean_median_perf_ratio['f_explor'] = mean_median_perf_ratio['R_explor'] / \
-        mean_median_perf_ratio['R_budget']
-    mean_median_perf_ratio['median_median_perf_ratio'] = df_progress_best['mean_median_perf_ratio']
+    strategy_random.columns = ['R_budget', 'R_explor', 'tau']
+    strategy_random['f_explor'] = strategy_random['R_explor'] / \
+        strategy_random['R_budget']
+    strategy_random['perf_ratio'] = df_progress_best['mean_'+statistic+'_perf_ratio']
 
     f, ax = plt.subplots()
     sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual,
                  ax=ax, estimator=None, label='Median virtual best')
-    sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best,
+    sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best,
                  ax=ax, estimator=None, label='Median best random search expl-expl')
     sns.scatterplot(
-        data=mean_median_perf_ratio,
+        data=strategy_random,
         x='R_budget',
         size='f_explor',
         hue='f_explor',
         style='tau',
-        y='median_median_perf_ratio',
+        y='median_'+statistic+'_perf_ratio',
         ax=ax,
         palette='magma',
         hue_norm=(0, 2),
         sizes=(20, 200),
         legend='brief')
-    ax.set(xlim=[5e2, 2e4])
+    ax.set(xlim=[5e2, 5e4])
     ax.set(ylim=[0.975, 1.0025])
     ax.set(xscale='log')
     ax.set(title='Strategy plot: Random search \n instances SK ' +
            prefix.rsplit('_inst')[0] + '\n solver ' + solver)
-    plt.legend(loc='center left', bbox_to_anchor=(0.6, 0.4),
+    plt.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),
                fancybox=True)
 
 # %%
 # Strategy Plot: Ternary search
 if draw_plots:
     # Strategy plot showing how the best hyperparameters of the ternary search change with respect to the resource budget
-    ternary_perf_ratio = df_progress_best_ternary['idxmean_median_perf_ratio'].apply(
+    strategy_ternary = df_progress_best_ternary['idxmean_median_perf_ratio'].apply(
         pd.Series)
-    ternary_perf_ratio.columns = ['R_budget', 'R_explor', 'tau']
-    ternary_perf_ratio['f_explor'] = ternary_perf_ratio['R_explor'] / \
-        ternary_perf_ratio['R_budget']
-    ternary_perf_ratio['median_median_perf_ratio'] = df_progress_best_ternary['mean_median_perf_ratio']
+    strategy_ternary.columns = ['R_budget', 'R_explor', 'tau']
+    strategy_ternary['f_explor'] = strategy_ternary['R_explor'] / \
+        strategy_ternary['R_budget']
+    strategy_ternary['median_median_perf_ratio'] = df_progress_best_ternary['mean_median_perf_ratio']
 
     f, ax = plt.subplots()
     sns.lineplot(x='reads', y='virt_best_perf_ratio', data=df_virtual,
@@ -1295,7 +1345,7 @@ if draw_plots:
     sns.lineplot(x='R_budget', y='mean_median_perf_ratio', data=df_progress_best_ternary,
                  ax=ax, estimator=None, label='Median best ternary search expl-expl')
     sns.scatterplot(
-        data=ternary_perf_ratio,
+        data=strategy_ternary,
         x='R_budget',
         size='f_explor',
         hue='f_explor',
@@ -1316,3 +1366,6 @@ if draw_plots:
 
 
 # %%
+# Generate distributions for the
+# results_df = df_results_all.groupby(['reads','instance']).apply(lambda x: x.nlargest(1,'perf_ratio'))
+# sns.displot(data=results_df[(results_df['reads'] == 1e3) | (results_df['reads'] == 2e3) | (results_df['reads'] == 5e3)], x='sweep', hue='reads', bins=21, multiple="dodge")

@@ -7,6 +7,7 @@ from bisect import bisect_left
 from math import hypot
 from typing import List, Tuple, Union
 import sys
+from matplotlib.pyplot import xlabel, xscale
 import numpy as np
 import pandas as pd
 
@@ -18,22 +19,23 @@ jobid = 42
 
 # Input Parameters
 total_reads = 1000
-overwrite_pickles = False
+overwrite_pickles = True
 sizes = []
-sizes.append(int(str(sys.argv[1])))
-# sizes = [100]
-if int(str(sys.argv[2])) == 1:
-# if 1 == 1:
+# sizes.append(int(str(sys.argv[1])))
+sizes = [200]
+# if int(str(sys.argv[2])) == 1:
+if 0 == 1:
     ocean_df_flag = True
 else:
     ocean_df_flag = False
-use_raw_dataframes = True
-draw_plots = False
-# statistic = '50'
-statistic = str(sys.argv[3])
+use_raw_dataframes = False
+draw_plots = True
+statistic = '50'
+# statistic = str(sys.argv[3])
 
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
 data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/"
+plots_path = os.path.join(data_path, 'plots/')
 instances_path = os.path.join(data_path, 'instances/')
 if ocean_df_flag:
     results_path = os.path.join(data_path, 'dneal/')
@@ -329,7 +331,7 @@ for size in sizes:
     included_parameters = df_stats[numeric_parameters].values
 # %%
 # Main execution
-generate_interpolated_stats = True
+generate_interpolated_stats = False
 generate_interpolated_results = False
 # Interpolate results accross resources
 for size in sizes:
@@ -346,7 +348,7 @@ for size in sizes:
             0] + '_interp.pkl'
         df_path_stats_interpolated = os.path.join(
             results_path, df_name_stats_interpolated)
-        if os.path.exists(df_path_stats_interpolated) and not overwrite_pickles:
+        if os.path.exists(df_path_stats_interpolated) and not generate_interpolated_stats:
             df_stats_interpolated = pd.read_pickle(df_path_stats_interpolated)
         else:
             if generate_interpolated_stats:
@@ -369,7 +371,7 @@ for size in sizes:
 
     df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
     df_path_interpolated = os.path.join(results_path, df_name_interpolated)
-    if os.path.exists(df_path_interpolated) and not overwrite_pickles:
+    if os.path.exists(df_path_interpolated):
         df_results_interpolated = pd.read_pickle(df_path_interpolated)
     else:
         if generate_interpolated_results:
@@ -1241,8 +1243,14 @@ if draw_plots:
         solver = 'pysa'
     ax.set(title='Windows sticker plot \n instances SK ' +
            prefix.rsplit('_inst')[0] + '\n solver ' + solver)
-    plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
+    lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
                fancybox=True)
+    if ocean_df_flag:
+        solver = 'dneal'
+    else:
+        solver = 'pysa'
+    plot_name = 'windows_sticker_'+solver+'_'+str(size)+'_'+statistic+'.png'
+    plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
 
 # %%
 # Data Analysis plot to see correlations among parameters for all the dataset
@@ -1274,6 +1282,8 @@ if draw_plots:
     g.add_legend()
     for ax in g.axes.flatten():
         pass
+    plot_name = 'data_analysis_'+solver+'_'+str(size)+'_'+statistic+'.png'
+    plt.savefig(os.path.join(plots_path,plot_name), bbox_inches='tight')
 # %%
 # Strategy Plot: Suggested parameters
 if draw_plots:
@@ -1289,14 +1299,12 @@ if draw_plots:
         # ax.set(xlim=[5e2,5e4])
         ax.set(ylabel=labels[parameter_name])
         ax.set(xlabel='Total number of spin variable reads (proportional to time)')
-        if ocean_df_flag:
-            solver = 'dneal'
-        else:
-            solver = 'pysa'
         ax.set(title='Strategy plot: Suggested parameters \n instances SK ' +
                prefix.rsplit('_inst')[0] + '\n solver ' + solver)
-        plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
+        lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
                    fancybox=True)
+        plot_name = parameter_name+'_'+solver+'_'+str(size)+'_'+statistic+'.png'
+        plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
 
 # %%
 # Strategy Plot: Random search
@@ -1311,9 +1319,9 @@ if draw_plots:
 
     f, ax = plt.subplots()
     sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio', data=df_virtual,
-                 ax=ax, estimator=None, label='Quantile '+statistic+'  virtual best')
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  \n virtual best')
     sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best,
-                 ax=ax, estimator=None, label='Quantile '+statistic+'  best random search expl-expl')
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  \n best random search expl-expl')
     sns.scatterplot(
         data=strategy_random,
         x='R_budget',
@@ -1329,10 +1337,14 @@ if draw_plots:
     ax.set(xlim=[5e2, 5e4])
     ax.set(ylim=[0.975, 1.0025])
     ax.set(xscale='log')
+    ax.set(xlabel='Total number of spin variable reads (proportional to time)')
+    ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
     ax.set(title='Strategy plot: Quantile '+statistic+' best random search \n instances SK ' +
            prefix.rsplit('_inst')[0] + '\n solver ' + solver)
-    plt.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),
+    lgd = ax.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),
                fancybox=True)
+    plot_name = 'random_search_'+solver+'_'+str(size)+'_'+statistic+'.png'
+    plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
 
 # %%
 # Strategy Plot: Ternary search
@@ -1347,9 +1359,9 @@ if draw_plots:
 
     f, ax = plt.subplots()
     sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio', data=df_virtual,
-                 ax=ax, estimator=None, label='Quantile '+statistic+'  virtual best')
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  \n virtual best')
     sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best_ternary,
-                 ax=ax, estimator=None, label='Quantile '+statistic+'  best ternary search expl-expl')
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  \n best ternary search expl-expl')
     sns.scatterplot(
         data=strategy_ternary,
         x='R_budget',
@@ -1363,17 +1375,40 @@ if draw_plots:
         sizes=(20, 200),
         legend='brief')
     ax.set(xlim=[5e3, 1e6])
-    ax.set(ylim=[0.999, 1.00025])
+    ax.set(ylim=[0.99, 1.00025])
     ax.set(xscale='log')
-    ax.set(title='Strategy plot: Quantile '+statistic+' best ternary search \n instances SK ' +
+    ax.set(title='Strategy plot: Quantile '+statistic+' ternary search \n instances SK ' +
            prefix.rsplit('_inst')[0] + '\n solver ' + solver)
-    plt.legend(loc='center left', bbox_to_anchor=(0.6, 0.4),
+    ax.set(xlabel='Total number of spin variable reads (proportional to time)')
+    ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
+    lgd = ax.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),
                fancybox=True)
+    plot_name = 'ternary_search_'+solver+'_'+str(size)+'_'+statistic+'.png'
+    plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
 
 
 # %%
 # Generate distributions for the parameters given the best performance
-# results_df = df_results_all.groupby(['reads','instance']).apply(lambda x: x.nlargest(1,'perf_ratio'))
-# sns.displot(data=results_df[(results_df['reads'] == 1e3) | (results_df['reads'] == 2e3) | (results_df['reads'] == 5e3)], x='sweep', hue='reads', bins=21, multiple="dodge")
+df_results_all['reads'] = df_results_all['boots']
+for r_parameters in resource_proportional_parameters:
+    if r_parameters in parameter_names:
+        df_results_all['reads'] *= df_results_all[r_parameters]
+df_parameters = df_results_all.groupby(['reads','instance']).apply(lambda x: x.nlargest(1,'perf_ratio'))
+df_parameters['-log10(perf_ratio)'] = -np.round(
+        np.log10(1-df_parameters['perf_ratio']+EPSILON), decimals=0)
+for parameter_name in varying_parameters:
+    f, ax = plt.subplots()
+    sns.displot(
+        data=df_parameters[df_parameters['reads'] == 2e5],
+            # (df_parameters['reads'] == 1e3) | 
+            # (df_parameters['reads'] == 1e4) | 
+            # (df_parameters['reads'] == 1e5)
+            # ],
+            x=parameter_name,
+            hue='-log10(perf_ratio)',
+            bins=len(instances),
+            multiple="dodge",
+            ax=ax,
+            )
 
 # %%

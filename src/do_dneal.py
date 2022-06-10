@@ -186,6 +186,17 @@ if __name__ == "__main__":
         os.makedirs(dneal_pickle_path)
         
     results_path = dneal_results_path
+
+    create_instace_files = True
+    if create_instace_files:
+        instance_path = os.path.join(data_path, 'instances')
+        createRandomSKModel(
+            N=N,
+            instance_list=instance_list,
+            prefix=prefix,
+            instance_path=data_path
+        )
+
         
     compute_random = False
     if compute_random:

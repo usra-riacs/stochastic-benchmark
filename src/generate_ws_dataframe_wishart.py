@@ -25,7 +25,7 @@ save_plots = True
 sizes = []
 # sizes.append(int(str(sys.argv[1])))
 sizes = [30]
-alphas = [0.4]
+alphas = [0.5]
 # if int(str(sys.argv[2])) == 1:
 if 0 == 1:
     ocean_df_flag = True
@@ -419,7 +419,7 @@ for size in sizes:
 # Main execution
 generate_interpolated_stats = True
 generate_interpolated_results = True
-overwrite_pickles = True
+overwrite_pickles = False
 resource_column = 'reads'
 # resource_proportional_parameters=['sweep', 'replica'],
 resource_proportional_parameters = ['swe', 'rep']
@@ -447,23 +447,20 @@ for size in sizes:
                     df_stats_interpolated = df_stats.copy()
             else:
                 resource_values = gen_log_space(min(df_stats[resource_column].values), max(df_stats[resource_column].values), default_boots // 2)
-                if generate_interpolated_stats:
-                    df_stats_interpolated = interpolate_df(
-                        dataframe=df_stats,
-                        resource_column=resource_column,
-                        prefix=df_name_stats,
-                        parameters_dict=parameters_dict,
-                        default_boots=default_boots,
-                        minimum_boots=minimum_boots,
-                        resource_proportional_parameters=resource_proportional_parameters,
-                        idx=idx,
-                        results_path=results_path,
-                        save_pickle=True,
-                        overwrite_pickles=overwrite_pickles,
-                        resource_values=resource_values,
-                    )
-                else:
-                    df_stats_interpolated = None
+                df_stats_interpolated = interpolate_df(
+                    dataframe=df_stats,
+                    resource_column=resource_column,
+                    prefix=df_name_stats,
+                    parameters_dict=parameters_dict,
+                    default_boots=default_boots,
+                    minimum_boots=minimum_boots,
+                    resource_proportional_parameters=resource_proportional_parameters,
+                    idx=idx,
+                    results_path=results_path,
+                    save_pickle=True,
+                    overwrite_pickles=overwrite_pickles,
+                    resource_values=resource_values,
+                )
 
 
         df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
@@ -495,14 +492,11 @@ for size in sizes:
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
 # TODO This is only performed for the last size. Maybe introduce a dictionary instead
-use_raw_dataframes = True
+use_raw_dataframes = False
 
 response_column = 'perf_ratio'
 response_direction = 1
 df_name_all = prefix + 'df_results.pkl'
-
-
-def dist_eucl(a, b, scale): return hypot((b[0]-a[0]), (b[0]-a[0]))
 
 
 df_name_recipe_lazy = df_name_all.rsplit('.')[0] + '_recipe_lazy' + statistic + '.pkl'
@@ -758,7 +752,7 @@ def process_df_progress(
         if type(stat_measure) == int:
             stat_measure = 'percentile('+stat_measure+')'
 
-    experiment_setting = ['R_budget', 'R_explor', 'run_per_solve']
+    experiment_setting = ['R_budget', 'R_explor', 'tau']
     individual_run = experiment_setting.copy()
     if 'experiment' in df_progress.columns:
         individual_run += ['experiment']
@@ -858,8 +852,14 @@ def process_df_progress(
 # %%
 # Random search for the ensemble
 repetitions = 10  # Times to run the algorithm
-# resources per parameter setting (reads/resource_factor = boots)
-rs = [10, 20, 50, 100, 200, 500, 1000]
+# # resources per parameter setting (reads/resource_factor = boots)
+# rs = [10, 20, 50, 100, 200, 500, 1000]
+# resources per parameter setting (reads)
+rs_o = [10, 20, 50, 100, 200, 500, 1000, 10000]
+rs = [take_closest(resource_values, r) for r in rs_o]
+if 'params' not in df_stats_interpolated:
+    df_stats_interpolated['params'] = df_stats_interpolated[parameter_names].apply(tuple, axis=1)
+
 frac_r_exploration = [0.05, 0.1, 0.2, 0.5, 0.75]
 R_budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7]
              for j in [3, 4, 5]] + [1e6]  # Total search budget (reads)
@@ -870,9 +870,9 @@ search_metric = statistic+'_'+response_column
 compute_metric = statistic+'_'+response_column
 df_search = df_stats_interpolated[
     parameter_names +
-    list(set([compute_metric] + [search_metric])) + ['boots', 'reads']
+    list(set([compute_metric] + [search_metric])) + ['reads']
 ].set_index(
-    parameter_names + ['boots']
+    parameter_names + ['reads']
 ).sort_index()
 df_reads = df_stats_interpolated[
     parameter_names + ['reads']
@@ -881,7 +881,8 @@ df_reads = df_stats_interpolated[
 ).sort_index()
 
 r_indices = []
-resource_proportional_parameters = ['sweep', 'replica']
+# resource_proportional_parameters = ['sweep', 'replica']
+resource_proportional_parameters = ['swe', 'rep']
 for r_parameters in resource_proportional_parameters:
     if r_parameters in parameter_names:
         r_indices.append(parameter_names.index(r_parameters))
@@ -901,6 +902,10 @@ else:
                     print(
                         "R_exploration must be larger than single exploration step")
                     continue
+                parameter_sets = df_stats_interpolated[df_stats_interpolated['reads'] == r]['params'].values
+                if len(parameter_sets) == 0:
+                    print("No parameter sets found with {} reads".format(r))
+                    continue
                 for experiment in range(repetitions):
                     random_parameter_sets = random.choices(
                         parameter_sets, k=int(R_exploration / r))
@@ -913,11 +918,12 @@ else:
                     resource_factor = 1
                     for r_index in r_indices:
                         resource_factor *= random_parameter_sets[0][r_index]
-                    actual_reads = take_closest(
-                        all_reads.values, r*resource_factor)[0]
+                    # actual_reads = take_closest(
+                    #     all_reads.values, r*resource_factor)[0]
+                    actual_reads = r
                     # Start random exploration with best found point
                     series_list = [
-                        df_search.loc[idx[random_parameter_sets[0]+((actual_reads / resource_factor),)]]]
+                        df_search.loc[idx[random_parameter_sets[0]+((actual_reads),)]]]
                     total_reads = actual_reads
 
                     if total_reads > R_exploration:
@@ -930,7 +936,12 @@ else:
                         resource_factor = 1
                         for r_index in r_indices:
                             resource_factor *= random_parameter_set[r_index]
-                        total_reads += r*resource_factor
+                        if resource_factor > r:
+                            continue
+                        if resource_factor*default_boots < r:
+                            continue
+                        # total_reads += r*resource_factor
+                        total_reads += r
                         if total_reads > R_exploration:
                             converged = True
                             break
@@ -940,12 +951,12 @@ else:
                             ]
                         )
                     exploration_step = pd.concat(series_list, axis=1).T.rename_axis(
-                        parameter_names + ['boots'])
+                        parameter_names + ['reads'])
                     exploration_step[compute_metric] = exploration_step[compute_metric].expanding(
                         min_periods=1).max()
-                    exploration_step.reset_index('boots', inplace=True)
+                    exploration_step.reset_index('reads', inplace=True)
                     exploration_step['experiment'] = experiment
-                    exploration_step['run_per_solve'] = r
+                    exploration_step['tau'] = r
                     exploration_step['R_explor'] = R_exploration
                     exploration_step['R_exploit'] = R_exploitation
                     exploration_step['R_budget'] = R_budget
@@ -966,7 +977,7 @@ else:
                     exploitation_step[compute_metric] = exploitation_step[compute_metric].expanding(
                         min_periods=1).max()
                     exploitation_step['experiment'] = experiment
-                    exploitation_step['run_per_solve'] = r
+                    exploitation_step['tau'] = r
                     exploitation_step['R_explor'] = R_exploration
                     exploitation_step['R_exploit'] = R_exploitation
                     exploitation_step['R_budget'] = R_budget
@@ -1085,7 +1096,7 @@ else:
                                         <= total_reads].copy()
                 first_step[compute_metric].fillna(
                     0, inplace=True)
-                first_step['run_per_solve'] = r
+                first_step['tau'] = r
                 first_step['R_explor'] = R_exploration
                 first_step['R_exploit'] = R_exploitation
                 first_step['R_budget'] = R_budget
@@ -1215,7 +1226,7 @@ else:
                 exploration_step[compute_metric] = exploration_step[compute_metric].expanding(
                     min_periods=1).max()
                 exploration_step.reset_index('boots', inplace=True)
-                exploration_step['run_per_solve'] = r
+                exploration_step['tau'] = r
                 exploration_step['R_explor'] = R_exploration
                 exploration_step['R_exploit'] = R_exploitation
                 exploration_step['R_budget'] = R_budget
@@ -1236,7 +1247,7 @@ else:
                     lower=exploration_step[compute_metric].max(), inplace=True)
                 exploitation_step[compute_metric] = exploitation_step[compute_metric].expanding(
                     min_periods=1).max()
-                exploitation_step['run_per_solve'] = r
+                exploitation_step['tau'] = r
                 exploitation_step['R_explor'] = R_exploration
                 exploitation_step['R_exploit'] = R_exploitation
                 exploitation_step['R_budget'] = R_budget
@@ -1268,6 +1279,8 @@ labels = {
     'instance': 'Random instance',
     'replica': 'Number of replicas',
     'sweep': 'Number of sweeps',
+    'rep': 'Number of replicas',
+    'swe': 'Number of sweeps',
     'pcold': 'Probability of dEmin flip at cold temperature',
     'phot': 'Probability of dEmax flip at hot temperature',
     'Tcfactor': 'Cold temperature power of 10 factor from mean field deviation,  \n 10**Tcfactor*dEmin/log(100/1)',
@@ -1310,6 +1323,8 @@ labels = {
 if draw_plots:
     import matplotlib.pyplot as plt
     import seaborn as sns
+    if not os.path.exists(plots_path):
+        os.makedirs(plots_path)
 # %%
 # Windows Stickers Plot
 if draw_plots:
@@ -1359,7 +1374,7 @@ if draw_plots:
         solver = 'dneal'
     else:
         solver = 'pysa'
-    ax.set(title='Windows sticker plot \n instances SK ' +
+    ax.set(title='Windows sticker plot \n instances Wishart ' +
            prefix.rsplit('_inst')[0] + '\n solver ' + solver)
     lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
                fancybox=True)
@@ -1423,7 +1438,7 @@ if draw_plots:
             # ax.set(xlim=[5e2,5e4])
             ax.set(ylabel=labels[parameter_name])
             ax.set(xlabel='Total number of spin variable reads (proportional to time)')
-            ax.set(title='Strategy plot: Suggested parameters \n instances SK ' +
+            ax.set(title='Strategy plot: Suggested parameters \n instances Wishart ' +
                 prefix.rsplit('_inst')[0] + '\n solver ' + solver)
             lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
                     fancybox=True)
@@ -1460,11 +1475,11 @@ if draw_plots:
         sizes=(20, 200),
         legend='brief')
     ax.set(xlim=[5e2, 5e4])
-    ax.set(ylim=[0.975, 1.0025])
+    ax.set(ylim=[0.96, 1.0025])
     ax.set(xscale='log')
     ax.set(xlabel='Total number of spin variable reads (proportional to time)')
     ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
-    ax.set(title='Strategy plot: Quantile '+statistic+' best random search \n instances SK ' +
+    ax.set(title='Strategy plot: Quantile '+statistic+' best random search \n instances Wishart ' +
            prefix.rsplit('_inst')[0] + '\n solver ' + solver)
     lgd = ax.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),
                fancybox=True)
@@ -1503,7 +1518,7 @@ if draw_plots:
     ax.set(xlim=[5e3, 1e6])
     ax.set(ylim=[0.99, 1.00025])
     ax.set(xscale='log')
-    ax.set(title='Strategy plot: Quantile '+statistic+' ternary search \n instances SK ' +
+    ax.set(title='Strategy plot: Quantile '+statistic+' ternary search \n instances Wishart ' +
            prefix.rsplit('_inst')[0] + '\n solver ' + solver)
     ax.set(xlabel='Total number of spin variable reads (proportional to time)')
     ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')

@@ -12,45 +12,48 @@ from typing import List, Tuple, Union
 
 
 # %%
-jobid = int(os.getenv('PBS_ARRAY_INDEX'))
-# jobid = 42
+# jobid = int(os.getenv('PBS_ARRAY_INDEX'))
+jobid = 42
 
 
 # Input Parameters
 total_reads = 1000
 overwrite_pickles = False
-if int(str(sys.argv[2])) == 1:
+wishart_instances = True
+if 0 == 1:
+# if int(str(sys.argv[2])) == 1:
     ocean_df_flag = True
 else:
     ocean_df_flag = False
 compute_best_found_flag = False
 use_raw_dataframes = True
-# instances_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/instances"
+sizes = []
+alphas = []
+# sizes.append(int(str(sys.argv[1])))
+sizes = [20]
+alphas = [0.4]
+
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
-# if ocean_df_flag:
-#     pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal/pickles"
-#     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/dneal"
-# else:
-#     pickles_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa/pickles"
-#     results_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/pysa"
+# data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+data_path = "/home/bernalde/results_20_0.4"
+if len(sizes) == 1 and len(alphas) == 1:
+    data_path = "/home/bernalde/results_"+str(sizes[0])+"_"+str(alphas[0])
 
-
-instances_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/instances"
-data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+instances_path = os.path.join(data_path, 'instances/')
 if ocean_df_flag:
-    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/pickles"
-    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/dneal/"
+    results_path = os.path.join(data_path, 'dneal/')
 else:
-    pickles_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/pickles"
-    results_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/pysa/"
+    results_path = os.path.join(data_path, 'pysa/')
+pickles_path = os.path.join(results_path, 'pickles')
 
 schedules = []
 sweeps = []
 replicas = []
-sizes = []
 instances = []
 Tcfactors = []
 Thfactors = []
+pcolds = []
+phots = []
 
 # Jobid instances
 # Fixed sweep, schedule, Tcfactor, Thfactors
@@ -60,9 +63,8 @@ sweeps = [1000]
 replicas = [8]
 Tcfactors = [0]
 Thfactors = [-1.5]
-# sizes.append(int(str(sys.argv[1])))
-# sizes = [100]
-# instances.append(int(jobid))
+pcolds = [1.00]
+phots = [50.0]
 
 
 all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
@@ -77,8 +79,6 @@ all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
 # sweep_idx = jobid % len(sweeps)
 # sweeps.append(all_sweeps[sweep_idx])
 sweeps = all_sweeps
-sizes.append(int(str(sys.argv[1])))
-# sizes = [100,200]
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
 instances.append(int(jobid))
@@ -116,7 +116,7 @@ def getInstance(filename, prefix):
         prefix: the prefix of the files
 
     Returns:
-        sweep: the sweep string
+        sweep: the instance integer
     '''
     return int(filename.rsplit(".", 1)[0].split(prefix, 1)[1].split("_")[0])
 
@@ -156,7 +156,7 @@ def getSweepPySAExperiment(filename):
         filename: the name of the file
 
     Returns:
-        sweeps: the number of sweeps
+        sweeps: the number of sweeps integer
     '''
     return int(filename.rsplit(".", 1)[0].rsplit("_", 7)[-7])
 
@@ -170,7 +170,7 @@ def getThfactorExperiment(filename):  # Thfactor
         filename: the name of the file
 
     Returns:
-        Thfactor: the hot temperature transition probability
+        Thfactor: the hot temperature transition probability float
     '''
     return float(filename.rsplit(".", 1)[0].rsplit("_", 2)[-1])
 
@@ -184,7 +184,7 @@ def getTcfactorExperiment(filename):  # Tcfactor
         filename: the name of the file
 
     Returns:
-        Tcfactor: the cold temperature transition probability
+        Tcfactor: the cold temperature transition probability float
     '''
     return float(filename.rsplit(".", 1)[0].rsplit("_", 3)[-3])
 
@@ -198,7 +198,7 @@ def getReplicaPySAExperiment(filename):  # replicas
         filename: the name of the file
 
     Returns:
-        replicas: the number of replicas
+        replicas: the number of replicas integer
     '''
     return int(filename.rsplit(".", 1)[0].rsplit("_", 5)[-5])
 
@@ -291,7 +291,7 @@ def getSweepDnealExperiment(filename):
         prefix: the prefix of the file
 
     Returns:
-        sweep: the schedule string
+        sweep: the schedule integer
     '''
     return int(filename.rsplit(".", 1)[0].rsplit("_", 5)[-5])
 
@@ -358,6 +358,188 @@ def createDnealExperimentFileList(
         files_list = sorted(
             files_list, key=lambda x: getInstance(x, prefix))
     return files_list
+
+
+def getInstanceWishart(filename, prefix):
+    '''
+    Extracts the instance from the Dwave-neal experiment filename assuming the filename follows the naming convention prefix_instance_....extension
+
+    Args:
+        filename: the name of the file
+        prefix: the prefix of the files
+
+    Returns:
+        instance: the instance integer
+    '''
+    return int(filename.rsplit(".", 1)[0].split(prefix, 1)[1].split("_")[0])
+
+def getAlphaWishart(filename):
+    '''
+    Extracts the alpha from the PySA Wishart experiment filename assuming the filename follows the naming convention prefix_instance_....extension
+
+    Args:
+        filename: the name of the file
+        prefix: the prefix of the files
+
+    Returns:
+        alpha: the alpha float
+
+    '''
+    return float(filename.rsplit(".", 1)[0].rsplit("_", 11)[-11])
+
+
+def getSizeWishart(filename):
+    '''
+    
+    Extracts the size from the PySA Wishart experiment filename assuming the filename follows the naming convention prefix_instance_....extension
+
+    Args:
+        filename: the name of the file
+
+    Returns:
+        size: the size integer
+    '''
+    return int(filename.rsplit(".", 1)[0].rsplit("_", 13)[-13])
+
+
+def getInstanceWishart(filename, prefix):  # instance number
+    '''
+    Extracts the instance from the PySA Wishart experiment filename assuming the filename follows the naming convention prefix_instance_....extension
+
+    Args:
+        filename: the name of the file
+        prefix: the prefix of the files
+
+    Returns:
+        instance: the instance integer
+    '''
+    return int(filename.split(prefix)[1].rsplit(".", 1)[0].rsplit("_", 9)[-9])
+
+
+def getSweepWishart(filename):
+    '''
+    Extracts the sweeps from the PySA Wishart experiment filename assuming the filename follows the naming convention prefix_instance_sweeps.extension
+
+    Args:
+        filename: the name of the file
+
+    Returns:
+        sweep: the sweep integer
+    '''
+    return int(filename.rsplit(".", 1)[0].rsplit("_", 7)[-7])
+
+
+def getPHotWishart(filename):  # P hot
+    '''    
+    Extracts the P hot from the PySA Wishart experiment filename assuming the filename follows the naming convention prefix_instance_....extension
+
+    Args:
+        filename: the name of the file
+
+    Returns:
+        P_hot: the P hot float
+    
+    '''
+    return float(filename.rsplit(".", 1)[0].rsplit("_", 2)[-1])
+
+
+def getPColdWishart(filename):  # P cold
+    '''
+    Extracts the P cold from the PySA Wishart experiment filename assuming the filename follows the naming convention prefix_instance_....extension
+
+    Args:
+        filename: the name of the file
+
+    Returns:
+        P_cold: the P cold float    
+    '''
+    return float(filename.rsplit(".", 1)[0].rsplit("_", 3)[-3])
+
+
+def getRepWishart(filename):  # replicas
+    '''
+    Extracts the replicas from the PySA Wishart experiment filename assuming the filename follows the naming convention prefix_instance_....extension
+
+    Args:
+        filename: the name of the file
+
+    Returns:
+        replicas: the replicas integer
+    '''
+    return int(filename.rsplit(".", 1)[0].rsplit("_", 5)[-5])
+
+
+def createWishartFileList(
+    directory: str,
+    sizes:  Union[List[str], List[int]] = None,
+    alphas: Union[List[str], List[float]] = None,
+    instances:  Union[List[str], List[int]] = None,
+    swes:  Union[List[str], List[int]] = None,
+    reps: Union[List[str], List[int]] = None,
+    pcolds: Union[List[str], List[float]] = None,
+    phots: Union[List[str], List[float]] = None,
+    prefix: str ="",
+    suffix: str ="",
+    )-> list:
+    '''
+    Creates a list of experiment files in the directory for the instances in the instances, sweeps in the sweeps, and schedules in the schedules
+
+    Args:
+        directory: the directory where the files are
+        instances: the list of instances
+        sweeps: the list of sweeps
+        schedules: the list of schedules
+        prefix: the prefix of the experiment files
+
+    Returns:
+        experiment_files: the list of files
+
+    '''
+    fileList = []
+    for root, dirs, files in os.walk(directory):
+        # exclude hidden, compressed, or bash files
+        files = [f for f in files
+                 if(not f.startswith('.') and
+                 not f.endswith('.zip') and
+                 not f.endswith('.sh') and
+                 f.startswith(prefix) and
+                 f.endswith(suffix))]
+        # exclude gs_energies.txt files
+        files = [f for f in files
+                 if(not f.startswith('gs_energies'))]
+        # Below, select only specifed sizes
+        files = [f for f in files if(
+            getSizeWishart(f) in sizes)]
+        # Below, select only specifed alphas
+        files = [f for f in files if(
+            getAlphaWishart(f) in alphas)]
+        # Below, select only specifed instances
+        files = [f for f in files if(
+            getInstanceWishart(f, prefix) in instances)]
+        # Consider sweeps if provided list
+        if swes is not None:
+            files = [f for f in files if(
+                getSweepWishart(f) in swes)]
+        # Consider replicas if provided list
+        if reps is not None:
+            files = [f for f in files if(
+                getRepWishart(f) in reps)]
+        # Consider pcold if provided list
+        if pcolds is not None:
+            files = [f for f in files if(
+                getPColdWishart(f) in pcolds)]
+        # Consider pcold if provided list
+        if phots is not None:
+            files = [f for f in files if(
+                getPHotWishart(f) in phots)]
+
+        for f in files:
+            fileList.append(root+'/'+f)
+
+        # sort filelist by n,s
+        fileList = sorted(fileList, key=lambda x: (getInstanceWishart(x, prefix)))
+    return fileList
+
 
 # %%
 # Function to create ground-state file
@@ -677,6 +859,7 @@ def computeResultsList(
 # Function to update the dataframes
 # TODO Remove all the list_* variables and name them as plurals instead
 # TODO: Prefix is assumed given directly to the file
+# TODO: Missing prefix!
 
 def createResultsDataframes(
     df: pd.DataFrame = None,
@@ -852,6 +1035,13 @@ if ocean_df_flag:
         'Tcfactor': Tcfactors,
         'Thfactor': Thfactors,
     }
+elif wishart_instances:
+    parameters_dict = {
+        'sweep': sweeps,
+        'replica': replicas,
+        'pcold': pcolds,
+        'phot': phots,
+    }
 else:
     parameters_dict = {
         'sweep': sweeps,
@@ -875,47 +1065,67 @@ parameter_sets = list(parameter_sets)
 complete_files = []
 
 for size in sizes:
-    prefix = "random_n_"+str(size)+"_inst_"
-    parameters_in_files = []
-    for instance in instances:
-        if ocean_df_flag:
-            files = createDnealExperimentFileList(
-                directory=pickles_path,
-                instances=[instance],
-                sweeps=None,
-                schedules=None,
-                Tcfactors=None,
-                Thfactors=None,
-                prefix=prefix,
-                suffix='.pkl',)
-            for file in files:
-                parameters_in_files.append((
-                    getScheduleDnealExperiment(file),
-                    getSweepDnealExperiment(file),
-                    getTcfactorExperiment(file),
-                    getThfactorExperiment(file),
-                ))
-        else:
-            files = createPySAExperimentFileList(
-                directory=pickles_path,
-                instances=[instance],
-                replicas=None,
-                sweeps=None,
-                Tcfactors=None,
-                Thfactors=None,
-                prefix=prefix,)
-            for file in files:
-                parameters_in_files.append((
-                    getSweepPySAExperiment(file),
-                    getReplicaPySAExperiment(file),
-                    getTcfactorExperiment(file),
-                    getThfactorExperiment(file),
-                ))
-        for parameter_set in parameter_sets:
-            if parameter_set not in parameters_in_files:
-                print("Missing parameter set:", parameter_set,
-                      "for instance:", instance, "of size", size)
-        complete_files.extend(files)
+    for alpha in alphas:
+        # prefix = "random_n_"+str(size)+"_inst_"
+        prefix = 'wishart_planting_N_{:.0f}_alpha_{:.2f}_inst_'.format(size, alpha)
+        parameters_in_files = []
+        for instance in instances:
+            if ocean_df_flag:
+                files = createDnealExperimentFileList(
+                    directory=pickles_path,
+                    instances=[instance],
+                    sweeps=None,
+                    schedules=None,
+                    Tcfactors=None,
+                    Thfactors=None,
+                    prefix=prefix,
+                    suffix='.pkl',)
+                for file in files:
+                    parameters_in_files.append((
+                        getScheduleDnealExperiment(file),
+                        getSweepDnealExperiment(file),
+                        getTcfactorExperiment(file),
+                        getThfactorExperiment(file),
+                    ))
+            elif wishart_instances:
+                files = createWishartFileList(
+                    directory=pickles_path,
+                    sizes=[size],
+                    alphas=[alpha],
+                    instances=[instance],
+                    swes=None,
+                    reps=None,
+                    pcolds=None,
+                    phots=None,
+                    prefix=prefix,)
+                for file in files:
+                    parameters_in_files.append((
+                        getSweepWishart(file),
+                        getRepWishart(file),
+                        getPColdWishart(file),
+                        getPHotWishart(file),
+                    ))
+            else:
+                files = createPySAExperimentFileList(
+                    directory=pickles_path,
+                    instances=[instance],
+                    replicas=None,
+                    sweeps=None,
+                    Tcfactors=None,
+                    Thfactors=None,
+                    prefix=prefix,)
+                for file in files:
+                    parameters_in_files.append((
+                        getSweepPySAExperiment(file),
+                        getReplicaPySAExperiment(file),
+                        getTcfactorExperiment(file),
+                        getThfactorExperiment(file),
+                    ))
+            for parameter_set in parameter_sets:
+                if parameter_set not in parameters_in_files:
+                    print("Missing parameter set:", parameter_set,
+                        "for instance:", instance, "of size", size)
+            complete_files.extend(files)
 
 # %%
 # Compute best found file
@@ -933,31 +1143,33 @@ if compute_best_found_flag:
 # %%
 # Main execution
 for size in sizes:
-    prefix = "random_n_"+str(size)+"_inst_"
-    for instance in instances:
-        df_name = prefix + str(instance) + '_df_results.pkl'
-        df_path = os.path.join(results_path, df_name)
-        if os.path.exists(df_path) and not use_raw_dataframes:
-            df_samples = pd.read_pickle(df_path)
-        else:
-            df_samples = None
-        df_samples = createResultsDataframes(
-            df=df_samples,
-            instances=[instance],
-            parameters_dict=parameters_dict,
-            bootstraps=bootstraps,
-            data_path=data_path,
-            results_path=results_path,
-            pickles_path=pickles_path,
-            confidence_level=confidence_level,
-            gap=gap,
-            bootstrap_iterations=bootstrap_iterations,
-            use_raw_dataframes=use_raw_dataframes,
-            s=s,
-            fail_value=fail_value,
-            save_pickle=True,
-            ocean_df_flag=ocean_df_flag,
-        )
+    for alpha in alphas:
+        # prefix = "random_n_"+str(size)+"_inst_"
+        prefix = 'wishart_planting_N_{:.0f}_alpha_{:.2f}_inst_'.format(size, alpha)
+        for instance in instances:
+            df_name = prefix + str(instance) + '_df_results.pkl'
+            df_path = os.path.join(results_path, df_name)
+            if os.path.exists(df_path) and not use_raw_dataframes:
+                df_samples = pd.read_pickle(df_path)
+            else:
+                df_samples = None
+            df_samples = createResultsDataframes(
+                df=df_samples,
+                instances=[instance],
+                parameters_dict=parameters_dict,
+                bootstraps=bootstraps,
+                data_path=data_path,
+                results_path=results_path,
+                pickles_path=pickles_path,
+                confidence_level=confidence_level,
+                gap=gap,
+                bootstrap_iterations=bootstrap_iterations,
+                use_raw_dataframes=use_raw_dataframes,
+                s=s,
+                fail_value=fail_value,
+                save_pickle=True,
+                ocean_df_flag=ocean_df_flag,
+            )
 
 # %%
 print(datetime.datetime.now())

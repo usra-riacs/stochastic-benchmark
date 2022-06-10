@@ -12,26 +12,33 @@ from typing import List, Tuple, Union
 
 
 # %%
-# jobid = int(os.getenv('PBS_ARRAY_INDEX'))
-jobid = 42
-
-
 # Input Parameters
 total_reads = 1000
 overwrite_pickles = False
-# if 0 == 1:
-if int(str(sys.argv[2])) == 1:
+wishart_instances = True
+if 0 == 1:
+# if int(str(sys.argv[2])) == 1:
     ocean_df_flag = True
 else:
     ocean_df_flag = False
 compute_best_found_flag = False
 use_raw_dataframes = False
+sizes = []
+# sizes.append(int(str(sys.argv[1])))
+sizes = [30]
+alphas = [0.4]
 
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
-data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+# data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk/"
+data_path = "/home/bernalde/results_20_0.4"
+if len(sizes) == 1 and len(alphas) == 1:
+    data_path = "/home/bernalde/results_"+str(sizes[0])+"_"+str(alphas[0])
+
 instances_path = os.path.join(data_path, 'instances/')
 if ocean_df_flag:
     results_path = os.path.join(data_path, 'dneal/')
+elif wishart_instances:
+    results_path = '/home/bernalde/repos/wishart/scripts/results/results_{:.0f}_{:.1f}'.format(sizes[0], alphas[0])
 else:
     results_path = os.path.join(data_path, 'pysa/')
 pickles_path = os.path.join(results_path, 'pickles')
@@ -39,12 +46,10 @@ pickles_path = os.path.join(results_path, 'pickles')
 schedules = []
 sweeps = []
 replicas = []
-sizes = []
 instances = []
 Tcfactors = []
 Thfactors = []
 
-# Jobid instances
 # Fixed sweep, schedule, Tcfactor, Thfactors
 # Input parameter size
 schedules = ['geometric']
@@ -52,9 +57,8 @@ sweeps = [1000]
 replicas = [8]
 Tcfactors = [0]
 Thfactors = [-1.5]
-sizes.append(int(str(sys.argv[1])))
-# sizes = [100]
-# instances.append(int(jobid))
+pcolds = [1.00]
+phots = [50.0]
 
 
 all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
@@ -66,14 +70,15 @@ all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
 # i for i in range(1000, 2001, 200)] + [
 # i for i in range(2000, 5001, 500)] + [
 # i for i in range(5000, 10001, 1000)]
-# sweep_idx = jobid % len(sweeps)
 # sweeps.append(all_sweeps[sweep_idx])
 sweeps = all_sweeps
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
-# instances.append(int(jobid))
-instances = [i for i in range(0,20)] + [42]
-training_instances = [i for i in range(0,20)]
+# instances = [i for i in range(0,20)] + [42]
+instances = [i for i in range(1,50)]
+# instances = [i for i in range(1,5)]
+# training_instances = [i for i in range(0,20)]
+training_instances = instances
 Tcfactors = [0.0]
 Thfactors = list(np.linspace(-3, 1, num=33, endpoint=True))
 # Thfactors = [0.0]
@@ -189,7 +194,7 @@ def generateStatsDataframe(
     df_all: List[dict] = None,
     stat_measures: List[str] = ['mean', 'median'],
     instance_list: List[str] = None,
-    parameters_dict: dict = None,
+    parameters_names: List[str] = None,
     metrics: List[str] = ['min_energy', 'perf_ratio', 'success_prob', 'rtt', 'mean_time', 'inv_perf_ratio'],
     results_path: str = None,
     use_raw_dataframes: bool = False,
@@ -208,7 +213,7 @@ def generateStatsDataframe(
         df_all: List of dictionaries containing the aggregated dataframe
         stat_measures: List of statistics to be calculated
         instance_list: List of instances to be considered
-        parameters_dict: Dictionary of parameters to be considered, with list as values
+        parameters_names: List of parameters' names
         resource_list: List of resources to be considered
         results_path: Path to the directory containing the results
         use_raw_dataframes: Boolean indicating whether to use the raw data for generating the aggregated dataframe
@@ -230,8 +235,6 @@ def generateStatsDataframe(
     #         stat_measure + '_' + metric : conf_interval(s,metric, stat_measure) for metric in metrics_list for stat_measure in stat_measures})
     #     ).reset_index()
 
-    parameters_names = list(parameters_dict.keys())
-    resources = ['boots']
     # Create filename
     df_name = prefix + 'df_stats.pkl'
     df_path = os.path.join(results_path, df_name)
@@ -239,6 +242,9 @@ def generateStatsDataframe(
         df_all_stats = pd.read_pickle(df_path)
     else:
         df_all_stats = pd.DataFrame()
+
+    resources = ['boots']
+
     if all([str(stat_measure) + '_' + metric + '_conf_interval_' + limit in df_all_stats.columns for stat_measure in stat_measures for metric in metrics for limit in ['lower', 'upper']]) and not use_raw_dataframes:
         pass
     else:
@@ -249,12 +255,18 @@ def generateStatsDataframe(
             ).groupby(
                 parameters_names + resources
                 )
+        # Remove all groups with fewer than a single instance
+        df_filtered = df_all_groups.filter(lambda x: len(x) > 1)
+        df_groups = df_filtered.groupby(
+                parameters_names + resources
+                )
         dataframes = []
         # This function could resemble what is done inside of seaborn to bootstrap everything https://github.com/mwaskom/seaborn/blob/77e3b6b03763d24cc99a8134ee9a6f43b32b8e7b/seaborn/regression.py#L159
+        counter = 0
         for metric in metrics:
             for stat_measure in stat_measures:
                 
-                df_all_estimator = df_all_groups.apply(
+                df_all_estimator = df_groups.apply(
                     conf_interval,
                     key_string = metric,
                     stat_measure = stat_measure,
@@ -262,6 +274,12 @@ def generateStatsDataframe(
                     bootstrap_iterations = bootstrap_iterations,
                     )
                 dataframes.append(df_all_estimator)
+
+                # Save intermediate file after 10 metric x stat_measures computations   
+                if counter % 10 == 0:
+                    with open(df_path + '.pickle', 'wb') as f:
+                        pickle.dump(dataframes, f)
+                counter += 1
         if all([len(i) == 0 for i in dataframes]):
             print('No dataframes to merge')
             return None
@@ -272,14 +290,19 @@ def generateStatsDataframe(
 
     for stat_measure in stat_measures:
         for key, value in lower_bounds.items():
-            df_stats[str(stat_measure) + '_' + key + '_conf_interval_lower'].clip(
-                lower=value, inplace=True)
+            if str(stat_measure) + '_' + key + '_conf_interval_lower' in df_stats.columns:
+                df_stats[str(stat_measure) + '_' + key + '_conf_interval_lower'].clip(
+                    lower=value, inplace=True)
         for key, value in upper_bounds.items():
-            df_stats[str(stat_measure) + '_' + key + '_conf_interval_upper'].clip(
-                upper=value, inplace=True)
+            if str(stat_measure) + '_' + key + '_conf_interval_upper' in df_stats.columns:
+                df_stats[str(stat_measure) + '_' + key + '_conf_interval_upper'].clip(
+                    upper=value, inplace=True)
+
     # TODO Implement resource_factor as in generate_ws_dataframe.py
     if 'replica' in parameters_names:
         df_stats['reads'] = df_stats['sweep'] * df_stats['replica'] * df_stats['boots']
+    elif 'rep' in parameters_names:
+        df_stats['reads'] = df_stats['swe'] * df_stats['rep'] * df_stats['boots']
     else:
         df_stats['reads'] = df_stats['sweep'] * df_stats['boots']
 
@@ -311,6 +334,13 @@ if ocean_df_flag:
         'Tcfactor': Tcfactors,
         'Thfactor': Thfactors,
     }
+elif wishart_instances:
+    parameters_dict = {
+        'swe': sweeps,
+        'rep': replicas,
+        'pcold': pcolds,
+        'phot': phots,
+    }
 else:
     parameters_dict = {
         'sweep': sweeps,
@@ -326,7 +356,7 @@ if parameters_dict is not None:
         else:
             parameters_dict[i] = set(j)
 # Create list of parameters
-parameter_names = list(parameters_dict.keys())
+parameters_names = list(parameters_dict.keys())
 
 parameter_sets = itertools.product(
     *(parameters_dict[Name] for Name in parameters_dict))
@@ -334,19 +364,21 @@ parameter_sets = list(parameter_sets)
 complete_files = []
 
 for size in sizes:
-    prefix = "random_n_"+str(size)+"_inst_"
-    df_name_all = prefix + 'df_results.pkl'
-    df_path_all = os.path.join(results_path, df_name_all)
-    if os.path.exists(df_path_all) and not use_raw_dataframes:
-        df_results_all = pd.read_pickle(df_path_all)
-    else:
-        df_results_list = []
-        for instance in instances:
-            df_name = prefix + str(instance) + '_df_results.pkl'
-            df_path = os.path.join(results_path, df_name)
-            df_results_list.append(pd.read_pickle(df_path))
-        df_results_all = pd.concat(df_results_list, ignore_index=True)
-        df_results_all.to_pickle(df_path_all)
+    for alpha in alphas:
+        # prefix = "random_n_"+str(size)+"_inst_"
+        prefix = 'wishart_planting_N_{:.0f}_alpha_{:.2f}_inst_'.format(size, alpha)
+        df_name_all = prefix + 'df_results.pkl'
+        df_path_all = os.path.join(results_path, df_name_all)
+        if os.path.exists(df_path_all) and not use_raw_dataframes:
+            df_results_all = pd.read_pickle(df_path_all)
+        else:
+            df_results_list = []
+            for instance in instances:
+                df_name = prefix + str(instance) + '_df_results.pkl'
+                df_path = os.path.join(results_path, df_name)
+                df_results_list.append(pd.read_pickle(df_path))
+            df_results_all = pd.concat(df_results_list, ignore_index=True)
+            df_results_all.to_pickle(df_path_all)
         
             
 
@@ -354,28 +386,30 @@ for size in sizes:
 # Main execution
 
 for size in sizes:
-    prefix = "random_n_"+str(size)+"_inst_"
-    df_name_all = prefix + 'df_results.pkl'
-    df_path_all = os.path.join(results_path, df_name_all)
-    if os.path.exists(df_path_all):
-        df_results_all = pd.read_pickle(df_path_all)
-    else:
-        df_results_all = None
-    df_results_all_stats = generateStatsDataframe(
-        df_all=df_results_all,
-        stat_measures=['median', 10, 50, 90],
-        instance_list=training_instances,
-        parameters_dict=parameters_dict,
-        metrics = metrics,
-        results_path=results_path,
-        use_raw_dataframes=use_raw_dataframes,
-        confidence_level=confidence_level,
-        bootstrap_iterations=bootstrap_iterations,
-        save_pickle=True,
-        lower_bounds=lower_bounds,
-        upper_bounds=upper_bounds,
-        prefix = prefix,
-    )
+    for alpha in alphas:
+        # prefix = "random_n_"+str(size)+"_inst_"
+        prefix = 'wishart_planting_N_{:.0f}_alpha_{:.2f}_inst_'.format(size, alpha)
+        df_name_all = prefix + 'df_results.pkl'
+        df_path_all = os.path.join(results_path, df_name_all)
+        if os.path.exists(df_path_all):
+            df_results_all = pd.read_pickle(df_path_all)
+        else:
+            df_results_all = None
+        df_results_all_stats = generateStatsDataframe(
+            df_all=df_results_all,
+            stat_measures=['median', 10, 50, 90],
+            instance_list=training_instances,
+            parameters_names=parameters_names,
+            metrics = metrics,
+            results_path=results_path,
+            use_raw_dataframes=use_raw_dataframes,
+            confidence_level=confidence_level,
+            bootstrap_iterations=bootstrap_iterations,
+            save_pickle=True,
+            lower_bounds=lower_bounds,
+            upper_bounds=upper_bounds,
+            prefix = prefix,
+        )
 
 # %%
 print(datetime.datetime.now())

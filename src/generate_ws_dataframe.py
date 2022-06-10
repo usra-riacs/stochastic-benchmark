@@ -18,11 +18,14 @@ idx = pd.IndexSlice
 jobid = 42
 
 # Input Parameters
-total_reads = 1000
-overwrite_pickles = True
+total_reads = 200
+overwrite_pickles = False
+wishart_instances = True
+save_plots = True
 sizes = []
 # sizes.append(int(str(sys.argv[1])))
-sizes = [200]
+sizes = [30]
+alphas = [0.4]
 # if int(str(sys.argv[2])) == 1:
 if 0 == 1:
     ocean_df_flag = True
@@ -34,11 +37,18 @@ statistic = '50'
 # statistic = str(sys.argv[3])
 
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
-data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/"
+# data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/"
+# data_path = "/home/bernalde/results_20_0.4"
+if len(sizes) == 1 and len(alphas) == 1:
+    data_path = "/home/bernalde/results_"+str(sizes[0])+"_"+str(alphas[0])
+
 plots_path = os.path.join(data_path, 'plots/')
 instances_path = os.path.join(data_path, 'instances/')
 if ocean_df_flag:
     results_path = os.path.join(data_path, 'dneal/')
+elif wishart_instances:
+    # results_path = '/home/bernalde/repos/wishart/scripts/results/results_{:.0f}_{:.1f}'.format(sizes[0], alphas[0])
+    results_path = '/home/bernalde/repos/wishart/scripts/results/stats'
 else:
     results_path = os.path.join(data_path, 'pysa/')
 pickles_path = os.path.join(results_path, 'pickles')
@@ -58,6 +68,8 @@ sweeps = [1000]
 replicas = [8]
 Tcfactors = [0]
 Thfactors = [-1.5]
+pcolds = [1.00]
+phots = [50.0]
 
 
 all_sweeps = [1] + [i for i in range(2, 21, 2)] + [
@@ -75,8 +87,11 @@ sweeps = all_sweeps
 replicas = [2**i for i in range(0, 4)]
 # replicas.append(int(str(sys.argv[2])))
 # instances.append(int(jobid))
-instances = [i for i in range(0, 20)] + [42]
-training_instances = [i for i in range(0, 20)]
+# instances = [i for i in range(0, 20)] + [42]
+instances = [i for i in range(1,50)]
+# instances = [i for i in range(1,5)]
+# training_instances = [i for i in range(0,20)]
+training_instances = instances
 Tcfactors = [0.0]
 Thfactors = list(np.linspace(-3, 1, num=33, endpoint=True))
 # Thfactors = [0.0]
@@ -98,7 +113,43 @@ upper_bounds = {key: None for key in metrics}
 upper_bounds['success_prob'] = 1.0
 upper_bounds['perf_ratio'] = 1.0
 
+# %%
+# Function to generate logarithmically spaced integers
+def gen_log_space(lower, upper, n):
+    result = [lower]
+    if n>1:  # just a check to avoid ZeroDivisionError
+        ratio = ((float(upper) - float(lower))/result[-1]) ** (1.0/(n-len(result)))
+    while len(result)<n:
+        next_value = result[-1]*ratio
+        if next_value - result[-1] >= 1:
+            # safe zone. next_value will be a different integer
+            result.append(next_value)
+        else:
+            # problem! same integer. we need to find next_value by artificially incrementing previous value
+            result.append(result[-1]+1)
+            # recalculate the ratio so that the remaining values will scale correctly
+            ratio = ((float(upper) - float(lower))/result[-1]) ** (1.0/(n-len(result)))
+    # round and return np.uint64 array
+    return np.array(list(map(lambda x: round(x), result)), dtype=np.uint64)
 
+
+# %%
+# Function to interpolate dataframes into new index
+def interp(df, new_index):
+    """Return a new DataFrame with all columns values interpolated
+    to the new_index values."""
+    df_out = pd.DataFrame(index=new_index)
+    df_out.index.name = df.index.name
+
+    for colname, col in df.iteritems():
+        col = pd.to_numeric(col, errors='ignore')
+        if np.issubdtype(col, int) or np.issubdtype(col, float):
+            df_out[colname] = np.interp(new_index, df.index, col)
+        else:
+            print(colname)
+            df_out[colname] = col
+
+    return df_out 
 # %%
 # Function to interpolate dataframes across a resource column
 def interpolate_df(
@@ -113,6 +164,8 @@ def interpolate_df(
     results_path: str = None,
     save_pickle: bool = True,
     overwrite_pickles: bool = True,
+    all_datapoints: bool = False,
+    resource_values: list = None,
 ):
     if dataframe is None:
         print('Error: Dataframe is None')
@@ -131,8 +184,12 @@ def interpolate_df(
         for r_parameters in resource_proportional_parameters:
             if r_parameters in parameter_names:
                 df[resource_column] *= df[r_parameters]
-    resouce_values = df[resource_column].values
-    resouce_values = np.sort(np.unique(resouce_values))
+    if resource_values is None:
+        if all_datapoints:
+            resource_values = df[resource_column].values
+        else:
+            resource_values = gen_log_space(min(df[resource_column].values), max(df[resource_column].values), default_boots // 10)
+    resource_values = np.sort(np.unique(resource_values))
     instances = [0]
     if 'instance' in df.columns:
         instances = df['instance'].unique().tolist()
@@ -149,49 +206,63 @@ def interpolate_df(
         if os.path.exists(df_path_partial) and not overwrite_pickles:
             print('Loaded partial dataframe from file')
             df_interpolate = pd.read_pickle(df_path_partial)
+            dataframes_instance = [df_interpolate]
         else:
             dataframes_instance = []
-            for parameter_set in parameter_sets:
-                if parameter_set not in df_index.index.to_list():
-                    print('Parameter set', parameter_set, 'not found')
-                    continue  # For each parameter setting remove repeated reads
-                df_values = df_index.loc[idx[parameter_set]].copy()
-                if 'instance' in df.columns:
-                    df_values = df_values.loc[df_values['instance'] == instance].copy(
-                    )
-                df_original = df_values.drop_duplicates(
-                    subset=resource_column, keep='first').copy()
+            # for parameter_set in parameter_sets:
+            #     if parameter_set not in df_index.index.to_list():
+            #         print('Parameter set', parameter_set, 'not found')
+            #         continue  # For each parameter setting remove repeated reads
+                # df_values = df_index.loc[idx[parameter_set]].copy()
+            if 'instance' in df.columns:
+                df_values = df_index.loc[df_index['instance'] == instance].copy(
+                )
+            else:
+                df_values = df_index.copy()
+            for parameter_set in set(df_values.index.to_list()):
+                df_original = df_values.loc[idx[parameter_set]].copy()
+                # Reading the parameter columns
+                for key, value in zip(parameter_names, parameter_set):
+                    df_original[key] = value
+                if 'params' in df_original.columns:
+                    df_original.drop(columns=['params'], inplace=True)
+                if len(df_original) == 0:
+                    print('No data for parameter set', parameter_set, 'with instance', instance)
+                    continue
                 resource_factor = 1
                 for r_index in r_indices:
                     resource_factor *= parameter_set[r_index]
+                    # resource_factor *= index[r_index]
                 # Set interpolation points for the responses at all the relevant reads values
-                interpolate_resource = resouce_values[
+                interpolate_resource = resource_values[
                     np.where(
-                        (resouce_values <= default_boots*resource_factor) &
-                        (resouce_values >= minimum_boots*resource_factor)
+                        (resource_values <= take_closest(resource_values,default_boots*resource_factor)) &
+                        (resource_values >= take_closest(resource_values, minimum_boots*resource_factor))
                     )
                 ]
-                # Create a dataframe with the interesting reads as index and all the columns
-                dummy_df = pd.DataFrame(
-                    np.NaN,
-                    index=interpolate_resource,
-                    columns=df_original.columns
-                )
-                dummy_df.drop(columns=resource_column, inplace=True)
-                # Fill out the values that we have certain
-                df_interpolate = dummy_df.combine_first(
-                    df_original.set_index(resource_column)).copy()
-                # Interpolate for all the other values (not extrapolated)
-                df_interpolate = df_interpolate.interpolate(
-                    method='linear', limit_area='inside'
-                ).dropna(how='all').reset_index().rename(
-                    columns={'index': resource_column})
+                if all_datapoints:
+                    # Create a dataframe with the interesting reads as index and all the columns
+                    dummy_df = pd.DataFrame(
+                        np.NaN,
+                        index=interpolate_resource,
+                        columns=df_index.columns
+                    )
+                    dummy_df.drop(columns=resource_column, inplace=True)
+                    # Fill out the values that we have certain
+                    dummy_df.update(df_original.set_index(resource_column))
+                    df_interpolate = dummy_df.copy()
+                    # Interpolate for all the other values (without extrapolating)
+                    df_interpolate = df_interpolate.interpolate(
+                        method='linear', limit_area='inside'
+                    ).dropna(how='all').reset_index().rename(
+                        columns={'index': resource_column})
+                else:
+                    df_interpolate = interp(df_original.set_index(resource_column).sort_index(), interpolate_resource)
+                    df_interpolate = df_interpolate.reset_index().rename(
+                        columns={'index': resource_column})
                 # Computing the boots column
                 df_interpolate['boots'] = df_interpolate[resource_column] / \
                     resource_factor
-                # Reading the parameter columns
-                for key, value in zip(parameter_names, parameter_set):
-                    df_interpolate[key] = value
                 if 'instance' in df.columns:
                     df_interpolate['instance'] = instance
                 dataframes_instance.append(df_interpolate)
@@ -199,7 +270,6 @@ def interpolate_df(
                 dataframes_instance).reset_index(drop=True)
             df_interpolate.to_pickle(df_path_partial)
 
-    dataframes = []
     if len(instances) == 1:
         dataframes = dataframes_instance
     else:
@@ -243,8 +313,8 @@ def take_closest(myList, myNumber):
 
 # %%
 # Join all the results in a single dataframe
-merge_all_results = True
-default_boots = total_reads
+merge_all_results = False
+default_boots = 200
 minimum_boots = 1
 
 # Define parameters dict
@@ -254,6 +324,10 @@ default_parameters = {
     'replica': [1],
     'Tcfactor': [0.0],
     'Thfactor': [0.0],
+    'pcold': [1.0],
+    'phot': [50.0],
+    'swe': [1000],
+    'rep': [1]
 }
 
 if ocean_df_flag:
@@ -262,6 +336,13 @@ if ocean_df_flag:
         'sweep': sweeps,
         'Tcfactor': Tcfactors,
         'Thfactor': Thfactors,
+    }
+elif wishart_instances:
+    parameters_dict = {
+        'swe': sweeps,
+        'rep': replicas,
+        'pcold': pcolds,
+        'phot': phots,
     }
 else:
     parameters_dict = {
@@ -284,21 +365,24 @@ parameter_sets = itertools.product(
     *(parameters_dict[Name] for Name in parameters_dict))
 parameter_sets = list(parameter_sets)
 
-if merge_all_results:
-    for size in sizes:
-        prefix = "random_n_"+str(size)+"_inst_"
+for size in sizes:
+    for alpha in alphas:
+        # prefix = "random_n_"+str(size)+"_inst_"
+        prefix = 'wishart_planting_N_{:.0f}_alpha_{:.2f}_inst_'.format(size, alpha)
         df_name_all = prefix + 'df_results.pkl'
         df_path_all = os.path.join(results_path, df_name_all)
         if os.path.exists(df_path_all) and not use_raw_dataframes:
             df_results_all = pd.read_pickle(df_path_all)
         else:
-            df_results_list = []
-            for instance in instances:
-                df_name = prefix + str(instance) + '_df_results.pkl'
-                df_path = os.path.join(results_path, df_name)
-                df_results_list.append(pd.read_pickle(df_path))
-            df_results_all = pd.concat(df_results_list, ignore_index=True)
-            df_results_all.to_pickle(df_path_all)
+            df_results_all = pd.DataFrame()
+            if merge_all_results:
+                df_results_list = []
+                for instance in instances:
+                    df_name = prefix + str(instance) + '_df_results.pkl'
+                    df_path = os.path.join(results_path, df_name)
+                    df_results_list.append(pd.read_pickle(df_path))
+                df_results_all = pd.concat(df_results_list, ignore_index=True)
+                df_results_all.to_pickle(df_path_all)
         # Set the parameter sets as those in the results dataframe
         df_results_all['params'] = df_results_all[parameter_names].apply(
             tuple, axis=1)
@@ -306,90 +390,104 @@ if merge_all_results:
 
 
 for size in sizes:
-    prefix = "random_n_"+str(size)+"_inst_"
-    # TODO fix this
-    df_name_stats = prefix + 'df_stats.pkl'
-    # df_name_stats = prefix + 'df_stats.pkl'
-    df_path_stats = os.path.join(results_path, df_name_stats)
-    if not os.path.exists(df_path_stats):
-        df_stats = None
-    else:
-        df_stats = pd.read_pickle(df_path_stats)
-    # TODO This creates the lists only for the last size. Maybe introduce a dictionary instead
-    df_stats['params'] = df_stats[parameter_names].apply(tuple, axis=1)
-    parameter_sets = list(set(df_stats['params'].values))
-    stale_parameters = []
-    varying_parameters = []
-    numeric_parameters = []
-    for parameter_name in parameter_names:
-        if len(locals()[parameter_name+'s']) == 1:
-            stale_parameters.append(parameter_name)
+    for alpha in alphas:
+        # prefix = "random_n_"+str(size)+"_inst_"
+        prefix = 'wishart_planting_N_{:.0f}_alpha_{:.2f}_inst_'.format(size, alpha)
+        # TODO fix this
+        df_name_stats = prefix + 'df_stats.pkl'
+        # df_name_stats = prefix + 'df_stats.pkl'
+        df_path_stats = os.path.join(results_path, df_name_stats)
+        if not os.path.exists(df_path_stats):
+            df_stats = None
         else:
-            varying_parameters.append(parameter_name)
-            if isinstance(locals()[parameter_name+'s'][0], int) or isinstance(locals()[parameter_name+'s'][0], float):
-                numeric_parameters.append(parameter_name)
-    included_parameters = df_stats[numeric_parameters].values
+            df_stats = pd.read_pickle(df_path_stats)
+        # TODO This creates the lists only for the last size. Maybe introduce a dictionary instead
+        df_stats['params'] = df_stats[parameter_names].apply(tuple, axis=1)
+        parameter_sets = list(set(df_stats['params'].values))
+        stale_parameters = []
+        varying_parameters = []
+        numeric_parameters = []
+        for parameter_name in parameter_names:
+            if df_stats[parameter_name].nunique() == 1:
+                stale_parameters.append(parameter_name)
+            else:
+                varying_parameters.append(parameter_name)
+                if np.issubdtype(df_stats[parameter_name][0], int) or np.issubdtype(df_stats[parameter_name][0], float):
+                    numeric_parameters.append(parameter_name)
+        included_parameters = df_stats[numeric_parameters].values
 # %%
 # Main execution
-generate_interpolated_stats = False
-generate_interpolated_results = False
+generate_interpolated_stats = True
+generate_interpolated_results = True
+overwrite_pickles = True
+resource_column = 'reads'
+# resource_proportional_parameters=['sweep', 'replica'],
+resource_proportional_parameters = ['swe', 'rep']
 # Interpolate results accross resources
 for size in sizes:
-    prefix = "random_n_"+str(size)+"_inst_"
-    # TODO fix this
-    df_name_stats = prefix + 'df_stats.pkl'
-    # df_name_stats = prefix + 'df_stats.pkl'
-    df_path_stats = os.path.join(results_path, df_name_stats)
-    if not os.path.exists(df_path_stats):
-        df_stats = None
-    else:
-        df_stats = pd.read_pickle(df_path_stats)
-        df_name_stats_interpolated = df_name_stats.rsplit('.')[
-            0] + '_interp.pkl'
-        df_path_stats_interpolated = os.path.join(
-            results_path, df_name_stats_interpolated)
-        if os.path.exists(df_path_stats_interpolated) and not generate_interpolated_stats:
-            df_stats_interpolated = pd.read_pickle(df_path_stats_interpolated)
+    for alpha in alphas:
+        # prefix = "random_n_"+str(size)+"_inst_"
+        prefix = 'wishart_planting_N_{:.0f}_alpha_{:.2f}_inst_'.format(size, alpha)
+        # TODO fix this
+        df_name_stats = prefix + 'df_stats.pkl'
+        # df_name_stats = prefix + 'df_stats.pkl'
+        df_path_stats = os.path.join(results_path, df_name_stats)
+        if not os.path.exists(df_path_stats):
+            df_stats = None
         else:
-            if generate_interpolated_stats:
-                df_stats_interpolated = interpolate_df(
-                    dataframe=df_stats,
-                    resource_column='reads',
-                    prefix=df_name_stats,
-                    parameters_dict=parameters_dict,
-                    default_boots=default_boots,
-                    minimum_boots=minimum_boots,
-                    resource_proportional_parameters=['sweep', 'replica'],
-                    idx=idx,
-                    results_path=results_path,
-                    save_pickle=True,
-                    overwrite_pickles=overwrite_pickles,
-                )
+            df_stats = pd.read_pickle(df_path_stats)
+            df_name_stats_interpolated = df_name_stats.rsplit('.')[
+                0] + '_interp.pkl'
+            df_path_stats_interpolated = os.path.join(
+                results_path, df_name_stats_interpolated)
+            if not generate_interpolated_stats:
+                if os.path.exists(df_path_stats_interpolated):
+                    df_stats_interpolated = pd.read_pickle(df_path_stats_interpolated)
+                else:
+                    df_stats_interpolated = df_stats.copy()
             else:
-                df_stats_interpolated = None
+                resource_values = gen_log_space(min(df_stats[resource_column].values), max(df_stats[resource_column].values), default_boots // 2)
+                if generate_interpolated_stats:
+                    df_stats_interpolated = interpolate_df(
+                        dataframe=df_stats,
+                        resource_column=resource_column,
+                        prefix=df_name_stats,
+                        parameters_dict=parameters_dict,
+                        default_boots=default_boots,
+                        minimum_boots=minimum_boots,
+                        resource_proportional_parameters=resource_proportional_parameters,
+                        idx=idx,
+                        results_path=results_path,
+                        save_pickle=True,
+                        overwrite_pickles=overwrite_pickles,
+                        resource_values=resource_values,
+                    )
+                else:
+                    df_stats_interpolated = None
 
 
-    df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
-    df_path_interpolated = os.path.join(results_path, df_name_interpolated)
-    if os.path.exists(df_path_interpolated):
-        df_results_interpolated = pd.read_pickle(df_path_interpolated)
-    else:
-        if generate_interpolated_results:
+        df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
+        df_path_interpolated = os.path.join(results_path, df_name_interpolated)
+        if not generate_interpolated_results:
+            if os.path.exists(df_path_interpolated):
+                df_results_interpolated = pd.read_pickle(df_path_interpolated)
+            else:
+                df_results_interpolated = df_results_all.copy()
+        else:
             df_results_interpolated = interpolate_df(
                 dataframe=df_results_all,
-                resource_column='reads',
+                resource_column=resource_column,
                 prefix=df_name_all,
                 parameters_dict=parameters_dict,
                 default_boots=default_boots,
                 minimum_boots=minimum_boots,
-                resource_proportional_parameters=['sweep', 'replica'],
+                resource_proportional_parameters=resource_proportional_parameters,
                 idx=idx,
                 results_path=results_path,
                 save_pickle=True,
                 overwrite_pickles=overwrite_pickles,
+                resource_values=resource_values,
             )
-        else:
-            df_results_interpolated = None
 
 # %%
 
@@ -397,13 +495,14 @@ for size in sizes:
 # TODO This can be generalized as using as groups the parameters that are not dependent of the metric (e.g., schedule) or that signify different solvers
 # TODO This needs to be functionalized
 # TODO This is only performed for the last size. Maybe introduce a dictionary instead
+use_raw_dataframes = True
 
 response_column = 'perf_ratio'
 response_direction = 1
 df_name_all = prefix + 'df_results.pkl'
 
 
-def dist_eucl(a, b): return hypot(b[0]-a[0], b[0]-a[0])
+def dist_eucl(a, b, scale): return hypot((b[0]-a[0]), (b[0]-a[0]))
 
 
 df_name_recipe_lazy = df_name_all.rsplit('.')[0] + '_recipe_lazy' + statistic + '.pkl'
@@ -452,8 +551,18 @@ if os.path.exists(df_path_recipe_mean_best) and not use_raw_dataframes:
 else:
     # Recipe to obtain parameter setting that optimizes the response  in the results dataframe for each instance and read, then takes the mean of the parameters across instances, for each read.
     # There is an extra projection step into the parameter values
-    recipe_mean_best_params = df_results_interpolated[
-        [response_column] + parameter_names + ['instance', 'reads']
+    if resource_column not in df_results_interpolated.columns:
+        df_results_interpolated[resource_column] = df_results_interpolated['boots']
+        for r_parameters in resource_proportional_parameters:
+            if r_parameters in parameter_names:
+                df_results_interpolated[resource_column] *= df_results_interpolated[r_parameters]
+    mask_instances = df_results_interpolated[
+        parameter_names+['instance']
+    ].groupby(
+        parameter_names
+    ).transform('nunique').gt(1).values
+    recipe_mean_best_params = df_results_interpolated[mask_instances][
+        [response_column] + parameter_names + ['instance'] + [resource_column]
     ].set_index(
         numeric_parameters
     ).groupby(['instance', 'reads']
@@ -463,12 +572,11 @@ else:
               ).mean().rename(columns={i: numeric_parameters[i] for i in range(len(numeric_parameters))}).reset_index()
 
     for stale_parameter in stale_parameters:
-        recipe_mean_best_params[stale_parameter] = locals()[
-            stale_parameter+'s'][0]
+        recipe_mean_best_params[stale_parameter] = df_results_interpolated[
+            stale_parameter][0]
 
     # Project the numeric parameters in the recipe to the evaluated parameters
     for numeric_parameter in numeric_parameters:
-        # parameter_list = locals()[numeric_parameter+'s']
         parameter_list = np.sort(
             df_results_interpolated[numeric_parameter].unique())
         recipe_mean_best_params[numeric_parameter] = recipe_mean_best_params[numeric_parameter].apply(
@@ -487,16 +595,25 @@ else:
         tuple, axis=1)
 
     # Projecting parameter setting absent in the original dataframe to one that is available using the Euclidean norm.
-    # TODO The euclidean norm does not take into account the fact that the scale of the parameters is different. Moreover, it does not work with non-numerical data
+    # TODO The euclidean norm does not work with non-numerical data
     # TODO performance improvement here. This is by no means efficient.
+    # scale = [df_results_interpolated[i].max() - df_results_interpolated[i].min() for i in numeric_parameters]
+    scale = [1,0.1,10,10]
     if not all([i in parameter_sets for i in recipe_mean_best_params['params'].values]):
         for index, row in recipe_mean_best_params.iterrows():
             if row['params'] not in set(parameter_sets):
                 non_included_parameters = row[numeric_parameters].values
+                non_included_parameters = np.array(non_included_parameters, dtype=float)
                 print('These parameters are not included in the original database',
                       non_included_parameters)
-                new_parameters = min(included_parameters, key=lambda co: dist_eucl(
-                    co, non_included_parameters))
+                projection_parameters = df_stats_interpolated[df_stats_interpolated['reads'] == row['reads']][numeric_parameters].values
+                new_parameters = projection_parameters[
+                    np.linalg.norm(
+                        (
+                            (projection_parameters-non_included_parameters)/scale)
+                            , axis=1)
+                            .argmin()
+                            ]
                 print('Projected parameters as', new_parameters)
                 for i, numeric_parameter in enumerate(numeric_parameters):
                     recipe_mean_best_params[numeric_parameter][index] = new_parameters[i]
@@ -607,6 +724,7 @@ def percentile(n):
         return np.nanpercentile(x, n)
     percentile_.__name__ = '%s' % n
     return percentile_
+
 # %%
 # Function to perform alternative processing of progress dataframes
 
@@ -1224,14 +1342,14 @@ if draw_plots:
         random_params].reset_index()
     sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=best_tts, ax=ax, estimator=None, label='Quantile '+statistic+' best TTS parameter \n' +
                  " ".join([str(parameter_names[i] + ':' + str(best_tts_param[0][i])) for i in range(len(parameter_names))]))
-    sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=default_performance, ax=ax, estimator=None, label='Quantile '+statistic+' default parameter \n' +
-                 " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]))
-    sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=random_performance, ax=ax, estimator=None, label='Quantile '+statistic+' random parameter \n' +
-                 " ".join([str(parameter_names[i] + ':' + str(random_params[0][i])) for i in range(len(parameter_names))]))
+    # sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=default_performance, ax=ax, estimator=None, label='Quantile '+statistic+' default parameter \n' +
+    #              " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]))
+    # sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=random_performance, ax=ax, estimator=None, label='Quantile '+statistic+' random parameter \n' +
+    #              " ".join([str(parameter_names[i] + ':' + str(random_params[0][i])) for i in range(len(parameter_names))]))
     sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best,
                  ax=ax, estimator=None, label='Quantile '+statistic+'  best random search expl-expl')
-    sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best_ternary,
-                 ax=ax, estimator=None, label='Quantile '+statistic+'  best ternary search expl-expl')
+    # sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best_ternary,
+    #              ax=ax, estimator=None, label='Quantile '+statistic+'  best ternary search expl-expl')
     ax.set(xscale='log')
     ax.set(ylim=[0.98, 1.001])
     ax.set(xlim=[5e2, 1e6])
@@ -1249,8 +1367,9 @@ if draw_plots:
         solver = 'dneal'
     else:
         solver = 'pysa'
-    plot_name = 'windows_sticker_'+solver+'_'+str(size)+'_'+statistic+'.png'
-    plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
+    if save_plots:
+        plot_name = 'windows_sticker_'+solver+'_'+str(size)+'_'+statistic+'.png'
+        plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
 
 # %%
 # Data Analysis plot to see correlations among parameters for all the dataset
@@ -1282,29 +1401,35 @@ if draw_plots:
     g.add_legend()
     for ax in g.axes.flatten():
         pass
-    plot_name = 'data_analysis_'+solver+'_'+str(size)+'_'+statistic+'.png'
-    plt.savefig(os.path.join(plots_path,plot_name), bbox_inches='tight')
+    if save_plots:
+        plot_name = 'data_analysis_'+solver+'_'+str(size)+'_'+statistic+'.png'
+        plt.savefig(os.path.join(plots_path,plot_name), bbox_inches='tight')
 # %%
 # Strategy Plot: Suggested parameters
 if draw_plots:
     # Strategy plot showing how the best parameters change with respect to the resource budget
-    for parameter_name in varying_parameters:
-        fig, ax = plt.subplots()
-        sns.lineplot(x='reads', y=parameter_name, data=recipe_lazy, ax=ax, estimator=None, label='Suggested ' + parameter_name +
-                     '\n quantile over instances, then best parameter, \n and projected into database for every resource budget')
-        sns.lineplot(x='reads', y=parameter_name, data=recipe_mean_best_params, ax=ax, estimator=None, label='Suggested ' + parameter_name +
-                     '\n best parameters for every instance and resource budget, \n quantile over instances, mean over parameters, \n and projected into database for every read')
-        ax.set(xscale='log')
-        # ax.set(ylim=[0.98,1.001])
-        # ax.set(xlim=[5e2,5e4])
-        ax.set(ylabel=labels[parameter_name])
-        ax.set(xlabel='Total number of spin variable reads (proportional to time)')
-        ax.set(title='Strategy plot: Suggested parameters \n instances SK ' +
-               prefix.rsplit('_inst')[0] + '\n solver ' + solver)
-        lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
-                   fancybox=True)
-        plot_name = parameter_name+'_'+solver+'_'+str(size)+'_'+statistic+'.png'
-        plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
+    for i, parameter_name in enumerate(parameter_names):
+        if parameter_name in varying_parameters:
+            fig, ax = plt.subplots()
+            recipe_smooth = recipe_lazy.set_index('reads').rolling(20, min_periods=1).mean().reset_index().copy()
+            sns.lineplot(x='reads', y=parameter_name, data=recipe_smooth, ax=ax, estimator=None, label='Suggested ' + parameter_name +
+                        ' ' + statistic + ' quantile over instances, \n  then best parameter, and projected \n into database for every resource budget')
+            plt.axhline(y=best_tts_param[0][i], xmin=0, xmax=1, linestyle='--', color='r', label='Best TTS ' + parameter_name + ' ' + statistic+' quantile over instances')
+
+            # sns.lineplot(x='reads', y=parameter_name, data=recipe_mean_best_params, ax=ax, estimator=None, label='Suggested ' + parameter_name +
+            #              '\n best parameters for every instance and resource budget, \n quantile over instances, mean over parameters, \n and projected into database for every read')
+            ax.set(xscale='log')
+            # ax.set(ylim=[0.98,1.001])
+            # ax.set(xlim=[5e2,5e4])
+            ax.set(ylabel=labels[parameter_name])
+            ax.set(xlabel='Total number of spin variable reads (proportional to time)')
+            ax.set(title='Strategy plot: Suggested parameters \n instances SK ' +
+                prefix.rsplit('_inst')[0] + '\n solver ' + solver)
+            lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
+                    fancybox=True)
+            if save_plots:
+                plot_name = parameter_name+'_'+solver+'_'+str(size)+'_'+statistic+'.png'
+                plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
 
 # %%
 # Strategy Plot: Random search
@@ -1343,8 +1468,9 @@ if draw_plots:
            prefix.rsplit('_inst')[0] + '\n solver ' + solver)
     lgd = ax.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),
                fancybox=True)
-    plot_name = 'random_search_'+solver+'_'+str(size)+'_'+statistic+'.png'
-    plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
+    if save_plots:
+        plot_name = 'random_search_'+solver+'_'+str(size)+'_'+statistic+'.png'
+        plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
 
 # %%
 # Strategy Plot: Ternary search
@@ -1383,32 +1509,33 @@ if draw_plots:
     ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
     lgd = ax.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),
                fancybox=True)
-    plot_name = 'ternary_search_'+solver+'_'+str(size)+'_'+statistic+'.png'
-    plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
+    if save_plots:
+        plot_name = 'ternary_search_'+solver+'_'+str(size)+'_'+statistic+'.png'
+        plt.savefig(os.path.join(plots_path,plot_name), bbox_extra_artists=(lgd,), bbox_inches='tight')
 
 
 # %%
-# Generate distributions for the parameters given the best performance
-df_results_all['reads'] = df_results_all['boots']
-for r_parameters in resource_proportional_parameters:
-    if r_parameters in parameter_names:
-        df_results_all['reads'] *= df_results_all[r_parameters]
-df_parameters = df_results_all.groupby(['reads','instance']).apply(lambda x: x.nlargest(1,'perf_ratio'))
-df_parameters['-log10(perf_ratio)'] = -np.round(
-        np.log10(1-df_parameters['perf_ratio']+EPSILON), decimals=0)
-for parameter_name in varying_parameters:
-    f, ax = plt.subplots()
-    sns.displot(
-        data=df_parameters[df_parameters['reads'] == 2e5],
-            # (df_parameters['reads'] == 1e3) | 
-            # (df_parameters['reads'] == 1e4) | 
-            # (df_parameters['reads'] == 1e5)
-            # ],
-            x=parameter_name,
-            hue='-log10(perf_ratio)',
-            bins=len(instances),
-            multiple="dodge",
-            ax=ax,
-            )
+# # Generate distributions for the parameters given the best performance
+# df_results_all['reads'] = df_results_all['boots']
+# for r_parameters in resource_proportional_parameters:
+#     if r_parameters in parameter_names:
+#         df_results_all['reads'] *= df_results_all[r_parameters]
+# df_parameters = df_results_all.groupby(['reads','instance']).apply(lambda x: x.nlargest(1,'perf_ratio'))
+# df_parameters['-log10(perf_ratio)'] = -np.round(
+#         np.log10(1-df_parameters['perf_ratio']+EPSILON), decimals=0)
+# for parameter_name in varying_parameters:
+#     f, ax = plt.subplots()
+#     sns.displot(
+#         data=df_parameters[df_parameters['reads'] == 2e5],
+#             # (df_parameters['reads'] == 1e3) | 
+#             # (df_parameters['reads'] == 1e4) | 
+#             # (df_parameters['reads'] == 1e5)
+#             # ],
+#             x=parameter_name,
+#             hue='-log10(perf_ratio)',
+#             bins=len(instances),
+#             multiple="dodge",
+#             ax=ax,
+#             )
 
 # %%

@@ -18,12 +18,13 @@ idx = pd.IndexSlice
 jobid = 42
 
 # Input Parameters
-total_reads = 200
 overwrite_pickles = False
 wishart_instances = True
 save_plots = True
 sizes = []
+alphas = []
 # sizes.append(int(str(sys.argv[1])))
+# alphas.append(float(str(sys.argv[2])))
 sizes = [30]
 alphas = [0.4]
 # if int(str(sys.argv[2])) == 1:
@@ -39,8 +40,9 @@ statistic = '50'
 # data_path = "/nobackup/dbernaln/repos/stochastic-benchmark/data/sk/"
 # data_path = "/home/bernalde/repos/stochastic-benchmark/data/sk_pleiades/"
 # data_path = "/home/bernalde/results_20_0.4"
-if len(sizes) == 1 and len(alphas) == 1:
+if len(sizes) == 1 and len(alphas) == 1 and wishart_instances:
     data_path = "/home/bernalde/results_"+str(sizes[0])+"_"+str(alphas[0])
+    # data_path = '/anvil/scratch/x-bernalde/wishart/results/results_{:.0f}_{:.1f}'.format(sizes[0], alphas[0])
 
 plots_path = os.path.join(data_path, 'plots/')
 instances_path = os.path.join(data_path, 'instances/')
@@ -49,6 +51,7 @@ if ocean_df_flag:
 elif wishart_instances:
     # results_path = '/home/bernalde/repos/wishart/scripts/results/results_{:.0f}_{:.1f}'.format(sizes[0], alphas[0])
     results_path = '/home/bernalde/repos/wishart/scripts/results/stats'
+    # results_path = '/anvil/scratch/x-bernalde/wishart/results/results_df'
 else:
     results_path = os.path.join(data_path, 'pysa/')
 pickles_path = os.path.join(results_path, 'pickles')
@@ -201,7 +204,7 @@ def interpolate_df(
     dataframes = []
     for instance in instances:
         df_name_partial = prefix.rsplit(
-            '.')[0] + str(instance) + '_partial.pkl'
+            '.',1)[0] + str(instance) + '_partial.pkl'
         df_path_partial = os.path.join(results_path, df_name_partial)
         if os.path.exists(df_path_partial) and not overwrite_pickles:
             print('Loaded partial dataframe from file')
@@ -234,9 +237,10 @@ def interpolate_df(
                     resource_factor *= parameter_set[r_index]
                     # resource_factor *= index[r_index]
                 # Set interpolation points for the responses at all the relevant reads values
+                maximum_boots = df_original['boots'].max()
                 interpolate_resource = resource_values[
                     np.where(
-                        (resource_values <= take_closest(resource_values,default_boots*resource_factor)) &
+                        (resource_values <= take_closest(resource_values,maximum_boots*resource_factor)) &
                         (resource_values >= take_closest(resource_values, minimum_boots*resource_factor))
                     )
                 ]
@@ -275,7 +279,7 @@ def interpolate_df(
     else:
         for instance in instances:
             df_name_partial = prefix.rsplit(
-                '.')[0] + str(instance) + '_partial.pkl'
+                '.', 1)[0] + str(instance) + '_partial.pkl'
             df_path_partial = os.path.join(results_path, df_name_partial)
             df_interpolate = pd.read_pickle(df_path_partial)
             dataframes.append(df_interpolate)
@@ -285,7 +289,7 @@ def interpolate_df(
         return None
     df_interpolated = pd.concat(dataframes).reset_index(drop=True)
     if save_pickle:
-        df_name_interpolated = prefix.rsplit('.')[0] + '_interp.pkl'
+        df_name_interpolated = prefix.rsplit('.',1)[0] + '_interp.pkl'
         df_path_interpolated = os.path.join(results_path, df_name_interpolated)
         df_interpolated.to_pickle(df_path_interpolated)
     return df_interpolated
@@ -436,7 +440,7 @@ for size in sizes:
             df_stats = None
         else:
             df_stats = pd.read_pickle(df_path_stats)
-            df_name_stats_interpolated = df_name_stats.rsplit('.')[
+            df_name_stats_interpolated = df_name_stats.rsplit('.',1)[
                 0] + '_interp.pkl'
             df_path_stats_interpolated = os.path.join(
                 results_path, df_name_stats_interpolated)
@@ -447,26 +451,23 @@ for size in sizes:
                     df_stats_interpolated = df_stats.copy()
             else:
                 resource_values = gen_log_space(min(df_stats[resource_column].values), max(df_stats[resource_column].values), default_boots // 2)
-                if generate_interpolated_stats:
-                    df_stats_interpolated = interpolate_df(
-                        dataframe=df_stats,
-                        resource_column=resource_column,
-                        prefix=df_name_stats,
-                        parameters_dict=parameters_dict,
-                        default_boots=default_boots,
-                        minimum_boots=minimum_boots,
-                        resource_proportional_parameters=resource_proportional_parameters,
-                        idx=idx,
-                        results_path=results_path,
-                        save_pickle=True,
-                        overwrite_pickles=overwrite_pickles,
-                        resource_values=resource_values,
-                    )
-                else:
-                    df_stats_interpolated = None
+                df_stats_interpolated = interpolate_df(
+                    dataframe=df_stats,
+                    resource_column=resource_column,
+                    prefix=df_name_stats,
+                    parameters_dict=parameters_dict,
+                    default_boots=default_boots,
+                    minimum_boots=minimum_boots,
+                    resource_proportional_parameters=resource_proportional_parameters,
+                    idx=idx,
+                    results_path=results_path,
+                    save_pickle=True,
+                    overwrite_pickles=overwrite_pickles,
+                    resource_values=resource_values,
+                )
 
 
-        df_name_interpolated = df_name_all.rsplit('.')[0] + '_interp.pkl'
+        df_name_interpolated = df_name_all.rsplit('.',1)[0] + '_interp.pkl'
         df_path_interpolated = os.path.join(results_path, df_name_interpolated)
         if not generate_interpolated_results:
             if os.path.exists(df_path_interpolated):
@@ -502,10 +503,7 @@ response_direction = 1
 df_name_all = prefix + 'df_results.pkl'
 
 
-def dist_eucl(a, b, scale): return hypot((b[0]-a[0]), (b[0]-a[0]))
-
-
-df_name_recipe_lazy = df_name_all.rsplit('.')[0] + '_recipe_lazy' + statistic + '.pkl'
+df_name_recipe_lazy = df_name_all.rsplit('.',1)[0] + '_recipe_lazy' + statistic + '.pkl'
 df_path_recipe_lazy = os.path.join(results_path, df_name_recipe_lazy)
 if os.path.exists(df_path_recipe_lazy) and not use_raw_dataframes:
     recipe_lazy = pd.read_pickle(df_path_recipe_lazy)
@@ -542,7 +540,7 @@ else:
 
 
 df_name_recipe_mean_best = df_name_all.rsplit(
-    '.')[0] + '_recipe_mean_best'+statistic+'.pkl'
+    '.',1)[0] + '_recipe_mean_best'+statistic+'.pkl'
 df_path_recipe_mean_best = os.path.join(results_path, df_name_recipe_mean_best)
 
 
@@ -643,7 +641,7 @@ else:
     recipe_mean_best_params.to_pickle(df_path_recipe_mean_best)
 
 
-df_name_virtual = df_name_all.rsplit('.')[0] + '_virtual'+statistic+'.pkl'
+df_name_virtual = df_name_all.rsplit('.',1)[0] + '_virtual'+statistic+'.pkl'
 df_path_virtual = os.path.join(results_path, df_name_virtual)
 
 if os.path.exists(df_path_virtual) and not use_raw_dataframes:
@@ -758,7 +756,7 @@ def process_df_progress(
         if type(stat_measure) == int:
             stat_measure = 'percentile('+stat_measure+')'
 
-    experiment_setting = ['R_budget', 'R_explor', 'run_per_solve']
+    experiment_setting = ['R_budget', 'R_explor', 'tau']
     individual_run = experiment_setting.copy()
     if 'experiment' in df_progress.columns:
         individual_run += ['experiment']
@@ -860,11 +858,14 @@ def process_df_progress(
 repetitions = 10  # Times to run the algorithm
 # resources per parameter setting (reads/resource_factor = boots)
 rs = [10, 20, 50, 100, 200, 500, 1000]
+if 'params' not in df_stats_interpolated:
+    df_stats_interpolated['params'] = df_stats_interpolated[parameter_names].apply(tuple, axis=1)
+
 frac_r_exploration = [0.05, 0.1, 0.2, 0.5, 0.75]
 R_budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7]
              for j in [3, 4, 5]] + [1e6]  # Total search budget (reads)
 experiments = rs * repetitions
-df_name_progress = df_name_all.rsplit('.')[0] + '_progress_binary'+statistic+'.pkl'
+df_name_progress = df_name_all.rsplit('.',1)[0] + '_progress_binary'+statistic+'.pkl'
 df_path_progress = os.path.join(results_path, df_name_progress)
 search_metric = statistic+'_'+response_column
 compute_metric = statistic+'_'+response_column
@@ -882,6 +883,7 @@ df_reads = df_stats_interpolated[
 
 r_indices = []
 resource_proportional_parameters = ['sweep', 'replica']
+# resource_proportional_parameters = ['swe', 'rep']
 for r_parameters in resource_proportional_parameters:
     if r_parameters in parameter_names:
         r_indices.append(parameter_names.index(r_parameters))
@@ -945,7 +947,7 @@ else:
                         min_periods=1).max()
                     exploration_step.reset_index('boots', inplace=True)
                     exploration_step['experiment'] = experiment
-                    exploration_step['run_per_solve'] = r
+                    exploration_step['tau'] = r
                     exploration_step['R_explor'] = R_exploration
                     exploration_step['R_exploit'] = R_exploitation
                     exploration_step['R_budget'] = R_budget
@@ -966,7 +968,7 @@ else:
                     exploitation_step[compute_metric] = exploitation_step[compute_metric].expanding(
                         min_periods=1).max()
                     exploitation_step['experiment'] = experiment
-                    exploitation_step['run_per_solve'] = r
+                    exploitation_step['tau'] = r
                     exploitation_step['R_explor'] = R_exploration
                     exploitation_step['R_exploit'] = R_exploitation
                     exploitation_step['R_budget'] = R_budget
@@ -1004,7 +1006,7 @@ df_progress_best, df_progress_end = process_df_progress(
 # R_budgets = [1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 # R_budgets = [1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6]
 experiments = rs * repetitions
-df_name_progress_ternary = df_name_all.rsplit('.')[0] + '_progress_ternary'+statistic+'.pkl'
+df_name_progress_ternary = df_name_all.rsplit('.',1)[0] + '_progress_ternary'+statistic+'.pkl'
 df_path_progress_ternary = os.path.join(results_path, df_name_progress_ternary)
 use_raw_dataframes = False
 if os.path.exists(df_path_progress_ternary) and not use_raw_dataframes:
@@ -1268,6 +1270,8 @@ labels = {
     'instance': 'Random instance',
     'replica': 'Number of replicas',
     'sweep': 'Number of sweeps',
+    'rep': 'Number of replicas',
+    'swe': 'Number of sweeps',
     'pcold': 'Probability of dEmin flip at cold temperature',
     'phot': 'Probability of dEmax flip at hot temperature',
     'Tcfactor': 'Cold temperature power of 10 factor from mean field deviation,  \n 10**Tcfactor*dEmin/log(100/1)',
@@ -1310,15 +1314,17 @@ labels = {
 if draw_plots:
     import matplotlib.pyplot as plt
     import seaborn as sns
+    if not os.path.exists(plots_path):
+        os.makedirs(plots_path)
 # %%
 # Windows Stickers Plot
 if draw_plots:
     # Windows sticker plot with virtual best, suggested parameters, best from TTS, default parameters, random search, and ternary search
     fig, ax = plt.subplots()
     sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio', data=df_virtual,
-                 ax=ax, estimator=None, label='Quantile '+statistic+' virtual best')
+                 ax=ax, estimator=None, label='Quantile '+statistic+' virtual best', marker='s')
     sns.lineplot(x='reads', y=statistic+'_lazy_perf_ratio', data=df_virtual,
-                 ax=ax, estimator=None, label='Quantile '+statistic+' suggested mean parameter')
+                 ax=ax, estimator=None, label='Quantile '+statistic+' suggested mean parameter', marker='^')
     best_tts_param = df_stats_interpolated.nsmallest(
         1, str(100-int(statistic))+'_rtt'
     ).set_index(parameter_names).index.values
@@ -1330,10 +1336,11 @@ if draw_plots:
     if parameters_dict is not None:
         for i, j in parameters_dict.items():
             default_params.append(default_parameters[i][0])
-    default_performance = df_stats_interpolated[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
-        parameter_names
-    ).loc[
-        tuple(default_params)].reset_index()
+    if tuple(default_params) in df_stats_interpolated.set_index(parameter_names).index:
+        default_performance = df_stats_interpolated[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
+            parameter_names
+        ).loc[
+            tuple(default_params)].reset_index()
     random_params = df_stats_interpolated.sample(
         n=1).set_index(parameter_names).index.values
     random_performance = df_stats_interpolated[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
@@ -1341,13 +1348,13 @@ if draw_plots:
     ).loc[
         random_params].reset_index()
     sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=best_tts, ax=ax, estimator=None, label='Quantile '+statistic+' best TTS parameter \n' +
-                 " ".join([str(parameter_names[i] + ':' + str(best_tts_param[0][i])) for i in range(len(parameter_names))]))
+                 " ".join([str(parameter_names[i] + ':' + str(best_tts_param[0][i])) for i in range(len(parameter_names))]), marker='*')
     # sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=default_performance, ax=ax, estimator=None, label='Quantile '+statistic+' default parameter \n' +
     #              " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]))
     # sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=random_performance, ax=ax, estimator=None, label='Quantile '+statistic+' random parameter \n' +
     #              " ".join([str(parameter_names[i] + ':' + str(random_params[0][i])) for i in range(len(parameter_names))]))
     sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best,
-                 ax=ax, estimator=None, label='Quantile '+statistic+'  best random search expl-expl')
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  best random search expl-expl', marker='d')
     # sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best_ternary,
     #              ax=ax, estimator=None, label='Quantile '+statistic+'  best ternary search expl-expl')
     ax.set(xscale='log')
@@ -1360,7 +1367,7 @@ if draw_plots:
     else:
         solver = 'pysa'
     ax.set(title='Windows sticker plot \n instances SK ' +
-           prefix.rsplit('_inst')[0] + '\n solver ' + solver)
+           prefix.rsplit('_inst',1)[0] + '\n solver ' + solver)
     lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
                fancybox=True)
     if ocean_df_flag:
@@ -1413,7 +1420,7 @@ if draw_plots:
             fig, ax = plt.subplots()
             recipe_smooth = recipe_lazy.set_index('reads').rolling(20, min_periods=1).mean().reset_index().copy()
             sns.lineplot(x='reads', y=parameter_name, data=recipe_smooth, ax=ax, estimator=None, label='Suggested ' + parameter_name +
-                        ' ' + statistic + ' quantile over instances, \n  then best parameter, and projected \n into database for every resource budget')
+                        ' ' + statistic + ' quantile over instances, \n  then best parameter, and projected \n into database for every resource budget', marker='s')
             plt.axhline(y=best_tts_param[0][i], xmin=0, xmax=1, linestyle='--', color='r', label='Best TTS ' + parameter_name + ' ' + statistic+' quantile over instances')
 
             # sns.lineplot(x='reads', y=parameter_name, data=recipe_mean_best_params, ax=ax, estimator=None, label='Suggested ' + parameter_name +
@@ -1424,7 +1431,7 @@ if draw_plots:
             ax.set(ylabel=labels[parameter_name])
             ax.set(xlabel='Total number of spin variable reads (proportional to time)')
             ax.set(title='Strategy plot: Suggested parameters \n instances SK ' +
-                prefix.rsplit('_inst')[0] + '\n solver ' + solver)
+                prefix.rsplit('_inst',1)[0] + '\n solver ' + solver)
             lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
                     fancybox=True)
             if save_plots:
@@ -1444,7 +1451,7 @@ if draw_plots:
 
     f, ax = plt.subplots()
     sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio', data=df_virtual,
-                 ax=ax, estimator=None, label='Quantile '+statistic+'  \n virtual best')
+                 ax=ax, estimator=None, label='Quantile '+statistic+'  \n virtual best', marker='s')
     sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best,
                  ax=ax, estimator=None, label='Quantile '+statistic+'  \n best random search expl-expl')
     sns.scatterplot(
@@ -1465,7 +1472,7 @@ if draw_plots:
     ax.set(xlabel='Total number of spin variable reads (proportional to time)')
     ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
     ax.set(title='Strategy plot: Quantile '+statistic+' best random search \n instances SK ' +
-           prefix.rsplit('_inst')[0] + '\n solver ' + solver)
+           prefix.rsplit('_inst',1)[0] + '\n solver ' + solver)
     lgd = ax.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),
                fancybox=True)
     if save_plots:
@@ -1504,7 +1511,7 @@ if draw_plots:
     ax.set(ylim=[0.99, 1.00025])
     ax.set(xscale='log')
     ax.set(title='Strategy plot: Quantile '+statistic+' ternary search \n instances SK ' +
-           prefix.rsplit('_inst')[0] + '\n solver ' + solver)
+           prefix.rsplit('_inst',1)[0] + '\n solver ' + solver)
     ax.set(xlabel='Total number of spin variable reads (proportional to time)')
     ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
     lgd = ax.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),

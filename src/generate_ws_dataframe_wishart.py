@@ -20,7 +20,7 @@ from utils_ws import *
 # Input Parameters
 overwrite_pickles = False
 wishart_instances = True
-save_plots = False
+save_plots = True
 sizes = []
 alphas = []
 # %%
@@ -28,7 +28,7 @@ alphas = []
 # sizes.append(int(str(sys.argv[1])))
 # alphas.append(float(str(sys.argv[2])))
 # statistic = str(sys.argv[3])
-sizes = [50]
+sizes = [100]
 alphas = [0.5]
 statistic = '50'
 # %%
@@ -64,6 +64,15 @@ else:
     results_path = os.path.join(data_path, 'pysa/')
 pickles_path = os.path.join(results_path, 'pickles')
 
+
+# %%
+# Import plotting libraries
+if draw_plots:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    if not os.path.exists(plots_path):
+        os.makedirs(plots_path)
+# %%
 schedules = []
 sweeps = []
 replicas = []
@@ -404,6 +413,7 @@ else:
               ).idxmax().rename(
         columns={statistic+'_'+response_column: 'recipe'})
 
+    # TODO Explore changing this tolist(), it is faster according to https://stackoverflow.com/questions/29550414/how-can-i-split-a-column-of-tuples-in-a-pandas-dataframe
     recipe_lazy = recipe_lazy.merge(
         recipe_lazy['recipe'].apply(pd.Series).rename(
             columns={i: parameter_names[i]
@@ -1098,163 +1108,191 @@ labels = {
     'mean_median_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
     'best_inv_perf_ratio': 'Inverse performance ratio \n (best found  - min) / (random - min) + ' + str(EPSILON),
 }
-
-# %%
-# Import plotting libraries
-if draw_plots:
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    if not os.path.exists(plots_path):
-        os.makedirs(plots_path)
 # %%
 # Windows Stickers Plot
+min_plot_reads = 5e2
+max_plot_reads = 2e5
 if draw_plots:
-    scaling_random = True
-    # hyperopt_profiles_path = '/home/bernalde/repos/wishart/scripts/processed/hyperopt_trials/'
-    hyperopt_profiles_path = '/home/bernalde/repos/stochastic-benchmark/data/wishart/'
-    hyperopt_trials_name = "hyperopt_perf_ratio_" + \
-        str(size) + "_" + str(alpha) + ".pkl"
+    for scaling_random in [False,True]:
+    # scaling_random = False
+        # hyperopt_profiles_path = '/home/bernalde/repos/wishart/scripts/processed/hyperopt_trials/'
+        hyperopt_profiles_path = '/home/bernalde/repos/stochastic-benchmark/data/wishart/'
+        hyperopt_trials_name = "hyperopt_perf_ratio_" + \
+            str(size) + "_" + str(alpha) + ".pkl"
+        hyperopt_expl_name = "hyperopt_expl_expl_perf_ratio_" + \
+            str(size) + "_" + str(alpha) + ".pkl"
 
-    random_name = 'wishart_planting_N_50_alpha_0.50_inst_eval_df_stats_random.pkl'
-    hyperopt_path = os.path.join(hyperopt_profiles_path, hyperopt_trials_name)
-    random_path = os.path.join(results_path, random_name)
-    # Windows sticker plot with virtual best, suggested parameters, best from TTS, default parameters, random search, and ternary search
-    fig, ax = plt.subplots()
-    
-    if os.path.exists(random_path):
-        random_perf = pd.read_pickle(random_path)
+        random_name = 'wishart_planting_N_{:.0f}_alpha_{:.2f}_inst_eval_df_stats_random.pkl'.format(size, alpha)
+        hyperopt_path = os.path.join(hyperopt_profiles_path, hyperopt_trials_name)
+        hyperopt_expl_path = os.path.join(hyperopt_profiles_path, hyperopt_expl_name)
+        random_path = os.path.join(results_path, random_name)
+        # Windows sticker plot with virtual best, suggested parameters, best from TTS, default parameters, random search, and ternary search
+        fig, ax = plt.subplots()
         
-        random_perf = random_perf[['reads', str(int(statistic)) + '_perf_ratio']].set_index('reads').expanding(min_periods=1).max().reset_index().copy()
-    
-    if scaling_random:  
-        # In order to scale the performnace by the random search we take perf_ratio = (random - best_found) / (random - min) = (random_perf - best_found_perf) / (1-random_perf)
-        scaling_factors = random_perf.set_index('reads')[[str(int(statistic)) + '_perf_ratio']].copy()
-        reads_to_interp = list(df_virtual['reads'].values)
-        scaling_factors_virtual = interp(scaling_factors, reads_to_interp)
-        df_virtual['virt_best_'+statistic+'_perf_ratio_scaled'] = np.divide(
-            scaling_factors_virtual[str(int(statistic)) + '_perf_ratio'].values - df_virtual['virt_best_'+statistic+'_perf_ratio'],
-            scaling_factors_virtual[str(int(statistic)) + '_perf_ratio'].values - 1
-            )
+        if os.path.exists(random_path):
+            random_perf = pd.read_pickle(random_path)
+            
+            random_perf = random_perf[['reads', str(int(statistic)) + '_perf_ratio']].set_index('reads').expanding(min_periods=1).max().reset_index().copy()
+        
+        if scaling_random:  
+            # In order to scale the performnace by the random search we take perf_ratio = (random - best_found) / (random - min) = (random_perf - best_found_perf) / (1-random_perf)
+            scaling_factors = random_perf.set_index('reads')[[str(int(statistic)) + '_perf_ratio']].copy()
+            reads_to_interp = list(df_virtual['reads'].values)
+            scaling_factors_virtual = interp(scaling_factors, reads_to_interp)
+            df_virtual['virt_best_'+statistic+'_perf_ratio_scaled'] = np.divide(
+                scaling_factors_virtual[str(int(statistic)) + '_perf_ratio'].values - df_virtual['virt_best_'+statistic+'_perf_ratio'],
+                scaling_factors_virtual[str(int(statistic)) + '_perf_ratio'].values - 1
+                )
 
-        df_virtual[statistic+'_lazy_perf_ratio_scaled'] = np.divide(
-            scaling_factors_virtual[str(int(statistic)) + '_perf_ratio'].values - df_virtual[statistic+'_lazy_perf_ratio'],
-            scaling_factors_virtual[str(int(statistic)) + '_perf_ratio'].values - 1
-            )
-        sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio_scaled', data=df_virtual,
-                    ax=ax, estimator=None, label='Quantile '+statistic+' virtual best', marker='s', color = 'k')
-        sns.lineplot(x='reads', y=statistic+'_lazy_perf_ratio_scaled', data=df_virtual,
-                    ax=ax, estimator=None, label='Quantile '+statistic+' suggested mean parameter', marker='^', color='b')
-    else:
-        sns.lineplot(x='reads', y=str(int(statistic)) + '_perf_ratio', data=random_perf,
-                     ax=ax, estimator=None, label='Quantile '+statistic+' random', marker='v', color='red')
-        sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio', data=df_virtual,
-                    ax=ax, estimator=None, label='Quantile '+statistic+' virtual best', marker='s', color = 'k')
-        sns.lineplot(x='reads', y=statistic+'_lazy_perf_ratio', data=df_virtual,
-                    ax=ax, estimator=None, label='Quantile '+statistic+' suggested mean parameter', marker='^', color='b')
-    default_params = []
-    if parameters_dict is not None:
-        for i, j in parameters_dict.items():
-            default_params.append(default_parameters[i][0])
-    # If the default parameters are in the database, use them. Otherwise, skip.
-    if tuple(default_params) in df_stats_interpolated_eval.set_index(parameter_names).index:
-        default_performance = df_stats_interpolated_eval[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
+            df_virtual[statistic+'_lazy_perf_ratio_scaled'] = np.divide(
+                scaling_factors_virtual[str(int(statistic)) + '_perf_ratio'].values - df_virtual[statistic+'_lazy_perf_ratio'],
+                scaling_factors_virtual[str(int(statistic)) + '_perf_ratio'].values - 1
+                )
+            sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio_scaled', data=df_virtual,
+                        ax=ax, estimator=None, label='Quantile '+statistic+' virtual best', marker='s', color = 'k')
+            sns.lineplot(x='reads', y=statistic+'_lazy_perf_ratio_scaled', data=df_virtual,
+                        ax=ax, estimator=None, label='Quantile '+statistic+' suggested mean parameter', marker='^', color='b')
+        else:
+            # sns.lineplot(x='reads', y=str(int(statistic)) + '_perf_ratio', data=random_perf,
+            #              ax=ax, estimator=None, label='Quantile '+statistic+' random', marker='v', color='red')
+            sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio', data=df_virtual,
+                        ax=ax, estimator=None, label='Quantile '+statistic+' virtual best', marker='s', color = 'k')
+            sns.lineplot(x='reads', y=statistic+'_lazy_perf_ratio', data=df_virtual,
+                        ax=ax, estimator=None, label='Quantile '+statistic+' suggested mean parameter', marker='^', color='b')
+        default_params = []
+        if parameters_dict is not None:
+            for i, j in parameters_dict.items():
+                default_params.append(default_parameters[i][0])
+        # If the default parameters are in the database, use them. Otherwise, skip.
+        if tuple(default_params) in df_stats_interpolated_eval.set_index(parameter_names).index:
+            default_performance = df_stats_interpolated_eval[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
+                parameter_names
+            ).loc[
+                tuple(default_params)].reset_index()
+            if scaling_random:
+                reads_to_interp = list(default_performance['reads'].values)
+                scaling_factors_default = interp(scaling_factors, reads_to_interp)
+
+                default_performance[statistic+'_perf_ratio_scaled'] = np.divide(
+                    scaling_factors_default[str(int(statistic)) + '_perf_ratio'].values - default_performance[statistic+'_perf_ratio'],
+                    scaling_factors_default[str(int(statistic)) + '_perf_ratio'].values - 1)
+                sns.lineplot(x='reads', y=statistic+'_perf_ratio_scaled', data=default_performance, ax=ax, estimator=None, label='Quantile '+statistic+' default parameter \n' +
+                        " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]), marker='o', color='c')
+            else:
+                sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=default_performance, ax=ax, estimator=None, label='Quantile '+statistic+' default parameter \n' +
+                        " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]), marker='o', color='c')
+        random_params = df_stats_interpolated_eval.sample(
+            n=1).set_index(parameter_names).index.values
+        random_performance = df_stats_interpolated_eval[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
             parameter_names
         ).loc[
-            tuple(default_params)].reset_index()
+            random_params].reset_index()
+        # sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=random_performance, ax=ax, estimator=None, label='Quantile '+statistic+' random parameter \n' +
+        #              " ".join([str(parameter_names[i] + ':' + str(random_params[0][i])) for i in range(len(parameter_names))]))
+        df_progress_best_smooth = df_progress_best[['R_budget', 'mean_'+statistic+'_perf_ratio']].set_index('R_budget').expanding(min_periods=1).max().reset_index().copy()
         if scaling_random:
-            reads_to_interp = list(default_performance['reads'].values)
-            scaling_factors_default = interp(scaling_factors, reads_to_interp)
-
-            default_performance[statistic+'_perf_ratio_scaled'] = np.divide(
-                scaling_factors_default[str(int(statistic)) + '_perf_ratio'].values - default_performance[statistic+'_perf_ratio'],
-                scaling_factors_default[str(int(statistic)) + '_perf_ratio'].values - 1)
-            sns.lineplot(x='reads', y=statistic+'_perf_ratio_scaled', data=default_performance, ax=ax, estimator=None, label='Quantile '+statistic+' default parameter \n' +
-                     " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]), marker='o', color='c')
+            reads_to_interp = list(df_progress_best_smooth['R_budget'].values)
+            scaling_factors_random = interp(scaling_factors, reads_to_interp)
+            df_progress_best_smooth['mean_'+statistic+'_perf_ratio_scaled'] = np.divide(
+                scaling_factors_random[str(int(statistic)) + '_perf_ratio'].values - df_progress_best_smooth['mean_'+statistic+'_perf_ratio'],scaling_factors_random[str(int(statistic)) + '_perf_ratio'].values - 1)
+            
+            sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio_scaled', data=df_progress_best_smooth,
+                    ax=ax, estimator=None, label='Quantile '+statistic+' best random search expl-expl', marker='d', color='g')
         else:
-            sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=default_performance, ax=ax, estimator=None, label='Quantile '+statistic+' default parameter \n' +
-                     " ".join([str(parameter_names[i] + ':' + str(default_params[i])) for i in range(len(parameter_names))]), marker='o', color='c')
-    random_params = df_stats_interpolated_eval.sample(
-        n=1).set_index(parameter_names).index.values
-    random_performance = df_stats_interpolated_eval[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
-        parameter_names
-    ).loc[
-        random_params].reset_index()
-    # sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=random_performance, ax=ax, estimator=None, label='Quantile '+statistic+' random parameter \n' +
-    #              " ".join([str(parameter_names[i] + ':' + str(random_params[0][i])) for i in range(len(parameter_names))]))
-    df_progress_best_smooth = df_progress_best[['R_budget', 'mean_'+statistic+'_perf_ratio']].set_index('R_budget').expanding(min_periods=1).max().reset_index().copy()
-    if scaling_random:
-        reads_to_interp = list(df_progress_best_smooth['R_budget'].values)
-        scaling_factors_random = interp(scaling_factors, reads_to_interp)
-        df_progress_best_smooth['mean_'+statistic+'_perf_ratio_scaled'] = np.divide(
-            scaling_factors_random[str(int(statistic)) + '_perf_ratio'].values - df_progress_best_smooth['mean_'+statistic+'_perf_ratio'],scaling_factors_random[str(int(statistic)) + '_perf_ratio'].values - 1)
-        
-        sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio_scaled', data=df_progress_best_smooth,
-                 ax=ax, estimator=None, label='Quantile '+statistic+'  best random search expl-expl', marker='d', color='g')
-    else:
-        sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best_smooth,
-                 ax=ax, estimator=None, label='Quantile '+statistic+'  best random search expl-expl', marker='d', color='g')
-    # sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best_ternary,
-    #              ax=ax, estimator=None, label='Quantile '+statistic+'  best ternary search expl-expl')
+            sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best_smooth,
+                    ax=ax, estimator=None, label='Quantile '+statistic+' best random search expl-expl', marker='d', color='g')
+        # sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best_ternary,
+        #              ax=ax, estimator=None, label='Quantile '+statistic+'  best ternary search expl-expl')
 
-    best_tts_param = df_stats_interpolated_eval.nsmallest(
-        1, str(100-int(statistic))+'_rtt'
-    ).set_index(parameter_names).index.values
-    # If there is a parameter that minimizes TTS, use it. Otherwise, skip.
-    if best_tts_param.size > 0:
-        best_tts = df_stats_interpolated_eval[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
-            parameter_names
-        ).loc[
-            best_tts_param].reset_index()
-        # sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=best_tts, ax=ax, estimator=None, label='Quantile '+statistic+' best TTS parameter \n' +
-                    #  " ".join([str(parameter_names[i] + ':' + str(best_tts_param[0][i])) for i in range(len(parameter_names))]), marker='*', color='r')
+        best_tts_param = df_stats_interpolated_eval.nsmallest(
+            1, str(100-int(statistic))+'_rtt'
+        ).set_index(parameter_names).index.values
+        # If there is a parameter that minimizes TTS, use it. Otherwise, skip.
+        if best_tts_param.size > 0:
+            best_tts = df_stats_interpolated_eval[parameter_names + ['reads', statistic+'_perf_ratio']].set_index(
+                parameter_names
+            ).loc[
+                best_tts_param].reset_index()
+            # sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=best_tts, ax=ax, estimator=None, label='Quantile '+statistic+' best TTS parameter \n' +
+                        #  " ".join([str(parameter_names[i] + ':' + str(best_tts_param[0][i])) for i in range(len(parameter_names))]), marker='*', color='r')
 
-    if os.path.exists(hyperopt_path):
-        hyperopt_trials = pd.read_pickle(hyperopt_path)
+        if os.path.exists(hyperopt_path):
+            hyperopt_trials = pd.read_pickle(hyperopt_path)
+            
+            hyperopt_trials_smooth = hyperopt_trials[['cum_reads', 'best_perf_ratio_'+str(float(statistic)/100)]].set_index('cum_reads').expanding(min_periods=1).max().reset_index().copy()
+            if scaling_random:
+                reads_to_interp = list(hyperopt_trials_smooth['cum_reads'].values)
+                scaling_factors_hyperopt = interp(scaling_factors, reads_to_interp)
+                hyperopt_trials_smooth['best_perf_ratio_'+str(float(statistic)/100)+'_scaled'] = np.divide(
+                    scaling_factors_hyperopt[str(int(statistic)) + '_perf_ratio'].values - hyperopt_trials_smooth['best_perf_ratio_'+str(float(statistic)/100)],
+                    scaling_factors_hyperopt[str(int(statistic)) + '_perf_ratio'].values - 1)
+
+                sns.lineplot(x='cum_reads', y='best_perf_ratio_'+str(float(statistic)/100) + '_scaled', data=hyperopt_trials_smooth,
+                                    ax=ax, estimator=None, label='Quantile '+statistic+' best hyperopt search', marker='o', color='orange')
+
+            else:
+                sns.lineplot(x='cum_reads', y='best_perf_ratio_'+str(float(statistic)/100), data=hyperopt_trials_smooth,
+                            ax=ax, estimator=None, label='Quantile '+statistic+' best hyperopt search', marker='o', color='orange')
+
+        if os.path.exists(hyperopt_expl_path):
+            hyperopt_expl_expl = pd.read_pickle(hyperopt_expl_path)
+            
+            hyperopt_expl_expl = hyperopt_expl_expl.reset_index()[['R_budget', 'best_perf_ratio_'+str(float(statistic)/100)]].set_index('R_budget').expanding(min_periods=1).max().reset_index().copy()
+            reads_to_interp = list(hyperopt_expl_expl['R_budget'].values)
+            max_performance = interp(df_virtual[['reads','virt_best_'+statistic+'_perf_ratio']].set_index('reads'), reads_to_interp)
+            max_performance.rename(columns={'virt_best_'+str(statistic)+'_perf_ratio':'best_perf_ratio_'+str(float(statistic)/100)},inplace=True)
+            hyperopt_expl_expl = pd.concat([hyperopt_expl_expl.set_index(['R_budget']),max_performance]).min(level=0).reset_index().rename(columns={'index':'R_budget'})
+
+            if scaling_random:
+                scaling_factors_hyperopt = interp(scaling_factors, reads_to_interp)
+                hyperopt_expl_expl['best_perf_ratio_'+str(float(statistic)/100)+'_scaled'] = np.divide(
+                    scaling_factors_hyperopt[str(int(statistic)) + '_perf_ratio'].values - hyperopt_expl_expl['best_perf_ratio_'+str(float(statistic)/100)],
+                    scaling_factors_hyperopt[str(int(statistic)) + '_perf_ratio'].values - 1)
+
+                sns.lineplot(x='R_budget', y='best_perf_ratio_'+str(float(statistic)/100)+'_scaled', data=hyperopt_expl_expl,
+                                    ax=ax, estimator=None, label='Quantile '+statistic+' best hyperopt expl-expl', marker='v', color='purple')
+
+            else:
+                sns.lineplot(x='R_budget', y='best_perf_ratio_'+str(float(statistic)/100), data=hyperopt_expl_expl,
+                            ax=ax, estimator=None, label='Quantile '+statistic+' best hyperopt expl-expl', marker='v', color='purple')
+
+        ax.set(xscale='log')
+        plot_range_min = df_progress_best['mean_'+statistic+'_perf_ratio'].min()
+        # plot_range_min = df_virtual['virt_best_'+statistic+'_perf_ratio'].min()
+        plot_range_max = df_progress_best['mean_'+statistic+'_perf_ratio'].max()
+        # plot_range_min = df_virtual['virt_best_'+statistic+'_perf_ratio'].max()
+        plot_range = 0.05*(plot_range_max-plot_range_min)
+        # ax.set(ylim=[plot_range_min - plot_range, plot_range_max + plot_range])
         
-        hyperopt_trials_smooth = hyperopt_trials[['cum_reads', 'best_perf_ratio_'+str(float(statistic)/100)]].set_index('cum_reads').expanding(min_periods=1).max().reset_index().copy()
+        ax.set(xlim=[min_plot_reads, max_plot_reads])
         if scaling_random:
-            reads_to_interp = list(hyperopt_trials_smooth['cum_reads'].values)
-            scaling_factors_hyperopt = interp(scaling_factors, reads_to_interp)
-            hyperopt_trials_smooth['best_perf_ratio_'+str(float(statistic)/100)+'_scaled'] = np.divide(
-                scaling_factors_hyperopt[str(int(statistic)) + '_perf_ratio'].values - hyperopt_trials_smooth['best_perf_ratio_'+str(float(statistic)/100)],
-                scaling_factors_hyperopt[str(int(statistic)) + '_perf_ratio'].values - 1)
-
-            sns.lineplot(x='cum_reads', y='best_perf_ratio_'+str(float(statistic)/100) + '_scaled', data=hyperopt_trials_smooth,
-                                ax=ax, estimator=None, label='Quantile '+statistic+' best hyperopt search', marker='o', color='orange')
-
+            ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
+            ax.set(ylim=[0.8,1.005])
         else:
-            sns.lineplot(x='cum_reads', y='best_perf_ratio_'+str(float(statistic)/100), data=hyperopt_trials_smooth,
-                        ax=ax, estimator=None, label='Quantile '+statistic+' best hyperopt search', marker='o', color='orange')
-
-    ax.set(xscale='log')
-    plot_range_min = df_progress_best['mean_'+statistic+'_perf_ratio'].min()
-    # plot_range_min = df_virtual['virt_best_'+statistic+'_perf_ratio'].min()
-    plot_range_max = df_progress_best['mean_'+statistic+'_perf_ratio'].max()
-    # plot_range_min = df_virtual['virt_best_'+statistic+'_perf_ratio'].max()
-    plot_range = 0.05*(plot_range_max-plot_range_min)
-    # ax.set(ylim=[plot_range_min - plot_range, plot_range_max + plot_range])
-    # ax.set(ylim=[0.945,0.995])
-    ax.set(ylim=[0.75,1.005])
-    ax.set(xlim=[5e2, 1e6])
-    ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
-    ax.set(xlabel='Total number of spin variable reads (proportional to time)')
-    if ocean_df_flag:
-        solver = 'dneal'
-    else:
-        solver = 'pysa'
-    ax.set(title='Windows sticker plot \n instances Wishart ' +
-           prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
-    lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
-                    fancybox=True)
-    if ocean_df_flag:
-        solver = 'dneal'
-    else:
-        solver = 'pysa'
-    if save_plots:
-        plot_name = 'windows_sticker_'+solver + \
-            '_'+str(size)+'_'+statistic+'.png'
-        plt.savefig(os.path.join(plots_path, plot_name),
-                    bbox_extra_artists=(lgd,), bbox_inches='tight', dpi=300)
+            ax.set(ylabel='Best found solution / Minimum solution')
+            ax.set(ylim=[0.945,0.995])
+        ax.set(xlabel='Total number of spin variable reads (proportional to time)')
+        if ocean_df_flag:
+            solver = 'dneal'
+        else:
+            solver = 'pysa'
+        ax.set(title='Windows sticker plot \n instances Wishart ' +
+            prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
+        lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
+                        fancybox=True)
+        if ocean_df_flag:
+            solver = 'dneal'
+        else:
+            solver = 'pysa'
+        if save_plots:
+            if scaling_random:
+                plot_name = 'windows_sticker_'+solver + \
+                    '_'+str(size)+'_'+statistic+'_scaled.png'
+            else:
+                plot_name = 'windows_sticker_'+solver + \
+                    '_'+str(size)+'_'+statistic+'.png'
+            plt.savefig(os.path.join(plots_path, plot_name),
+                        bbox_extra_artists=(lgd,), bbox_inches='tight', dpi=300)
 
 # %%
 # Strategy Plot: Suggested parameters
@@ -1279,7 +1317,7 @@ if draw_plots:
             else:
                 # ax.set(ylim=[0,10])
                 pass
-            ax.set(xlim=[5e2, 2e5])
+            ax.set(xlim=[min_plot_reads, max_plot_reads])
             ax.set(ylabel=labels[parameter_name])
             ax.set(xlabel='Total number of spin variable reads (proportional to time)')
             if ocean_df_flag:
@@ -1311,7 +1349,7 @@ if draw_plots:
     sns.lineplot(x='reads', y='virt_best_'+statistic+'_perf_ratio', data=df_virtual,
                  ax=ax, estimator=None, label='Quantile '+statistic+'  \n virtual best', marker='s', color='k')
     sns.lineplot(x='R_budget', y='mean_'+statistic+'_perf_ratio', data=df_progress_best,
-                 ax=ax, estimator=None, label='Quantile '+statistic+'  \n best random search expl-expl', color='g')
+                 ax=ax, estimator=None, label='Quantile '+statistic+' \n best random search expl-expl', color='g')
     sns.scatterplot(
         data=strategy_random,
         x='R_budget',
@@ -1324,20 +1362,70 @@ if draw_plots:
         hue_norm=(0, 2),
         sizes=(20, 200),
         legend='brief')
-    # ax.set(xlim=[5e2, 5e4])
-    ax.set(xlim=[5e2, 5e5])
+    ax.set(xlim=[min_plot_reads, max_plot_reads])
     # ax.set(ylim=[None, 1.0025])
     ax.set(ylim=[df_progress_best['mean_'+statistic+'_perf_ratio'].min(),
            df_progress_best['mean_'+statistic+'_perf_ratio'].max()])
     ax.set(xscale='log')
     ax.set(xlabel='Total number of spin variable reads (proportional to time)')
-    ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
+    # ax.set(ylabel='Performance ratio = \n (random - best found) / (random - min)')
+    ax.set(ylabel='Best found solution / Minimum solution')
     ax.set(title='Strategy plot: Quantile '+statistic+' best random search \n instances Wishart ' +
            prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
     lgd = ax.legend(loc='center left', bbox_to_anchor=(0.99, 0.5),
                     fancybox=True)
     if save_plots:
         plot_name = 'random_search_'+solver+'_'+str(size)+'_'+statistic+'.png'
+        plt.savefig(os.path.join(plots_path, plot_name),
+                    bbox_extra_artists=(lgd,), bbox_inches='tight')
+
+# %%
+# Strategy Plot: Random search hyperparameters
+if draw_plots:
+    # Strategy plot showing how the best hyperparameters of the random search change with respect to the resource budget
+    f, ax = plt.subplots()
+    sns.lineplot(x='R_budget', y='tau', data=strategy_random,
+                    ax=ax, estimator=None,
+                     label='Reads per iteration in random search optimization', marker='s')
+
+    ax.set(xscale='log')
+    ax.set(yscale='log')
+    ax.set(xlim=[min_plot_reads, max_plot_reads])
+    ax.set(ylabel='Reads per random search iteration in exploration')
+    ax.set(xlabel='Total number of spin variable reads (proportional to time)')
+    if ocean_df_flag:
+        solver = 'dneal'
+    else:
+        solver = 'pysa'
+    ax.set(title='Strategy plot: Suggested reads per random search iteration \n' +
+            prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
+    lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
+                    fancybox=True)
+    if save_plots:
+        plot_name = 'random_search_tau_'+solver+'_'+str(size)+'_'+statistic+'.png'
+        plt.savefig(os.path.join(plots_path, plot_name),
+                    bbox_extra_artists=(lgd,), bbox_inches='tight')
+
+
+    f, ax = plt.subplots()
+    sns.lineplot(x='R_budget', y='f_explor', data=strategy_random,
+                    ax=ax, estimator=None,
+                     label='Fraction of exploration in random search exploration-exploitation', marker='s')
+
+    ax.set(xscale='log')
+    ax.set(xlim=[min_plot_reads, max_plot_reads])
+    ax.set(ylabel='Fraction of budget spent in exploration \n during random search')
+    ax.set(xlabel='Total number of spin variable reads (proportional to time)')
+    if ocean_df_flag:
+        solver = 'dneal'
+    else:
+        solver = 'pysa'
+    ax.set(title='Strategy plot: Suggested exploration fraction in random search \n' +
+            prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
+    lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
+                    fancybox=True)
+    if save_plots:
+        plot_name = 'random_search_fexpl_'+solver+'_'+str(size)+'_'+statistic+'.png'
         plt.savefig(os.path.join(plots_path, plot_name),
                     bbox_extra_artists=(lgd,), bbox_inches='tight')
 
@@ -1386,7 +1474,55 @@ if draw_plots:
 
 
 # %%
-# Strategy Plot: Hyperopt
+# Strategy Plot: Hyperopt exploration-exploitation
+if draw_plots:
+    # Strategy plot showing how the best parameters change with respect to the resource budget
+    if os.path.exists(hyperopt_expl_path):
+        hyperopt_expl_expl = pd.read_pickle(hyperopt_expl_path)
+        hyperopt_expl_expl[['tau','f_expl']] = pd.DataFrame(hyperopt_expl_expl['id_best_perf_ratio_'+str(float(statistic)/100)].tolist(), index=hyperopt_expl_expl.index)
+
+        fig, ax = plt.subplots()
+        sns.lineplot(x='R_budget', y='tau', data=hyperopt_expl_expl, ax=ax, estimator=None,
+                     label='Reads per iteration in Hyperopt exploration exploitation, ' + statistic + ' quantile over instances', marker='s')
+
+        ax.set(xscale='log')
+        # ax.set(ylim=[0.98,1.001])
+        ax.set(xlim=[min_plot_reads,max_plot_reads])
+        ax.set(ylabel='Reads per Hyperopt iteration in exploration')
+        ax.set(xlabel='Total number of spin variable reads (proportional to time)')
+        ax.set(title='Strategy plot: Suggested exploration fraction in Hyperopt iteration in exploration-exploitation \n' +
+               prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
+        lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
+                        fancybox=True)
+        if save_plots:
+            plot_name = 'hyperopt_expl_tau_'+solver + \
+                '_'+str(size)+'_'+statistic+'.png'
+            plt.savefig(os.path.join(plots_path, plot_name),
+                        bbox_extra_artists=(lgd,), bbox_inches='tight')
+
+
+
+        fig, ax = plt.subplots()
+        sns.lineplot(x='R_budget', y='f_expl', data=hyperopt_expl_expl, ax=ax, estimator=None,
+                     label='Reads per iteration in Hyperopt exploration exploitation, ' + statistic + ' quantile over instances', marker='s')
+
+        ax.set(xscale='log')
+        # ax.set(ylim=[0.98,1.001])
+        ax.set(xlim=[min_plot_reads,max_plot_reads])
+        ax.set(ylabel='Reads per Hyperopt iteration in exploration')
+        ax.set(xlabel='Total number of spin variable reads (proportional to time)')
+        ax.set(title='Strategy plot: Suggested reads per Hyperopt iteration in exploration-exploitation \n' +
+               prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
+        lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
+                        fancybox=True)
+        if save_plots:
+            plot_name = 'hyperopt_expl_fexpl_'+solver + \
+                '_'+str(size)+'_'+statistic+'.png'
+            plt.savefig(os.path.join(plots_path, plot_name),
+                        bbox_extra_artists=(lgd,), bbox_inches='tight')
+
+# %%
+# Strategy Plot: Hyperopt search
 if draw_plots:
     # Strategy plot showing how the best parameters change with respect to the resource budget
     if os.path.exists(hyperopt_path):
@@ -1394,21 +1530,18 @@ if draw_plots:
         # recipe_smooth = recipe_lazy.set_index('reads').rolling(
         # 20, min_periods=1).mean().reset_index().copy()
         sns.lineplot(x='cum_reads', y='run_reads_'+str(float(statistic)/100), data=hyperopt_trials, ax=ax, estimator=None,
-                     label='Reads per iteration in Hyperopt optimization, ' + statistic + ' quantile over instances', marker='s')
+                     label='Fraction of exploration in random search exploration-exploitation', marker='s')
 
-        # sns.lineplot(x='reads', y=parameter_name, data=recipe_mean_best_params, ax=ax, estimator=None, label='Suggested ' + parameter_name +
-        #              '\n best parameters for every instance and resource budget, \n quantile over instances, mean over parameters, \n and projected into database for every read')
         ax.set(xscale='log')
-        # ax.set(ylim=[0.98,1.001])
-        ax.set(xlim=[5e2,5e5])
-        ax.set(ylabel='Reads per Hyperopt iteration')
+        ax.set(xlim=[min_plot_reads, max_plot_reads])
+        ax.set(ylabel='Fraction of budget spent in exploration \n during random search')
         ax.set(xlabel='Total number of spin variable reads (proportional to time)')
-        ax.set(title='Strategy plot: Suggested reads per Hyperopt iteration Wishart \n' +
+        ax.set(title='Strategy plot: Suggested reads per Hyperopt iteration in search \n' +
                prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
         lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
                         fancybox=True)
         if save_plots:
-            plot_name = 'hyperopt_tau_'+solver + \
+            plot_name = 'hyperopt_fexpl_'+solver + \
                 '_'+str(size)+'_'+statistic+'.png'
             plt.savefig(os.path.join(plots_path, plot_name),
                         bbox_extra_artists=(lgd,), bbox_inches='tight')

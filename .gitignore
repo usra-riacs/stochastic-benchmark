@@ -141,3 +141,6 @@ data/sk/*/data/*
 *[0-9]_df_results.pkl
 *.pickle
 *partial*.pkl
+data/wishart/*
+*.tar
+*progress*.pkl

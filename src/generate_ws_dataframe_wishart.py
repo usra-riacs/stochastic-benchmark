@@ -28,7 +28,7 @@ alphas = []
 # sizes.append(int(str(sys.argv[1])))
 # alphas.append(float(str(sys.argv[2])))
 # statistic = str(sys.argv[3])
-sizes = [100]
+sizes = [50]
 alphas = [0.5]
 statistic = '50'
 # %%
@@ -306,8 +306,8 @@ for size in sizes:
             df_stats_train = df_stats_all.copy()
             df_stats_eval = df_stats_all.copy()
         else:
-            df_stats_eval = pd.read_pickle(df_path_stats)
-            df_stats_train = pd.read_pickle(df_path_stats)
+            df_stats_eval = pd.read_pickle(df_path_stats_eval)
+            df_stats_train = pd.read_pickle(df_path_stats_train)
             resource_values = gen_log_space(min(df_stats_eval[resource_column].values), max(
                 df_stats_eval[resource_column].values), default_boots // 2)
             df_name_stats_interpolated_eval = df_name_stats_eval.rsplit('.', 1)[
@@ -319,14 +319,16 @@ for size in sizes:
             df_path_stats_interpolated_train = os.path.join(
                 results_path, df_name_stats_interpolated_train)
             if not generate_interpolated_stats:
-                if os.path.exists(df_path_stats_interpolated):
+                if os.path.exists(df_path_stats_interpolated_eval):
                     df_stats_interpolated_eval = pd.read_pickle(
                         df_path_stats_interpolated_eval)
+                else:
+                    df_stats_interpolated_eval = df_stats_all_interpolated.copy()
+                if os.path.exists(df_path_stats_interpolated_train):
                     df_stats_interpolated_train = pd.read_pickle(
                         df_path_stats_interpolated_train)
                     resource_values = df_stats_interpolated_eval[resource_column].values
                 else:
-                    df_stats_interpolated_eval = df_stats_all_interpolated.copy()
                     df_stats_interpolated_train = df_stats_all_interpolated.copy()
             else:
                 df_stats_interpolated_eval = interpolate_df(
@@ -1216,24 +1218,26 @@ if draw_plots:
             # sns.lineplot(x='reads', y=statistic+'_perf_ratio', data=best_tts, ax=ax, estimator=None, label='Quantile '+statistic+' best TTS parameter \n' +
                         #  " ".join([str(parameter_names[i] + ':' + str(best_tts_param[0][i])) for i in range(len(parameter_names))]), marker='*', color='r')
 
-        if os.path.exists(hyperopt_path):
-            hyperopt_trials = pd.read_pickle(hyperopt_path)
+        # # Hyperopt search
+        # if os.path.exists(hyperopt_path):
+        #     hyperopt_trials = pd.read_pickle(hyperopt_path)
             
-            hyperopt_trials_smooth = hyperopt_trials[['cum_reads', 'best_perf_ratio_'+str(float(statistic)/100)]].set_index('cum_reads').expanding(min_periods=1).max().reset_index().copy()
-            if scaling_random:
-                reads_to_interp = list(hyperopt_trials_smooth['cum_reads'].values)
-                scaling_factors_hyperopt = interp(scaling_factors, reads_to_interp)
-                hyperopt_trials_smooth['best_perf_ratio_'+str(float(statistic)/100)+'_scaled'] = np.divide(
-                    scaling_factors_hyperopt[str(int(statistic)) + '_perf_ratio'].values - hyperopt_trials_smooth['best_perf_ratio_'+str(float(statistic)/100)],
-                    scaling_factors_hyperopt[str(int(statistic)) + '_perf_ratio'].values - 1)
+        #     hyperopt_trials_smooth = hyperopt_trials[['cum_reads', 'best_perf_ratio_'+str(float(statistic)/100)]].set_index('cum_reads').expanding(min_periods=1).max().reset_index().copy()
+        #     if scaling_random:
+        #         reads_to_interp = list(hyperopt_trials_smooth['cum_reads'].values)
+        #         scaling_factors_hyperopt = interp(scaling_factors, reads_to_interp)
+        #         hyperopt_trials_smooth['best_perf_ratio_'+str(float(statistic)/100)+'_scaled'] = np.divide(
+        #             scaling_factors_hyperopt[str(int(statistic)) + '_perf_ratio'].values - hyperopt_trials_smooth['best_perf_ratio_'+str(float(statistic)/100)],
+        #             scaling_factors_hyperopt[str(int(statistic)) + '_perf_ratio'].values - 1)
 
-                sns.lineplot(x='cum_reads', y='best_perf_ratio_'+str(float(statistic)/100) + '_scaled', data=hyperopt_trials_smooth,
-                                    ax=ax, estimator=None, label='Quantile '+statistic+' best hyperopt search', marker='o', color='orange')
+        #         sns.lineplot(x='cum_reads', y='best_perf_ratio_'+str(float(statistic)/100) + '_scaled', data=hyperopt_trials_smooth,
+        #                             ax=ax, estimator=None, label='Quantile '+statistic+' best hyperopt search', marker='o', color='orange')
 
-            else:
-                sns.lineplot(x='cum_reads', y='best_perf_ratio_'+str(float(statistic)/100), data=hyperopt_trials_smooth,
-                            ax=ax, estimator=None, label='Quantile '+statistic+' best hyperopt search', marker='o', color='orange')
+        #     else:
+        #         sns.lineplot(x='cum_reads', y='best_perf_ratio_'+str(float(statistic)/100), data=hyperopt_trials_smooth,
+        #                     ax=ax, estimator=None, label='Quantile '+statistic+' best hyperopt search', marker='o', color='orange')
 
+        # # Hyperopt exploration exploitation
         if os.path.exists(hyperopt_expl_path):
             hyperopt_expl_expl = pd.read_pickle(hyperopt_expl_path)
             
@@ -1290,7 +1294,7 @@ if draw_plots:
                     '_'+str(size)+'_'+statistic+'_scaled.png'
             else:
                 plot_name = 'windows_sticker_'+solver + \
-                    '_'+str(size)+'_'+statistic+'.png'
+                    '_'+str(size)+'_'+statistic+'.pdf'
             plt.savefig(os.path.join(plots_path, plot_name),
                         bbox_extra_artists=(lgd,), bbox_inches='tight', dpi=300)
 
@@ -1490,7 +1494,7 @@ if draw_plots:
         ax.set(xlim=[min_plot_reads,max_plot_reads])
         ax.set(ylabel='Reads per Hyperopt iteration in exploration')
         ax.set(xlabel='Total number of spin variable reads (proportional to time)')
-        ax.set(title='Strategy plot: Suggested exploration fraction in Hyperopt iteration in exploration-exploitation \n' +
+        ax.set(title='Strategy plot: Suggested reads per Hyperopt iteration in exploration-exploitation \n' +
                prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
         lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
                         fancybox=True)
@@ -1504,14 +1508,14 @@ if draw_plots:
 
         fig, ax = plt.subplots()
         sns.lineplot(x='R_budget', y='f_expl', data=hyperopt_expl_expl, ax=ax, estimator=None,
-                     label='Reads per iteration in Hyperopt exploration exploitation, ' + statistic + ' quantile over instances', marker='s')
+                     label='Fraction of exploration in random search exploration-exploitation, ' + statistic + ' quantile over instances', marker='s')
 
         ax.set(xscale='log')
         # ax.set(ylim=[0.98,1.001])
         ax.set(xlim=[min_plot_reads,max_plot_reads])
-        ax.set(ylabel='Reads per Hyperopt iteration in exploration')
+        ax.set(ylabel='Fraction of budget spent in exploration \n during Hyperopt optimization')
         ax.set(xlabel='Total number of spin variable reads (proportional to time)')
-        ax.set(title='Strategy plot: Suggested reads per Hyperopt iteration in exploration-exploitation \n' +
+        ax.set(title='Strategy plot: Suggested exploration fraction in Hyperopt exploration-exploitation \n' +
                prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
         lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
                         fancybox=True)
@@ -1521,30 +1525,30 @@ if draw_plots:
             plt.savefig(os.path.join(plots_path, plot_name),
                         bbox_extra_artists=(lgd,), bbox_inches='tight')
 
-# %%
-# Strategy Plot: Hyperopt search
-if draw_plots:
-    # Strategy plot showing how the best parameters change with respect to the resource budget
-    if os.path.exists(hyperopt_path):
-        fig, ax = plt.subplots()
-        # recipe_smooth = recipe_lazy.set_index('reads').rolling(
-        # 20, min_periods=1).mean().reset_index().copy()
-        sns.lineplot(x='cum_reads', y='run_reads_'+str(float(statistic)/100), data=hyperopt_trials, ax=ax, estimator=None,
-                     label='Fraction of exploration in random search exploration-exploitation', marker='s')
+# # %%
+# # Strategy Plot: Hyperopt search
+# if draw_plots:
+#     # Strategy plot showing how the best parameters change with respect to the resource budget
+#     if os.path.exists(hyperopt_path):
+#         fig, ax = plt.subplots()
+#         # recipe_smooth = recipe_lazy.set_index('reads').rolling(
+#         # 20, min_periods=1).mean().reset_index().copy()
+#         sns.lineplot(x='cum_reads', y='run_reads_'+str(float(statistic)/100), data=hyperopt_trials, ax=ax, estimator=None,
+#                      label='Fraction of exploration in random search exploration-exploitation', marker='s')
 
-        ax.set(xscale='log')
-        ax.set(xlim=[min_plot_reads, max_plot_reads])
-        ax.set(ylabel='Fraction of budget spent in exploration \n during random search')
-        ax.set(xlabel='Total number of spin variable reads (proportional to time)')
-        ax.set(title='Strategy plot: Suggested reads per Hyperopt iteration in search \n' +
-               prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
-        lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
-                        fancybox=True)
-        if save_plots:
-            plot_name = 'hyperopt_fexpl_'+solver + \
-                '_'+str(size)+'_'+statistic+'.png'
-            plt.savefig(os.path.join(plots_path, plot_name),
-                        bbox_extra_artists=(lgd,), bbox_inches='tight')
+#         ax.set(xscale='log')
+#         ax.set(xlim=[min_plot_reads, max_plot_reads])
+#         ax.set(ylabel='Fraction of budget spent in exploration \n during random search')
+#         ax.set(xlabel='Total number of spin variable reads (proportional to time)')
+#         ax.set(title='Strategy plot: Suggested reads per Hyperopt iteration in search \n' +
+#                prefix.rsplit('_inst', 1)[0] + '\n solver ' + solver)
+#         lgd = ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.2),
+#                         fancybox=True)
+#         if save_plots:
+#             plot_name = 'hyperopt_fexpl_'+solver + \
+#                 '_'+str(size)+'_'+statistic+'.png'
+#             plt.savefig(os.path.join(plots_path, plot_name),
+#                         bbox_extra_artists=(lgd,), bbox_inches='tight')
 
 
 # %%

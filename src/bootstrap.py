@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 import numpy as np
+import pandas as pd
 
+EPSILON = 1e-10
+confidence_level = 68
+gap = 1.0
 
 @dataclass
 class BootstrapParameters:
@@ -21,8 +25,8 @@ class BootstrapParameters:
     fail_value: float = np.inf
 
 
-# def initBootstrap(df, bs_params, resamples):
-def initBootstrap(df, bs_params):
+def initBootstrap(df, bs_params, resamples):
+# def initBootstrap(df, bs_params):
     """
     Initialize the bootstrap method.
 
@@ -52,13 +56,12 @@ def initBootstrap(df, bs_params):
             bs_params.best_value = df[bs_params.response_col].min()
         else:  # Maximization
             bs_params.best_value = df[bs_params.response_col].max()
-    return resamples, responses, times
-    # return responses, times
-
-# def BootstrapSingle(df, bs_params, resamples):
+    # return resamples, responses, times
+    return responses, times
 
 
-def BootstrapSingle(df, bs_params):
+def BootstrapSingle(df, bs_params, resamples):
+# def BootstrapSingle(df, bs_params):
     """
     Bootstrap single function.
 
@@ -74,8 +77,8 @@ def BootstrapSingle(df, bs_params):
     bs_df : pandas.DataFrame
         DataFrame containing the bootstrap results.
     """
-    resamples, responses, times = initBootstrap(df, bs_params)
-    # responses, times = initBootstrap(df, bs_params, resamples)
+    # resamples, responses, times = initBootstrap(df, bs_params)
+    responses, times = initBootstrap(df, bs_params, resamples)
     bs_df = pd.DataFrame()
     # TODO Pylance is crying here because pd is not defined
     computeResponse(df, bs_df, bs_params, resamples, responses)
@@ -444,6 +447,7 @@ def computeResultsList(
     TODO: Here we assume the succes metric is the performance ratio, we can generalize that as any function of the parameters (use external function)
     TODO: Here we only return a few parameters with confidence intervals w.r.t. the bootstrapping. We can generalize that as any possible outcome (use function)
     '''
+    
 
     aggregated_df_flag = False
     if response_column is None:
@@ -516,6 +520,7 @@ def computeResultsList(
 
     # Compute the inverse success metric (performance ratio) of each bootstrap samples and its corresponding confidence interval based on the resamples
     if success_metric == 'perf_ratio':
+
         inv_perf_ratio = 1 - (random_value - response) / \
             (random_value - best_value) + EPSILON
         inv_perf_ratio_conf_interval_lower = 1 - (random_value - response_conf_interval_lower) / (

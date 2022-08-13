@@ -154,10 +154,16 @@ def computeResponse(df, bs_df, bs_params, resamples, responses):
         response_dist = np.apply_along_axis(
             func1d=np.max, axis=0, arr=responses[resamples])
         # TODO This could be generalized as the X best samples
-    bs_df['response'] = [np.mean(response_dist)]
-    bs_df['response_conf_interval_lower'] = np.nanpercentile(
+    
+    key = 'Response'
+    basename = names.param2filename({'Key': key}, '')
+    CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+    CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
+    
+    bs_df[basename] = [np.mean(response_dist)]
+    bs_df[CIlower] = np.nanpercentile(
         response_dist, 50-confidence_level/2)
-    bs_df['response_conf_interval_upper'] = np.nanpercentile(
+    bs_df[CIupper] = np.nanpercentile(
         response_dist, 50+confidence_level/2)
     # TODO PyLance is crying here because confidence_level is not defined
 
@@ -177,11 +183,16 @@ def computePerfRatio(df, bs_df, bs_params):
     """
     # Compute the success metric (performance ratio) of each bootstrap samples and its corresponding confidence interval based on the resamples
     if bs_params.success_metric == 'perf_ratio':
-        bs_df['perf_ratio'] = (bs_params.random_value - bs_df['response'])\
+        key = 'PerfRatio'
+        basename = names.param2filename({'Key': key}, '')
+        CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+        CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
+    
+        bs_df[basename] = (bs_params.random_value - bs_df['response'])\
             / (bs_params.random_value - bs_params.best_value)
-        bs_df['perf_ratio_conf_interval_lower'] = (bs_params.random_value - bs_df['response_conf_interval_upper']) \
+        bs_df[CIlower] = (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response', 'ConfInt': 'upper'}, '')]) \
             / (bs_params.random_value - bs_params.best_value)
-        bs_df['perf_ratio_conf_interval_upper'] = (bs_params.random_value - bs_df['response_conf_interval_lower'])\
+        bs_df[CIupper] = (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response', 'ConfInt': 'lower'}, '')])\
             / (bs_params.random_value - bs_params.best_value)
     else:
         print("Success metric not implemented yet")
@@ -203,11 +214,16 @@ def computeInvPerfRatio(df, bs_df, bs_params):
     """
     # Compute the inverse success metric (performance ratio) of each bootstrap samples and its corresponding confidence interval based on the resamples
     if bs_params.success_metric == 'perf_ratio':
-        bs_df['inv_perf_ratio'] = 1 - (bs_params.random_value - bs_df['response']) / \
+        key = 'InvPerfRatio'
+        basename = names.param2filename({'Key': key}, '')
+        CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+        CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
+        
+        bs_df[basename] = 1 - (bs_params.random_value - bs_df['response']) / \
             (bs_params.random_value - bs_params.best_value) + EPSILON
-        bs_df['inv_perf_ratio_conf_interval_lower'] = 1 - (bs_params.random_value - bs_df['response_conf_interval_lower'])\
+        bs_df[CIlower] = 1 - (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response', 'ConfInt': 'lower'}, '')])\
             / (bs_params.random_value - bs_params.best_value) + EPSILON
-        bs_df['inv_perf_ratio_conf_interval_upper'] = 1 - (bs_params.random_value - bs_df['response_conf_interval_upper'])\
+        bs_df[CIupper] = 1 - (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response', 'ConfInt': 'upper'}, '')])\
             / (bs_params.random_value - bs_params.best_value) + EPSILON
         # TODO PyLance is crying here because EPSILON is not defined
     else:
@@ -255,10 +271,16 @@ def computeSuccessProb(df, bs_df, bs_params, resamples, responses):
             success_prob_dist = np.apply_along_axis(func1d=lambda x: np.sum(
                 x > success_val)/bs_params.downsample, axis=0, arr=responses[resamples])
     # Consider np.percentile instead to reduce package dependency. We need to benchmark and test alternative
-    bs_df['success_prob'] = np.mean(success_prob_dist)
-    bs_df['success_prob_conf_interval_lower'] = np.nanpercentile(
+    
+    key = 'SuccProb'
+    basename = names.param2filename({'Key': key}, '')
+    CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+    CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
+        
+    bs_df[basename] = np.mean(success_prob_dist)
+    bs_df[CIlower] = np.nanpercentile(
         success_prob_dist, 50 - bs_params.confidence_level/2)
-    bs_df['success_prob_conf_interval_upper'] = np.nanpercentile(
+    bs_df[CIupper] = np.nanpercentile(
         success_prob_dist, 50 + bs_params.confidence_level/2)
 
 
@@ -282,10 +304,16 @@ def computeResource(df, bs_df, bs_params, resamples, times):
     # Compute the resource (time) of each bootstrap samples and its corresponding confidence interval based on the resamples
     resource_dist = np.apply_along_axis(
         func1d=np.mean, axis=0, arr=times[resamples])
-    bs_df['mean_time'] = np.mean(resource_dist)
-    bs_df['mean_time_conf_interval_lower'] = np.nanpercentile(
+    
+    key = 'MeanTime'
+    basename = names.param2filename({'Key': key}, '')
+    CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+    CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
+    
+    bs_df[basename] = np.mean(resource_dist)
+    bs_df[CIlower] = np.nanpercentile(
         resource_dist, 50 - bs_params.confidence_level/2)
-    bs_df['mean_time_conf_interval_upper'] = np.nanpercentile(
+    bs_df[CIupper] = np.nanpercentile(
         resource_dist, 50 + bs_params.confidence_level/2)
 
 
@@ -332,18 +360,24 @@ def computeRTT(df, bs_df, bs_params, resamples, responses):
 
     rtt_dist = computeRTT_vectorized(
         success_prob_dist, bs_params, scale=rtt_factor)
-    # Question: should we scale the RTT with the number of bootstrapping we do, intuition says we don't need to
+    # Question: should we scale the RTT with the number of bootstrapping we do, intuition says we don't need to    
+    key = 'RTT'
+    basename = names.param2filename({'Key': key}, '')
+    CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+    CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
+    
     rtt = np.mean(rtt_dist)
-    bs_df['rtt'] = rtt
+    
+    bs_df[basename] = rtt
     if np.isinf(rtt) or np.isnan(rtt) or rtt == bs_params.fail_value:
-        bs_df['rtt_conf_interval_lower'] = bs_params.fail_value
-        bs_df['rtt_conf_interval_upper'] = bs_params.fail_value
+        bs_df[CIlower] = bs_params.fail_value
+        bs_df[CIupper] = bs_params.fail_value
     else:
         # rtt_conf_interval = computeRTT_vectorized(
         #     success_prob_conf_interval, s=0.99, scale=1e-6*df_default_samples['runtime (us)'].sum())
-        bs_df['rtt_conf_interval_lower'] = np.nanpercentile(
+        bs_df[CIlower] = np.nanpercentile(
             rtt_dist, 50-confidence_level/2)
-        bs_df['rtt_conf_interval_upper'] = np.nanpercentile(
+        bs_df[CIupper] = np.nanpercentile(
             rtt_dist, 50+confidence_level/2)
         # TODO: Pylance is crying here because confidence interval is not defined.
     # Question: How should we compute the confidence interval of the RTT? Should we compute the function on the confidence interval of the probability or compute the confidence interval over the RTT distribution?

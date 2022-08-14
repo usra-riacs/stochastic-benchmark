@@ -89,3 +89,26 @@ def get_best(df, response_col, response_dir, group_on):
         best_df = df.sort_values(response_col, ascending=False).drop_duplicates(group_on)
     return best_df
 
+def rename_df(df):
+    rename_dict = {'min_energy': names.param2filename({'Key': 'MinEnergy'}, ''),\
+               'min_energy_conf_interval_lower': names.param2filename({'Key': 'MinEnergy', 'ConfInt': 'lower'}, ''),\
+               'min_energy_conf_interval_upper': names.param2filename({'Key': 'MinEnergy', 'ConfInt': 'upper'}, ''),\
+               'perf_ratio':names.param2filename({'Key': 'PerfRatio'}, ''),\
+               'perf_ratio_conf_interval_lower': names.param2filename({'Key': 'PerfRatio', 'ConfInt': 'lower'}, ''),\
+               'perf_ratio_conf_interval_upper': names.param2filename({'Key': 'PerfRatio', 'ConfInt': 'upper'}, ''),\
+               'success_prob': names.param2filename({'Key': 'SuccProb'}, ''),\
+               'success_prob_conf_interval_lower': names.param2filename({'Key': 'SuccProb', 'ConfInt': 'lower'}, ''),\
+               'success_prob_conf_interval_upper': names.param2filename({'Key': 'SuccProb', 'ConfInt': 'upper'}, ''),\
+               'rtt':names.param2filename({'Key': 'RTT'}, ''),\
+               'rtt_conf_interval_lower': names.param2filename({'Key': 'RTT', 'ConfInt': 'lower'}, ''),\
+               'rtt_conf_interval_upper': names.param2filename({'Key': 'RTT', 'ConfInt': 'upper'}, ''),\
+               'mean_time':names.param2filename({'Key': 'MeanTime'}, ''),\
+               'mean_time_conf_interval_lower': names.param2filename({'Key': 'MeanTime', 'ConfInt': 'lower'}, ''),\
+               'mean_time_conf_interval_upper': names.param2filename({'Key': 'MeanTime', 'ConfInt': 'upper'}, ''),\
+               'inv_perf_ratio':names.param2filename({'Key': 'InvPerfRatio'}, ''),\
+               'inv_perf_ratio_conf_interval_lower': names.param2filename({'Key': 'InvPerfRatio', 'ConfInt': 'lower'}, ''),\
+               'inv_perf_ratio_conf_interval_upper': names.param2filename({'Key': 'InvPerfRatio', 'ConfInt': 'upper'}, '')}
+    
+    df.rename(columns=rename_dict, inplace=True)
+    return df
+    

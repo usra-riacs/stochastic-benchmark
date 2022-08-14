@@ -15,7 +15,7 @@ class StatsParameters:
     metrics: list = field(default_factory = lambda:['MinEnergy', 'RTT',
                 'PerfRatio', 'SuccProb', 'MeanTime', 'InvPerfRatio'])
     lower_bounds: defaultdict[dict] = field(default_factory=lambda: defaultdict(lambda:None))
-    upper_bounds: defaultdict[dict] = field(default_factory=lambda: defaultdict(None))
+    upper_bounds: defaultdict[dict] = field(default_factory=lambda: defaultdict(lambda:None))
     stats_measures: list = field(default_factory = lambda:[Median()])
     def __post_init__(self):
         self.lower_bounds['SuccProb'] = 0.0
@@ -126,24 +126,23 @@ class Percentile(StatsMeasure):
         p = 50 - self.confidence_level / 2, 50 + self.confidence_level / 2
         (CIlower, CIupper) = np.nanpercentile(boot_dist, p, axis=0)
         return cent, CIlower, CIupper
-    def ConfIntupper(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
-        raise NotImplementedError("ConfIntupper should be overriden by a subclass of StatsMeasure")
         
 
 def StatsSingle(df_single:pd.DataFrame, stat_params: StatsParameters):
     if len(df_single) == 1:
         return pd.DataFrame()
     df_dict = {}
-    for sm in stat_measures:
+    for sm in stat_params.stats_measures:
         for key in stat_params.metrics:
             pre_base = names.param2filename({'Key': key}, '')
             pre_CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
             pre_CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
             
-            base, CIlower, CIupper = sm.ConfInts(pre_base, pre_CIlower, pre_CIupper)
+            base, CIlower, CIupper = sm.ConfInts(df_single[pre_base], df_single[pre_CIlower], df_single[pre_CIupper])
             metric_basename = names.param2filename({'Key': key, 'Metric': sm.name}, '')
             metric_CIlower_name = names.param2filename({'Key': key, 'Metric': sm.name, 'ConfInt': 'lower'}, '')
             metric_CIupper_name = names.param2filename({'Key': key, 'Metric': sm.name, 'ConfInt': 'upper'}, '')
+            
             df_dict[metric_basename] = [base]
             df_dict[metric_CIlower_name] = [CIlower]
             df_dict[metric_CIupper_name] = [CIupper]
@@ -152,32 +151,34 @@ def StatsSingle(df_single:pd.DataFrame, stat_params: StatsParameters):
     return df_stats_single
 
 def applyBounds(df: pd.DataFrame, stat_params: StatsParameters):
-    for key, value in stat_params.lower_bounds.items():
-        lower_name = names.param2filename({'Key': key, 'Metric': sm.name, 'ConfInt': 'lower'}, '')
-        if lower_name in df.columns:
-            df_copy = df.loc[:, (lower_name)].copy()
-            df_copy.clip(lower=value, inplace=True)
-            df.loc[:, (lower_name)] = df_copy
-            
-    for key, value in upper_bounds.items():
-        upper_name = names.param2filename({'Key': key, 'Metric': sm.name, 'ConfInt': 'upper'}, '')
-        if upper_name in df.columns:
-            df_copy = df.loc[:, (upper_name)].copy()
-            df_copy.clip(upper=value, inplace=True)
-            df.loc[:, (upper_name)] = df_copy
+    for sm in stat_params.stats_measures:
+        for key, value in stat_params.lower_bounds.items():
+            lower_name = names.param2filename({'Key': key, 'Metric': sm.name, 'ConfInt': 'lower'}, '')
+            if lower_name in df.columns:
+                df_copy = df.loc[:, (lower_name)].copy()
+                df_copy.clip(lower=value, inplace=True)
+                df.loc[:, (lower_name)] = df_copy
+
+        for key, value in stat_params.upper_bounds.items():
+            upper_name = names.param2filename({'Key': key, 'Metric': sm.name, 'ConfInt': 'upper'}, '')
+            if upper_name in df.columns:
+                df_copy = df.loc[:, (upper_name)].copy()
+                df_copy.clip(upper=value, inplace=True)
+                df.loc[:, (upper_name)] = df_copy
     return
 
 def Stats(df: pd.DataFrame, stats_params: StatsParameters, group_on):
     def dfSS(df) : return StatsSingle(df, stats_params)
-    df_stats = df.groupby(group_on).apply(dfSS).reset_index(inplace=True)
+    df_stats = df.groupby(group_on).apply(dfSS).reset_index()
+    df_stats.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
     applyBounds(df_stats, stats_params)
     
-    if 'replica' in df_stats.columns:
-        df_stats['reads'] = df_stats['sweep'] * df_stats['replica'] * df_stats['boots']
-    elif 'rep' in df_stats.columns:
-        df_stats['reads'] = df_stats['swe'] * df_stats['rep'] * df_stats['boots']
-    else:
-        df_stats['reads'] = df_stats['sweep'] * df_stats['boots']
+    # if 'replica' in df_stats.columns:
+    #     df_stats['reads'] = df_stats['sweep'] * df_stats['replica'] * df_stats['boots']
+    # elif 'rep' in df_stats.columns:
+    #     df_stats['reads'] = df_stats['swe'] * df_stats['rep'] * df_stats['boots']
+    # else:
+    #     df_stats['reads'] = df_stats['sweep'] * df_stats['boots']
     
     return df_stats
 

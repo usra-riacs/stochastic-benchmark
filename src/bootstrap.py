@@ -40,7 +40,7 @@ class BSParams_iter:
             
     def __call__(self, response_col, resource_col, nboots):
         self.nboots = nboots
-        self.bs_params = bootstrap.BootstrapParameters()
+        self.bs_params = BootstrapParameters()
         self.bs_params.downsample = 0
         self.bs_params.response_col = response_col
         self.bs_params.resource_col = resource_col
@@ -134,7 +134,7 @@ def Bootstrap(df, group_on, bs_params_list):
     for bs_params in bs_params_list:
         def dfBS(df): return BootstrapSingle(df, bs_params)
         temp_df = df.groupby(group_on).apply(dfBS).reset_index()
-        test_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
+        temp_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
         temp_df['boots'] = bs_params.downsample
         df_list.append(temp_df)
     grouped_df = pd.concat(df_list, ignore_index=True)

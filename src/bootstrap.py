@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+import names
 EPSILON = 1e-10
 confidence_level = 68
 gap = 1.0
@@ -24,9 +25,30 @@ class BootstrapParameters:
     s: float = 0.99
     fail_value: float = np.inf
 
+# Iterator for bootstrap parameters
+class BSParams_iter:
+    def __iter__(self):
+        return self
 
-def initBootstrap(df, bs_params, resamples):
-# def initBootstrap(df, bs_params):
+    def __next__(self):
+        if self.bs_params.downsample <= self.nboots - 1:
+            boots = self.bs_params.downsample
+            self.bs_params.downsample += 1
+            return self.bs_params
+        else:
+            raise StopIteration
+            
+    def __call__(self, response_col, resource_col, nboots):
+        self.nboots = nboots
+        self.bs_params = bootstrap.BootstrapParameters()
+        self.bs_params.downsample = 0
+        self.bs_params.response_col = response_col
+        self.bs_params.resource_col = resource_col
+        return self
+
+
+# def initBootstrap(df, bs_params, resamples):
+def initBootstrap(df, bs_params):
     """
     Initialize the bootstrap method.
 
@@ -56,12 +78,12 @@ def initBootstrap(df, bs_params, resamples):
             bs_params.best_value = df[bs_params.response_col].min()
         else:  # Maximization
             bs_params.best_value = df[bs_params.response_col].max()
-    # return resamples, responses, times
-    return responses, times
+    return resamples, responses, times
+    # return responses, times
 
 
-def BootstrapSingle(df, bs_params, resamples):
-# def BootstrapSingle(df, bs_params):
+# def BootstrapSingle(df, bs_params, resamples):
+def BootstrapSingle(df, bs_params):
     """
     Bootstrap single function.
 
@@ -77,8 +99,8 @@ def BootstrapSingle(df, bs_params, resamples):
     bs_df : pandas.DataFrame
         DataFrame containing the bootstrap results.
     """
-    # resamples, responses, times = initBootstrap(df, bs_params)
-    responses, times = initBootstrap(df, bs_params, resamples)
+    resamples, responses, times = initBootstrap(df, bs_params)
+    # responses, times = initBootstrap(df, bs_params, resamples)
     bs_df = pd.DataFrame()
     # TODO Pylance is crying here because pd is not defined
     computeResponse(df, bs_df, bs_params, resamples, responses)
@@ -90,7 +112,7 @@ def BootstrapSingle(df, bs_params, resamples):
     return bs_df
 
 
-def Bootstrap(df, group_on, bootstraps):
+def Bootstrap(df, group_on, bs_params_list):
     """
     Bootstrap function.
 
@@ -100,7 +122,7 @@ def Bootstrap(df, group_on, bootstraps):
         DataFrame containing the data.
     group_on : str
         Column name to group on.
-    bootstraps : int
+    bs_params_list: list or iterator of bootstrap parameters
         Number of bootstraps.
 
     Returns
@@ -109,16 +131,11 @@ def Bootstrap(df, group_on, bootstraps):
         DataFrame containing the bootstrap results.
     """
     df_list = []
-    for boots in bootstraps:
-        bs_params = BootstrapParameters()
-        bs_params.downsample = boots
-        bs_params.response_col = 'min_energy'
-        # THESE NEED TO BE PASSED IN!!!!@!, maybe pass in list of bs_params
-        bs_params.resource_col = 'sweep'
+    for bs_params in bs_params_list:
         def dfBS(df): return BootstrapSingle(df, bs_params)
-        # this creates an additional 'level_x' col that should be droped
         temp_df = df.groupby(group_on).apply(dfBS).reset_index()
-        temp_df['boots'] = boots
+        test_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
+        temp_df['boots'] = bs_params.downsample
         df_list.append(temp_df)
     grouped_df = pd.concat(df_list, ignore_index=True)
     return grouped_df
@@ -188,7 +205,7 @@ def computePerfRatio(df, bs_df, bs_params):
         CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
         CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
     
-        bs_df[basename] = (bs_params.random_value - bs_df['response'])\
+        bs_df[basename] = (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response'}, '')])\
             / (bs_params.random_value - bs_params.best_value)
         bs_df[CIlower] = (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response', 'ConfInt': 'upper'}, '')]) \
             / (bs_params.random_value - bs_params.best_value)
@@ -219,7 +236,7 @@ def computeInvPerfRatio(df, bs_df, bs_params):
         CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
         CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
         
-        bs_df[basename] = 1 - (bs_params.random_value - bs_df['response']) / \
+        bs_df[basename] = 1 - (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response'}, '')]) / \
             (bs_params.random_value - bs_params.best_value) + EPSILON
         bs_df[CIlower] = 1 - (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response', 'ConfInt': 'lower'}, '')])\
             / (bs_params.random_value - bs_params.best_value) + EPSILON

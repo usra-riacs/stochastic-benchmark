@@ -2,6 +2,9 @@ import os
 
 
 class paths:
+    """
+    Class to define paths to various files
+    """
     def __init__(self, home_dir):
         self.cwd = home_dir
         self.raw_data = os.path.join(self.cwd, 'exp_raw')

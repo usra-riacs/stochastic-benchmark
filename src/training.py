@@ -33,3 +33,7 @@ def virtual_best(df: pd.DataFrame,
     vb = df.groupby('instance').apply(br).reset_index()
     vb.drop('level_1', axis=1, inplace=True)
     return vb
+
+def split_train_test(df: pd.DataFrame, split_on: List[str], ptrain: float):
+    df = df.groupby(split_on).apply(lambda df : pd.DataFrame.from_dict({'train': [np.random.binomial(1, ptrain)]})).merge(df, on=split_on)
+    return df

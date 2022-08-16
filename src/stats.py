@@ -82,7 +82,7 @@ class Median(StatsMeasure):
     def ConfInts(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
         cent = self.center(base, lower, upper)
         mean_deviation = np.sqrt(sum((upper-lower)*(upper-lower))/(4*len(base)))
-        median_deviation = mean_deviation * np.sqrt(np.pi*len(base)/( 2. * len(base) - 1.))
+        median_deviation = mean_deviation * np.sqrt(np.pi*len(base)/(4*(len(base)/ 2.- 1.)))
         CIlower = cent - median_deviation
         CIupper = cent + median_deviation
         
@@ -109,7 +109,7 @@ class Percentile(StatsMeasure):
             sample = base.values.take(resampler, axis=0)
             sample_ci_upper = upper.values.take(resampler, axis=0)
             sample_ci_lower = lower.values.take(resampler, axis=0) 
-            sample_std = (sample_ci_upper-sample_ci_lower)/2
+            sample_std = (sample_ci_upper-sample_ci_lower)/2.
             sample_error = np.random.normal(0, sample_std, len(sample))
             # Check the following: previously q=stat_measure/100 but percentile is defined on range 0 - 100
             # print(sample)
@@ -121,10 +121,11 @@ class Percentile(StatsMeasure):
             # print(np.percentile(sample + sample_error, q=self.q))
             # print(np.max(sample + sample_error))
             # print('------')
-            boot_dist.append(np.percentile(sample + sample_error, q=self.q))
+            boot_dist.append(pd.Series(sample + sample_error).quantile(self.q / 100.))
+                # np.percentile(, q=self.q))
             
-        p = 50 - self.confidence_level / 2, 50 + self.confidence_level / 2
-        (CIlower, CIupper) = np.nanpercentile(boot_dist, p, axis=0)
+        p =  .50 - self.confidence_level / (2 * 100.), .50 + self.confidence_level / (2. * 100.)
+        (CIlower, CIupper) = pd.Series(boot_dist).quantile(p)
         return cent, CIlower, CIupper
         
 

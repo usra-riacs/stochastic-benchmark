@@ -236,7 +236,7 @@ def interpolate_dfOld(
                 df_interpolate['instance'] = instance
             dataframes_instance.append(df_interpolate)
         df_interpolate = pd.concat(
-            dataframes_instance).reset_index(drop=True)
+            dataframes_instance).reset_index()
             # df_interpolate.to_pickle(df_path_partial)
 
     if len(instances) == 1:
@@ -252,7 +252,7 @@ def interpolate_dfOld(
 #     if all([len(i) == 0 for i in dataframes]):
 #         print('No dataframes to merge')
 #         return None
-    df_interpolated = pd.concat(dataframes).reset_index(drop=True)
+    df_interpolated = pd.concat(dataframes).reset_index()
 #     if save_pickle:
 #         df_name_interpolated = prefix.rsplit('.',1)[0] + '_interp.pkl'
 #         df_path_interpolated = os.path.join(results_path, df_name_interpolated)

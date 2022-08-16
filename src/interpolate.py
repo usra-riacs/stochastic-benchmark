@@ -8,70 +8,147 @@ from utils_ws import *
 
 
 default_boots = 1000
+
+
 @dataclass
 class InterpolationParameters:
     """
     Parameters for dataframe interpolation
     """
     resource_col: str = 'reads'
-    resource_proportional_parameters: list = field(default_factory=lambda: ['sweep', 'replica']) 
+    resource_proportional_parameters: list = field(
+        default_factory=lambda: ['sweep', 'replica'])
     parameters: list = field(default_factory=lambda: ['sweep', 'replica'])
-    resource_value_type: str = 'log'  #'log', 'data', or 'manual' indicates how interpolation points should be generated
+    # 'log', 'data', or 'manual' indicates how interpolation points should be generated
+    resource_value_type: str = 'log'
     resource_values: list = field(default_factory=list)
     group_on: str = 'instance'
     min_boots: int = 1
-    
+
     def __post_init__(self):
         for r_param in self.resource_proportional_parameters:
             if r_param not in self.parameters:
                 self.resource_proportional_parameters.remove(r_param)
-                warn_str = 'Resource proportional parameter, {}, is not in the parameters. Removing.'.format(r_param)
+                warn_str = 'Resource proportional parameter, {}, is not in the parameters. Removing.'.format(
+                    r_param)
                 warnings.warn(warn_str)
-                
+
         if self.resource_value_type not in ['manual', 'data', 'log']:
-            warn_str = 'Unsupported resource value type: {}. Setting value type to log.'.format(self.resource_value_type)
+            warn_str = 'Unsupported resource value type: {}. Setting value type to log.'.format(
+                self.resource_value_type)
             warnings.warn(warn_str)
             self.resource_value_type = 'log'
-            
+
         if self.resource_value_type == 'manual' and self.resource_values is None:
             warn_str = 'Manual resource value type requires resource values. Setting value type to log.'
             warnings.warn(warn_str)
             self.resource_value_type = 'log'
-            
+
         elif self.resource_value_type in ['data', 'log'] and self.resource_values is not None:
-            warn_str = 'Resource value type {} does not support passing in values. Removing.'.format(self.resource_value_type)
+            warn_str = 'Resource value type {} does not support passing in values. Removing.'.format(
+                self.resource_value_type)
             warnings.warn(warn_str)
             self.resource_value = 'None'
 
-    
-def generateResourceColumn(df: pd.DataFrame, interp_params:InterpolationParameters):
-    df['resource'] = df[interp_params.resource_col].copy()        
+
+def generateResourceColumn(df: pd.DataFrame, interp_params: InterpolationParameters):
+    """
+    Generates a resource column for the dataframe.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe to generate resource column for.
+    interp_params : InterpolationParameters
+        Parameters for interpolation.
+
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe with resource column generated.
+    """
+    df['resource'] = df[interp_params.resource_col].copy()
     if interp_params.resource_value_type == 'data':
         interp_params.resource_values = df['resource'].values
     elif interp_params.resource_value_type == 'log':
-        interp_params.resource_values = gen_log_space(min(df['resource'].values), max(df['resource'].values), default_boots // 10)
-    interp_params.resource_values = np.sort(np.unique(interp_params.resource_values))
-            
+        interp_params.resource_values = gen_log_space(
+            min(df['resource'].values), max(df['resource'].values), default_boots // 10)
+    interp_params.resource_values = np.sort(
+        np.unique(interp_params.resource_values))
 
-def prepareInterpolation(df: pd.DataFrame, interp_params:InterpolationParameters):
+
+def prepareInterpolation(df: pd.DataFrame, interp_params: InterpolationParameters):
+    """
+    Prepares dataframe for interpolation by defining resource column.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe to prepare for interpolation.
+    interp_params : InterpolationParameters
+        Parameters for interpolation.
+
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe with interpolation parameters applied.
+    """
     if interp_params.resource_col not in df.columns:
-        warnings.warn("resource_col is not a column of the dataframe, setting resource_col to boots")
+        warnings.warn(
+            "resource_col is not a column of the dataframe, setting resource_col to boots")
         interp_params.resource_col = 'boots'
         for r_param in interp_params.resource_proportional_parameters:
             df['resource'] *= df[r_param]
-    
-def getResourceFactor(df_single: pd.DataFrame, interp_params:InterpolationParameters):
-    r_param_vals = [df_single[r_param].iloc[0] for r_param in interp_params.resource_proportional_parameters]
+
+
+def getResourceFactor(df_single: pd.DataFrame, interp_params: InterpolationParameters):
+    """
+    Gets the resource factor for a single dataframe.
+
+    Parameters
+    ----------
+    df_single : pd.DataFrame
+        Dataframe to get resource factor for.
+    interp_params : InterpolationParameters
+        Parameters for interpolation.
+
+    Returns
+    -------
+    r_factor : float
+        Resource factor for the dataframe.
+    """
+    r_param_vals = [df_single[r_param].iloc[0]
+                    for r_param in interp_params.resource_proportional_parameters]
     r_factor = np.prod(r_param_vals)
     return r_factor
 
-def InterpolateSingle(df_single: pd.DataFrame, interp_params:InterpolationParameters, group_on):
-    max_boots = df_single['boots'].max() #max boots may vary across df_singles (is this desirable?) Leaving in to make sure no extrapolation occurs
+
+def InterpolateSingle(df_single: pd.DataFrame, interp_params: InterpolationParameters, group_on):
+    """
+    Interpolates a dataframe based on a single column.
+
+    Parameters
+    ----------
+    df_single : pd.DataFrame
+        Dataframe to interpolate.
+    interp_params : InterpolationParameters
+        Parameters for interpolation.
+    group_on : str
+        Grouping parameter for the dataframe.
+
+    Returns
+    -------
+    pd.DataFrame
+        Interpolated dataframe.    
+    """
+    # max boots may vary across df_singles (is this desirable?) Leaving in to make sure no extrapolation occurs
+    max_boots = df_single['boots'].max()
     r_factor = getResourceFactor(df_single, interp_params)
     interpolate_resource = interp_params.resource_values[
         np.where(
-            (interp_params.resource_values <= take_closest(interp_params.resource_values,max_boots*r_factor)) &
-            (interp_params.resource_values >= take_closest(interp_params.resource_values, interp_params.min_boots*r_factor))
+            (interp_params.resource_values <= take_closest(interp_params.resource_values, max_boots*r_factor)) &
+            (interp_params.resource_values >= take_closest(
+                interp_params.resource_values, interp_params.min_boots*r_factor))
         )
     ]
     df_single.set_index('resource', inplace=True)
@@ -79,28 +156,49 @@ def InterpolateSingle(df_single: pd.DataFrame, interp_params:InterpolationParame
 
     df_out = pd.DataFrame(index=interpolate_resource)
     df_out.index.name = 'resource'
-    
+
     for colname, col in df_single.iteritems():
         col = pd.to_numeric(col, errors='ignore')
         if colname in group_on:
             continue
         elif np.issubdtype(col, int) or np.issubdtype(col, float):
             # print(col)
-            df_out[colname] = np.interp(interpolate_resource, df_single.index, col, left=np.nan)
+            df_out[colname] = np.interp(
+                interpolate_resource, df_single.index, col, left=np.nan)
         else:
-            warn_str = '{} is not a numeric type. Column was left unchanged'.format(colname)
+            warn_str = '{} is not a numeric type. Column was left unchanged'.format(
+                colname)
             warning.warn(warn_str)
+            # PyLance warning that "warning" is not defined
             df_out[colname] = col
     return df_out
 
-def Interpolate(df: pd.DataFrame, interp_params:InterpolationParameters, group_on):
+
+def Interpolate(df: pd.DataFrame, interp_params: InterpolationParameters, group_on):
+    """
+    Complete interpolation function to include preparation, resource columns and actual interpolation.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe to interpolate.
+    interp_params : InterpolationParameters
+        Parameters for interpolation.
+    group_on : str
+        Grouping parameter for the dataframe.
+
+    Returns
+    -------
+    pd.DataFrame
+        Interpolated dataframe.
+    """
     prepareInterpolation(df, interp_params)
     generateResourceColumn(df, interp_params)
     def dfInterp(df): return InterpolateSingle(df, interp_params, group_on)
     df_interp = df.groupby(group_on).apply(dfInterp).reset_index()
     return df_interp
-        
-    
+
+
 # Kept for testing, can delete later
 # %%
 # Function to interpolate dataframes across a resource column
@@ -108,7 +206,7 @@ def interpolate_dfOld(
     dataframe: pd.DataFrame = None,
     resource_column: str = 'reads',
     prefix: str = '',
-    parameters_dict: dict = None, #dictionary of lists of parameter values 
+    parameters_dict: dict = None,  # dictionary of lists of parameter values
     default_boots: int = 1000,
     minimum_boots: int = 1,
     resource_proportional_parameters: list = ['sweep', 'replica'],
@@ -123,30 +221,33 @@ def interpolate_dfOld(
     if dataframe is None:
         print('Error: Dataframe is None')
         return None
-    
+
     if len(dataframe) == 0:
         print('Error: Dataframe is empty')
         return None
-    
-    
+
     df = dataframe.copy()
-    parameter_names = list(parameters_dict.keys()) #Generates parameter names from dictionary
+    # Generates parameter names from dictionary
+    parameter_names = list(parameters_dict.keys())
     parameter_sets = itertools.product(
         *(parameters_dict[Name] for Name in parameters_dict))
-    parameter_sets = list(parameter_sets) #Lists out every combination of parameters from parameters dict
+    # Lists out every combination of parameters from parameters dict
+    parameter_sets = list(parameter_sets)
     r_indices = []
-    
-    if resource_column not in df.columns: #check this in a separate function and set resource to boots instead of modifying df
+
+    # check this in a separate function and set resource to boots instead of modifying df
+    if resource_column not in df.columns:
         df[resource_column] = df['boots']
         for r_parameters in resource_proportional_parameters:
             if r_parameters in parameter_names:
                 df[resource_column] *= df[r_parameters]
-    
-    if resource_values is None: #If resource values are not passed in then generate from datapoints or log space
-        if all_datapoints: 
+
+    if resource_values is None:  # If resource values are not passed in then generate from datapoints or log space
+        if all_datapoints:
             resource_values = df[resource_column].values
         else:
-            resource_values = gen_log_space(min(df[resource_column].values), max(df[resource_column].values), default_boots // 10)
+            resource_values = gen_log_space(min(df[resource_column].values), max(
+                df[resource_column].values), default_boots // 10)
     resource_values = np.sort(np.unique(resource_values))
 
     instances = [0]
@@ -173,7 +274,7 @@ def interpolate_dfOld(
         #     if parameter_set not in df_index.index.to_list():
         #         print('Parameter set', parameter_set, 'not found')
         #         continue  # For each parameter setting remove repeated reads
-            # df_values = df_index.loc[idx[parameter_set]].copy()
+        # df_values = df_index.loc[idx[parameter_set]].copy()
         if 'instance' in df.columns:
             df_values = df_index.loc[df_index['instance'] == instance].copy(
             )
@@ -187,7 +288,8 @@ def interpolate_dfOld(
             if 'params' in df_original.columns:
                 df_original.drop(columns=['params'], inplace=True)
             if len(df_original) == 0:
-                print('No data for parameter set', parameter_set, 'with instance', instance)
+                print('No data for parameter set',
+                      parameter_set, 'with instance', instance)
                 continue
             resource_factor = 1
             for r_index in r_indices:
@@ -195,11 +297,13 @@ def interpolate_dfOld(
                 # resource_factor *= index[r_index]
             # Set interpolation points for the responses at all the relevant reads values
             maximum_boots = df_original['boots'].max()
-            boots_rec_dict[tuple(parameter_set)] = (maximum_boots, resource_factor)
+            boots_rec_dict[tuple(parameter_set)] = (
+                maximum_boots, resource_factor)
             interpolate_resource = resource_values[
                 np.where(
-                    (resource_values <= take_closest(resource_values,maximum_boots*resource_factor)) &
-                    (resource_values >= take_closest(resource_values, minimum_boots*resource_factor))
+                    (resource_values <= take_closest(resource_values, maximum_boots*resource_factor)) &
+                    (resource_values >= take_closest(
+                        resource_values, minimum_boots*resource_factor))
                 )
             ]
             if all_datapoints:
@@ -219,7 +323,8 @@ def interpolate_dfOld(
                 ).dropna(how='all').reset_index().rename(
                     columns={'index': resource_column})
             else:
-                df_interpolate = interp(df_original.set_index(resource_column).sort_index(), interpolate_resource)
+                df_interpolate = interp(df_original.set_index(
+                    resource_column).sort_index(), interpolate_resource)
                 df_interpolate = df_interpolate.reset_index().rename(
                     columns={'index': resource_column})
             # Computing the boots column
@@ -236,8 +341,8 @@ def interpolate_dfOld(
                 df_interpolate['instance'] = instance
             dataframes_instance.append(df_interpolate)
         df_interpolate = pd.concat(
-            dataframes_instance).reset_index()
-            # df_interpolate.to_pickle(df_path_partial)
+            dataframes_instance).reset_index(drop=True)
+        # df_interpolate.to_pickle(df_path_partial)
 
     if len(instances) == 1:
         dataframes = dataframes_instance

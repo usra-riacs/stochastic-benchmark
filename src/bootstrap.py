@@ -7,6 +7,7 @@ EPSILON = 1e-10
 confidence_level = 68
 gap = 1.0
 
+
 @dataclass
 class BootstrapParameters:
     """
@@ -26,6 +27,8 @@ class BootstrapParameters:
     fail_value: float = np.inf
 
 # Iterator for bootstrap parameters
+
+
 class BSParams_iter:
     def __iter__(self):
         return self
@@ -37,7 +40,7 @@ class BSParams_iter:
             return self.bs_params
         else:
             raise StopIteration
-            
+
     def __call__(self, response_col, resource_col, nboots):
         self.nboots = nboots
         self.bs_params = BootstrapParameters()
@@ -171,12 +174,12 @@ def computeResponse(df, bs_df, bs_params, resamples, responses):
         response_dist = np.apply_along_axis(
             func1d=np.max, axis=0, arr=responses[resamples])
         # TODO This could be generalized as the X best samples
-    
+
     key = 'Response'
     basename = names.param2filename({'Key': key}, '')
-    CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+    CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
     CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
-    
+
     bs_df[basename] = [np.mean(response_dist)]
     bs_df[CIlower] = np.nanpercentile(
         response_dist, 50-confidence_level/2)
@@ -202,9 +205,9 @@ def computePerfRatio(df, bs_df, bs_params):
     if bs_params.success_metric == 'perf_ratio':
         key = 'PerfRatio'
         basename = names.param2filename({'Key': key}, '')
-        CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+        CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
         CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
-    
+
         bs_df[basename] = (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response'}, '')])\
             / (bs_params.random_value - bs_params.best_value)
         bs_df[CIlower] = (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response', 'ConfInt': 'upper'}, '')]) \
@@ -233,9 +236,9 @@ def computeInvPerfRatio(df, bs_df, bs_params):
     if bs_params.success_metric == 'perf_ratio':
         key = 'InvPerfRatio'
         basename = names.param2filename({'Key': key}, '')
-        CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+        CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
         CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
-        
+
         bs_df[basename] = 1 - (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response'}, '')]) / \
             (bs_params.random_value - bs_params.best_value) + EPSILON
         bs_df[CIlower] = 1 - (bs_params.random_value - bs_df[names.param2filename({'Key': 'Response', 'ConfInt': 'lower'}, '')])\
@@ -288,12 +291,12 @@ def computeSuccessProb(df, bs_df, bs_params, resamples, responses):
             success_prob_dist = np.apply_along_axis(func1d=lambda x: np.sum(
                 x > success_val)/bs_params.downsample, axis=0, arr=responses[resamples])
     # Consider np.percentile instead to reduce package dependency. We need to benchmark and test alternative
-    
+
     key = 'SuccProb'
     basename = names.param2filename({'Key': key}, '')
-    CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+    CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
     CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
-        
+
     bs_df[basename] = np.mean(success_prob_dist)
     bs_df[CIlower] = np.nanpercentile(
         success_prob_dist, 50 - bs_params.confidence_level/2)
@@ -321,12 +324,12 @@ def computeResource(df, bs_df, bs_params, resamples, times):
     # Compute the resource (time) of each bootstrap samples and its corresponding confidence interval based on the resamples
     resource_dist = np.apply_along_axis(
         func1d=np.mean, axis=0, arr=times[resamples])
-    
+
     key = 'MeanTime'
     basename = names.param2filename({'Key': key}, '')
-    CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+    CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
     CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
-    
+
     bs_df[basename] = np.mean(resource_dist)
     bs_df[CIlower] = np.nanpercentile(
         resource_dist, 50 - bs_params.confidence_level/2)
@@ -377,14 +380,14 @@ def computeRTT(df, bs_df, bs_params, resamples, responses):
 
     rtt_dist = computeRTT_vectorized(
         success_prob_dist, bs_params, scale=rtt_factor)
-    # Question: should we scale the RTT with the number of bootstrapping we do, intuition says we don't need to    
+    # Question: should we scale the RTT with the number of bootstrapping we do, intuition says we don't need to
     key = 'RTT'
     basename = names.param2filename({'Key': key}, '')
-    CIupper  = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+    CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
     CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
-    
+
     rtt = np.mean(rtt_dist)
-    
+
     bs_df[basename] = rtt
     if np.isinf(rtt) or np.isnan(rtt) or rtt == bs_params.fail_value:
         bs_df[CIlower] = bs_params.fail_value
@@ -498,7 +501,6 @@ def computeResultsList(
     TODO: Here we assume the succes metric is the performance ratio, we can generalize that as any function of the parameters (use external function)
     TODO: Here we only return a few parameters with confidence intervals w.r.t. the bootstrapping. We can generalize that as any possible outcome (use function)
     '''
-    
 
     aggregated_df_flag = False
     if response_column is None:

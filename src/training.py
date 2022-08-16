@@ -7,7 +7,7 @@ from typing import List, Tuple, Union
 import warnings
 
 
-def best_recommended(df: pd.DataFrame,
+def best_parameters(df: pd.DataFrame,
                      parameter_names: List[str],
                      response_col: str,
                      response_dir: int,

@@ -149,13 +149,8 @@ class Percentile(StatsMeasure):
             # but that doesn't make sense
             sample = base.values.take(resampler, axis=0)
             sample_ci_upper = upper.values.take(resampler, axis=0)
-<<<<<<< HEAD
             sample_ci_lower = lower.values.take(resampler, axis=0) 
             sample_std = (sample_ci_upper-sample_ci_lower)/2.
-=======
-            sample_ci_lower = lower.values.take(resampler, axis=0)
-            sample_std = (sample_ci_upper-sample_ci_lower)/2
->>>>>>> 97e6f44abf609e0b719ffa35324cd9c661809337
             sample_error = np.random.normal(0, sample_std, len(sample))
             # Check the following: previously q=stat_measure/100 but percentile is defined on range 0 - 100
             # print(sample)
@@ -167,18 +162,9 @@ class Percentile(StatsMeasure):
             # print(np.percentile(sample + sample_error, q=self.q))
             # print(np.max(sample + sample_error))
             # print('------')
-<<<<<<< HEAD
-            boot_dist.append(pd.Series(sample + sample_error).quantile(self.q / 100.))
-                # np.percentile(, q=self.q))
-            
+            boot_dist.append(pd.Series(sample + sample_error).quantile(self.q / 100.))            
         p =  .50 - self.confidence_level / (2 * 100.), .50 + self.confidence_level / (2. * 100.)
         (CIlower, CIupper) = pd.Series(boot_dist).quantile(p)
-=======
-            boot_dist.append(np.percentile(sample + sample_error, q=self.q))
-
-        p = 50 - self.confidence_level / 2, 50 + self.confidence_level / 2
-        (CIlower, CIupper) = np.nanpercentile(boot_dist, p, axis=0)
->>>>>>> 97e6f44abf609e0b719ffa35324cd9c661809337
         return cent, CIlower, CIupper
 
 

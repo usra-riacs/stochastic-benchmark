@@ -14,26 +14,10 @@ class paths:
         for path in [self.checkpoints, self.plots]:
             if not os.path.exists(path):
                 os.makedirs(path)
-
-    def bootstrap(self):
-        return os.path.join(self.checkpoints, 'bootstrap_results.pkl')
-
-        #     def param_path(self, base, param_dict, ignore = []):
-#         if case == 'results':
-#             ppath = os.path.join(self.results, param2filename(param_dict, '', ignore))
-#         elif case == 'data':
-#             ppath = os.path.join(self.data, param2filename(param_dict, '', ignore))
-#         elif case == 'plots':
-#             ppath = os.path.join(self.plots, param2filename(param_dict, '', ignore))
-#         elif case == 'instances':
-#             ppath = os.path.join(self.instances, param2filename(param_dict, '', ignore))
-#         elif case is None:
-#             ppath = os.path.join(self.cwd, param2filename(param_dict, '', ignore))
-
-
-#         if not os.path.exists(ppath):
-#             os.makedirs(ppath)
-#         return ppath
+        self.bootstrap = os.path.join(self.checkpoints, 'bootstrapped_results.pkl')
+        self.interpolate = os.path.join(self.checkpoints, 'interpolated_results.pkl')
+        self.training_stats = os.path.join(self.checkpoints, 'training_stats.pkl')
+        self.testing_stats = os.path.join(self.checkpoints, 'testing_stats.pkl')
 
 
 def param2filename(param_dict, ext, ignore=[]):

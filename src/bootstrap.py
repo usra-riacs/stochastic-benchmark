@@ -17,7 +17,7 @@ class BootstrapParameters:
     response_col: str = None
     response_dir: int = -1
     best_value: float = None
-    success_metric: str = 'perf_ratio'
+    success_metric: str = 'PerfRatio'
     resource_col: str = None
     downsample: int = 10
     bootstrap_iterations: int = 1000
@@ -202,7 +202,7 @@ def computePerfRatio(df, bs_df, bs_params):
         Parameters for the bootstrap method.
     """
     # Compute the success metric (performance ratio) of each bootstrap samples and its corresponding confidence interval based on the resamples
-    if bs_params.success_metric == 'perf_ratio':
+    if bs_params.success_metric == 'PerfRatio':
         key = 'PerfRatio'
         basename = names.param2filename({'Key': key}, '')
         CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
@@ -233,7 +233,7 @@ def computeInvPerfRatio(df, bs_df, bs_params):
         Parameters for the bootstrap method.
     """
     # Compute the inverse success metric (performance ratio) of each bootstrap samples and its corresponding confidence interval based on the resamples
-    if bs_params.success_metric == 'perf_ratio':
+    if bs_params.success_metric == 'PerfRatio':
         key = 'InvPerfRatio'
         basename = names.param2filename({'Key': key}, '')
         CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')

@@ -11,7 +11,8 @@ def best_parameters(df: pd.DataFrame,
                      parameter_names: List[str],
                      response_col: str,
                      response_dir: int,
-                     resource_col: str = 'resource'):
+                     resource_col: str = 'resource',
+                   additional_cols: List[str] = ['boots']):
     """
     Returns the best recommended parameter set for each instance in df
 
@@ -44,7 +45,7 @@ def best_parameters(df: pd.DataFrame,
         best = df.sort_values(
             response_col, ascending=False).drop_duplicates(resource_col)
 
-    best = best[np.unique([resource_col, response_col] + parameter_names)
+    best = best[np.unique([resource_col, response_col] + parameter_names + additional_cols)
                 ].sort_values(resource_col, ascending=True)
     return best
 
@@ -53,8 +54,9 @@ def virtual_best(df: pd.DataFrame,
                  parameter_names: List[str],
                  response_col: str,
                  response_dir: int,
-                 resource_col: str = 'resource'):
-    def br(df) : return best_parameters(df, parameter_names, response_col, response_dir, resource_col)
+                 resource_col: str = 'resource',
+                additional_cols: List[str] = ['boots']):
+    def br(df) : return best_parameters(df, parameter_names, response_col, response_dir, resource_col, additional_cols)
     vb = df.groupby('instance').apply(br).reset_index()
     vb.drop('level_1', axis=1, inplace=True)
     return vb
@@ -66,10 +68,11 @@ def split_train_test(df: pd.DataFrame, split_on: List[str], ptrain: float):
 
 def best_recommended(vb: pd.DataFrame,
                      parameter_names: List[str],
-                     resource_col: str = 'resource'):
+                     resource_col: str = 'resource',
+                    additional_cols: List[str]=[]):
     
     br = vb.groupby(resource_col).mean()
-    return br[parameter_names]
+    return br[parameter_names + additional_cols]
 
 def evaluate_single(df_eval: pd.DataFrame,
                     recipes: pd.DataFrame,
@@ -79,7 +82,7 @@ def evaluate_single(df_eval: pd.DataFrame,
     df_list = []
     def argmin(df): return df[df['distance_scaled'] == df['distance_scaled'].min()]
     for _,recipe in recipes.iterrows():
-        temp_df_eval = argmin(distance_fcn(df_eval, recipe, parameter_names))
+        temp_df_eval = argmin(distance_fcn(df_eval[df_eval[resource_col]==recipe[resource_col]], recipe, parameter_names))
         temp_df_eval.loc[:,resource_col] = recipe[resource_col]
         for p in parameter_names:
             temp_df_eval['{}_rec'.format(p)] = recipe[p]

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 import warnings
-
+from typing import Callable
 import itertools
 from utils_ws import *
 
@@ -15,7 +15,7 @@ class InterpolationParameters:
     """
     Parameters for dataframe interpolation
     """
-    resource_col: str = 'reads'
+    resource_fcn: Callable[[pd.DataFrame], pd.Series]
     resource_proportional_parameters: list = field(
         default_factory=lambda: ['sweep', 'replica'])
     parameters: list = field(default_factory=lambda: ['sweep', 'replica'])
@@ -50,7 +50,7 @@ class InterpolationParameters:
             warnings.warn(warn_str)
             self.resource_value = 'None'
 
-
+            
 def generateResourceColumn(df: pd.DataFrame, interp_params: InterpolationParameters):
     """
     Generates a resource column for the dataframe.
@@ -67,7 +67,8 @@ def generateResourceColumn(df: pd.DataFrame, interp_params: InterpolationParamet
     pd.DataFrame
         Dataframe with resource column generated.
     """
-    df['resource'] = df[interp_params.resource_col].copy()
+    df['resource'] = interp_params.resource_fcn(df)
+    
     if interp_params.resource_value_type == 'data':
         interp_params.resource_values = df['resource'].values
     elif interp_params.resource_value_type == 'log':
@@ -142,18 +143,19 @@ def InterpolateSingle(df_single: pd.DataFrame, interp_params: InterpolationParam
         Interpolated dataframe.    
     """
     # max boots may vary across df_singles (is this desirable?) Leaving in to make sure no extrapolation occurs
-    max_boots = df_single['boots'].max()
-    r_factor = getResourceFactor(df_single, interp_params)
     interpolate_resource = interp_params.resource_values[
         np.where(
-            (interp_params.resource_values <= take_closest(interp_params.resource_values, max_boots*r_factor)) &
-            (interp_params.resource_values >= take_closest(
-                interp_params.resource_values, interp_params.min_boots*r_factor))
+            (interp_params.resource_values <= take_closest(interp_params.resource_values, df_single['resource'].max())) &
+            (interp_params.resource_values >= take_closest(interp_params.resource_values, df_single['resource'].min()))
         )
     ]
+    if not df_single['resource'].is_unique:
+        df_single.drop_duplicates('resource', inplace=True)
+        warn_str = 'Dataframe has duplicate resources. Dropping duplicates, but consider re-running bootstrap'
+        warnings.warn(warn_str)
+    
     df_single.set_index('resource', inplace=True)
     df_single.sort_index(inplace=True)
-
     df_out = pd.DataFrame(index=interpolate_resource)
     df_out.index.name = 'resource'
 
@@ -162,15 +164,14 @@ def InterpolateSingle(df_single: pd.DataFrame, interp_params: InterpolationParam
         if colname in group_on:
             continue
         elif np.issubdtype(col, int) or np.issubdtype(col, float):
-            # print(col)
             df_out[colname] = np.interp(
                 interpolate_resource, df_single.index, col, left=np.nan)
         else:
-            warn_str = '{} is not a numeric type. Column was left unchanged'.format(
-                colname)
-            warning.warn(warn_str)
-            # PyLance warning that "warning" is not defined
-            df_out[colname] = col
+            # warn_str = '{} is not a numeric type. Column was left unchanged'.format(
+            #     colname)
+            # warnings.warn(warn_str)
+            df_out[colname] = col.copy()
+    
     return df_out
 
 
@@ -192,10 +193,11 @@ def Interpolate(df: pd.DataFrame, interp_params: InterpolationParameters, group_
     pd.DataFrame
         Interpolated dataframe.
     """
-    prepareInterpolation(df, interp_params)
+    # prepareInterpolation(df, interp_params)
     generateResourceColumn(df, interp_params)
     def dfInterp(df): return InterpolateSingle(df, interp_params, group_on)
-    df_interp = df.groupby(group_on).apply(dfInterp).reset_index()
+    df_interp = df.groupby(group_on).apply(dfInterp)
+    df_interp.reset_index(inplace=True)
     return df_interp
 
 

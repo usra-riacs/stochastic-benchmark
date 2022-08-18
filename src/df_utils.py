@@ -4,7 +4,7 @@ import pandas as pd
 import names
 import numpy as np
 
-import parameters
+# import parameters
 # TODO PyLance is crying here because parameters is not defined
 
 EPSILON = 1e-10

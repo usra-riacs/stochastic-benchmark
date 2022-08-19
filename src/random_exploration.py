@@ -86,9 +86,9 @@ def run_experiments(df_stats:pd.DataFrame, rsParams: RandomSearchParameters):
     return pd.concat(final_values, ignore_index=True)
         
         
-def RandomExploration(df_stats: pd.DatFram, rsParams: RandomSearchParameters):
+def RandomExploration(df_stats: pd.DataFrame, rsParams: RandomSearchParameters):
     prepare_search(df_stats, rsParams)
-    final_values = run_experimets(df_stats, rsParams)
+    final_values = run_experiments(df_stats, rsParams)
     best_allocation = summarize_experiments(final_values, rsParams)
     return best_allocation
     

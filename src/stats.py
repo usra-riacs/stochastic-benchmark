@@ -40,7 +40,9 @@ class StatsMeasure:
     """
     def __init__(self):
         self.name = None
-
+    def __call__(self, base, lower, upper):
+        raise NotImplementedError(
+            "Call should be overriden by a subclass of StatsMeasure")
     def center(self, base, lower, upper):
         raise NotImplementedError(
             "Center should be overriden by a subclass of StatsMeasure")
@@ -64,7 +66,10 @@ class Mean(StatsMeasure):
     """
     def __init__(self):
         self.name = 'mean'
-
+    
+    def __call__(self, base: pd.DataFrame):
+        return base.mean()
+    
     def center(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
         return base.mean()
 
@@ -96,7 +101,10 @@ class Median(StatsMeasure):
     """
     def __init__(self):
         self.name = 'median'
-
+    
+    def __call__(self, base: pd.DataFrame):
+        return base.median()
+    
     def center(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
         return base.median()
 
@@ -136,6 +144,9 @@ class Percentile(StatsMeasure):
         self.nboots = int(nboots)
         self.confidence_level = confidence_level
 
+    def __call__(self, base: pd.DataFrame):
+        return base.quantile(self.q / 100.)
+    
     def center(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
         return base.quantile(self.q / 100.)
 

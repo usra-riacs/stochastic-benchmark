@@ -129,7 +129,10 @@ class Median(StatsMeasure):
     def ConfInts(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
         cent = self.center(base, lower, upper)
         mean_deviation = np.sqrt(sum((upper-lower)*(upper-lower))/(4*len(base)))
-        median_deviation = mean_deviation * np.sqrt(np.pi*len(base)/(4*(len(base)/ 2.- 1.)))
+        if len(base) == 2:
+            median_deviation = mean_deviation * np.sqrt(np.pi*len(base)/(4*(3./ 2.- 1.)))
+        else:
+            median_deviation = mean_deviation * np.sqrt(np.pi*len(base)/(4*(len(base)/ 2.- 1.)))
         CIlower = cent - median_deviation
         CIupper = cent + median_deviation
 

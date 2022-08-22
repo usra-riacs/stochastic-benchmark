@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 import os
+from tqdm import tqdm
 from typing import List, Tuple, Union
 import warnings
 
@@ -10,6 +11,7 @@ import names
 
 EPSILON = 1e-10
 
+tqdm.pandas()
 
 @dataclass
 class StatsParameters:
@@ -277,7 +279,7 @@ def Stats(df: pd.DataFrame, stats_params: StatsParameters, group_on):
         Dataframe with the statistics
     """
     def dfSS(df): return StatsSingle(df, stats_params)
-    df_stats = df.groupby(group_on).apply(dfSS).reset_index()
+    df_stats = df.groupby(group_on).progress_apply(dfSS).reset_index()
     df_stats.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
     applyBounds(df_stats, stats_params)
 

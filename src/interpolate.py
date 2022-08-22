@@ -2,10 +2,12 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 import warnings
+from tqdm import tqdm
 from typing import Callable
 import itertools
 from utils_ws import *
 
+tqdm.pandas()
 
 default_boots = 1000
 
@@ -151,8 +153,8 @@ def InterpolateSingle(df_single: pd.DataFrame, interp_params: InterpolationParam
     ]
     if not df_single['resource'].is_unique:
         df_single.drop_duplicates('resource', inplace=True)
-        warn_str = 'Dataframe has duplicate resources. Dropping duplicates, but consider re-running bootstrap'
-        warnings.warn(warn_str)
+#         warn_str = 'Dataframe has duplicate resources. Dropping duplicates, but consider re-running bootstrap'
+#         warnings.warn(warn_str)
     
     df_single.set_index('resource', inplace=True)
     df_single.sort_index(inplace=True)
@@ -196,7 +198,7 @@ def Interpolate(df: pd.DataFrame, interp_params: InterpolationParameters, group_
     # prepareInterpolation(df, interp_params)
     generateResourceColumn(df, interp_params)
     def dfInterp(df): return InterpolateSingle(df, interp_params, group_on)
-    df_interp = df.groupby(group_on).apply(dfInterp)
+    df_interp = df.groupby(group_on).progress_apply(dfInterp)
     df_interp.reset_index(inplace=True)
     return df_interp
 

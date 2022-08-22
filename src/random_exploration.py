@@ -30,65 +30,84 @@ def summarize_experiments(df: pd.DataFrame, rsParams: RandomSearchParameters):
     summary.reset_index(inplace=True)
     
     if rsParams.optimization_dir == 1:
-        best_allocation = summary.sort_values(
+        best_agg_alloc = summary.sort_values(
             rsParams.key, ascending=False).drop_duplicates('TotalBudget')
         
     elif rsParams.optimization_dir == -1:
-        best_allocation = summary.sort_values(
+        best_agg_alloc = summary.sort_values(
             rsParams.key, ascending=True).drop_duplicates('TotalBudget')
-    return best_allocation
+    
+    df_list = []
+    for t in best_agg_alloc['TotalBudget']:
+        row = best_agg_alloc[best_agg_alloc['TotalBudget'] == t]
+        df_list.append(df[(df['tau'] == row['tau'].iloc[0]) &\
+                              (df['ExplorationBudget'] == row['ExplorationBudget'].iloc[0]) &\
+                              (df['TotalBudget'] == t)])
+    exp_at_best = pd.concat(df_list, ignore_index=True)
+    return best_agg_alloc, exp_at_best
 
-def run_experiments(df_stats:pd.DataFrame, rsParams: RandomSearchParameters):
-    full_experiment_list = []
+def single_experiment(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, budget: float, explore_frac:float, tau:int):
+    explore_budget = budget * explore_frac
+    if explore_budget < tau:
+        return
+    df_tau = df_stats[df_stats['resource'] == tau].copy()
+    df_tau = df_tau.sample(n = int(explore_budget / tau), replace=True)
+    
+    if rsParams.optimization_dir == 1:
+        best_pars = df_tau.loc[[df_tau[rsParams.key].idxmax()]]
+        best_val = df_tau[rsParams.key].max()
+    elif rsParams.optimization_dir == -1:
+        best_pars = df_tau.loc[[df_tau[rsParams.key].idxmin()]]
+        best_val = df_tau[rsParams.key].min()
+    
+    df_tau['exploit'] = 0
+    best_pars = best_pars[rsParams.parameter_names]
+
+    exploit_df = df_stats.merge(best_pars, on=rsParams.parameter_names)
+    exploit_df['exploit'] = 1
+    exploit_df.loc[:, rsParams.key].fillna(0., inplace=True)
+
+    if rsParams.optimization_dir == 1:
+        exploit_df.loc[:, rsParams.key].clip(lower=best_val, inplace=True)
+    elif rsParams.optimization_dir == -1:
+        exploit_df.loc[:, rsParams.key].clip(upper=best_val, inplace=True)
+
+    df_experiment = pd.concat([df_tau, exploit_df], ignore_index=True)
+    df_experiment['tau'] = tau
+    df_experiment['TotalBudget'] = budget
+    df_experiment['ExplorationBudget'] = explore_budget
+    df_experiment['CummResource'] = df_experiment['resource'].expanding(min_periods=1).sum()
+    df_experiment = df_experiment[df_experiment['CummResource'] <= budget]
+    
+    return df_experiment
+        
+def run_experiments(df_stats: pd.DataFrame, rsParams: RandomSearchParameters):
     final_values = []
     pbar = tqdm(product(rsParams.budgets, rsParams.exploration_fracs, rsParams.taus, range(rsParams.Nexperiments)))
-    # pbar = list(product(rsParams.budgets, rsParams.exploration_fracs, rsParams.taus, range(rsParams.Nexperiments)))[0:1]
     for budget, explore_frac, tau, experiment in pbar:
-        explore_budget = budget * explore_frac
-        if explore_budget < tau:
+        df_experiment = single_experiment(df_stats, rsParams, budget, explore_frac, tau)
+        if df_experiment is None:
             continue
-        df_tau = df_stats[df_stats['resource'] == tau].copy()
-        df_tau = df_tau.sample(n = int(explore_budget / tau), replace=True)
-
-        df_tau['tau'] = tau
-        df_tau['TotalBudget'] = budget
-        df_tau['ExplorationBudget'] = explore_budget
-        df_tau['Experiment'] = experiment
-        
-        if rsParams.optimization_dir == 1:
-            best_pars = df_tau.loc[[df_tau[rsParams.key].idxmax()]]
-            best_val = df_tau[rsParams.key].max()
-        elif rsParams.optimization_dir == -1:
-            best_pars = df_tau.loc[[df_tau[rsParams.key].idxmin()]]
-            best_val = df_tau[rsParams.key].min()
-        df_tau['exploit'] = 0
-        best_pars = best_pars[rsParams.parameter_names]
-        
-        exploit_df = df_stats.merge(best_pars, on=rsParams.parameter_names)
-        exploit_df['tau'] = tau
-        exploit_df['TotalBudget'] = budget
-        exploit_df['ExplorationBudget'] = explore_budget
-        exploit_df['Experiment'] = experiment
-        exploit_df['exploit'] = 1
-        exploit_df.loc[:, rsParams.key].fillna(0., inplace=True)
-        
-        if rsParams.optimization_dir == 1:
-            exploit_df.loc[:, rsParams.key].clip(lower=best_val, inplace=True)
-        elif rsParams.optimization_dir == -1:
-            exploit_df.loc[:, rsParams.key].clip(upper=best_val, inplace=True)
-            
-        df_experiment = pd.concat([df_tau, exploit_df], ignore_index=True)
-        df_experiment['CummResource'] = df_experiment['resource'].expanding(min_periods=1).sum()
-        df_experiment = df_experiment[df_experiment['CummResource'] <= budget]
-        
-        full_experiment_list.append(df_experiment)
+        df_experiment['Experiment'] = experiment
         final_values.append(df_experiment.iloc[[-1]])
     return pd.concat(final_values, ignore_index=True)
-        
-        
+
+def apply_allocations(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, best_agg_alloc: pd.DataFrame):
+    final_values = []
+    for _, row in best_agg_alloc.iterrows():
+        budget = row['TotalBudget']
+        explore_budget = row['ExplorationBudget']
+        tau = row['tau']
+        explore_frac = float(explore_budget) / float(budget)
+        for experiment in range(rsParams.Nexperiments):
+            df_experiment = single_experiment(df_stats, rsParams, budget, explore_frac, tau)
+            df_experiment['Experiment'] = experiment
+            final_values.append(df_experiment.iloc[[-1]])
+    return pd.concat(final_values, ignore_index=True)
+                                
 def RandomExploration(df_stats: pd.DataFrame, rsParams: RandomSearchParameters):
     prepare_search(df_stats, rsParams)
     final_values = run_experiments(df_stats, rsParams)
-    best_allocation = summarize_experiments(final_values, rsParams)
-    return best_allocation
+    best_agg_alloc, exp_at_best = summarize_experiments(final_values, rsParams)
+    return best_agg_alloc, exp_at_best, final_values
     

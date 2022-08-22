@@ -11,6 +11,7 @@ import random_exploration
 import stats
 import training
 import names
+import utils_ws
 
 def prepare_bootstrap(nboots = 1000, 
                       response_col = names.param2filename({'Key': 'MinEnergy'}, ''),
@@ -60,6 +61,7 @@ class stochastic_benchmark:
                 self.training_stats = pd.read_pickle(self.here.training_stats)
             elif self.interp_results is not None:
                 training_results = self.interp_results[self.interp_results['train'] == 1]
+                print('Computing training stats')
                 self.training_stats = stats.Stats(training_results, self.stat_params,
                                              self.parameter_names + ['boots', 'resource'])
                 self.training_stats.to_pickle(self.here.training_stats)
@@ -70,6 +72,7 @@ class stochastic_benchmark:
                 self.testing_stats = pd.read_pickle(self.here.testing_stats)
             elif self.interp_results is not None:
                 testing_results = self.interp_results[self.interp_results['train'] == 0]
+                print('Computing testing stats')
                 self.testing_stats = stats.Stats(testing_results, self.stat_params,
                                              self.parameter_names + ['boots', 'resource'])
                 self.testing_stats.to_pickle(self.here.testing_stats)
@@ -85,6 +88,7 @@ class stochastic_benchmark:
             elif self.bs_results is not None:
                 iParams = interpolate.InterpolationParameters(self.resource_fcn,
                                                               parameters=self.parameter_names)
+                print('Interpolating results with parameters: ', iParams)
                 self.interp_results = interpolate.Interpolate(self.bs_results,
                                                               iParams, self.parameter_names+self.instance_cols)
                 self.interp_results.to_pickle(self.here.interpolate)
@@ -176,6 +180,7 @@ class stochastic_benchmark:
     
     def run_random_exploration(self):
         key = names.param2filename({'Key': 'PerfRatio', 'Metric':'median'}, '')
+#         budgets = utils_ws.gen_log_space(max(100, self.interp_results['resource'].min()), self.interp_results['resource'].max(), 25)
         rsParams = random_exploration.RandomSearchParameters(parameter_names=self.parameter_names, key=key)
         if os.path.exists(self.here.best_agg_alloc):
             self.best_agg_alloc = pd.read_pickle(self.here.best_agg_alloc)

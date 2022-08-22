@@ -41,16 +41,16 @@ class InterpolationParameters:
             warnings.warn(warn_str)
             self.resource_value_type = 'log'
 
-        if self.resource_value_type == 'manual' and self.resource_values is None:
+        if self.resource_value_type == 'manual' and (len(self.resource_values) == 0):
             warn_str = 'Manual resource value type requires resource values. Setting value type to log.'
             warnings.warn(warn_str)
             self.resource_value_type = 'log'
 
-        elif self.resource_value_type in ['data', 'log'] and self.resource_values is not None:
+        elif self.resource_value_type in ['data', 'log'] and (len(self.resource_values) >= 0):
             warn_str = 'Resource value type {} does not support passing in values. Removing.'.format(
                 self.resource_value_type)
             warnings.warn(warn_str)
-            self.resource_value = 'None'
+            self.resource_value = []
 
             
 def generateResourceColumn(df: pd.DataFrame, interp_params: InterpolationParameters):

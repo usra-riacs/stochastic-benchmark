@@ -18,7 +18,20 @@ class paths:
         self.interpolate = os.path.join(self.checkpoints, 'interpolated_results.pkl')
         self.training_stats = os.path.join(self.checkpoints, 'training_stats.pkl')
         self.testing_stats = os.path.join(self.checkpoints, 'testing_stats.pkl')
-
+        
+        self.virtual_best = {'train': os.path.join(self.checkpoints, 'vb_train.pkl'),\
+                             'test': os.path.join(self.checkpoints, 'vb_test.pkl')}
+        
+        self.best_rec = {'stats': os.path.join(self.checkpoints, 'br_stats.pkl'),\
+                         'results': os.path.join(self.checkpoints, 'br_results.pkl')}
+        
+        self.projections = {'stats': os.path.join(self.checkpoints, 'proj_stats.pkl'),\
+                             'results': os.path.join(self.checkpoints, 'proj_results.pkl')}
+        
+        self.best_agg_alloc = os.path.join(self.checkpoints, 'best_agg_alloc.pkl')
+        self.train_exp_at_best = os.path.join(self.checkpoints, 'train_exp_at_best.pkl')
+        self.final_values = os.path.join(self.checkpoints, 'final_values.pkl')
+        self.test_exp_at_best = os.path.join(self.checkpoints, 'test_exp_at_best.pkl')
 
 def param2filename(param_dict, ext, ignore=[]):
     """

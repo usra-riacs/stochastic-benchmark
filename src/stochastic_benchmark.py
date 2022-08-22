@@ -7,6 +7,7 @@ import seaborn as sns
 import bootstrap
 import df_utils
 import interpolate
+import random_exploration
 import stats
 import training
 import names
@@ -101,46 +102,99 @@ class stochastic_benchmark:
             
             
     def set_virtual_best(self):
-        training_results = self.interp_results[self.interp_results['train'] == 1]
-        self.virtual_best = training.virtual_best(training_results,\
-                           parameter_names=self.parameter_names,\
-                           response_col='Key=PerfRatio',\
-                           response_dir=1,\
-                           resource_col='resource')
-    
+        self.virtual_best = {}
+        
+        if os.path.exists(self.here.virtual_best['train']):
+            self.virtual_best['train'] = pd.read_pickle(self.here.virtual_best['train'])
+        else:
+            training_results = self.interp_results[self.interp_results['train'] == 1]
+            self.virtual_best['train'] = training.virtual_best(training_results,\
+                               parameter_names=self.parameter_names,\
+                               response_col='Key=PerfRatio',\
+                               response_dir=1,\
+                               resource_col='resource')
+            self.virtual_best['train'].to_pickle(self.here.virtual_best['train'])
+        
+        if os.path.exists(self.here.virtual_best['test']):
+            self.virtual_best['test'] = pd.read_pickle(self.here.virtual_best['test'])
+        else:
+            testing_results = self.interp_results[self.interp_results['train'] == 0]
+            self.virtual_best['test'] = training.virtual_best(testing_results,\
+                               parameter_names=self.parameter_names,\
+                               response_col='Key=PerfRatio',\
+                               response_dir=1,\
+                               resource_col='resource')
+            self.virtual_best['test'].to_pickle(self.here.virtual_best['test'])
+
         return 
     
     def set_recommended_parameters(self):
         self.best_recommended = {}
         response_col = names.param2filename(
             {'Key': 'PerfRatio', 'Metric': self.stat_params.stats_measures[0].name}, '')
-        self.best_recommended['stats'] =\
-        training.best_parameters(self.training_stats,
-                                 parameter_names=self.parameter_names,
-                                 response_col=response_col,
-                                 response_dir=1,
-                                 resource_col='resource',
-                                 additional_cols=['boots'])
+        
+        if os.path.exists(self.here.best_rec['stats']):
+            self.best_recommended['stats'] = pd.read_pickle(self.here.best_rec['stats'])
+        else:
+            self.best_recommended['stats'] =\
+            training.best_parameters(self.training_stats,
+                                     parameter_names=self.parameter_names,
+                                     response_col=response_col,
+                                     response_dir=1,
+                                     resource_col='resource',
+                                     additional_cols=['boots'])
+            self.best_recommended['stats'].to_pickle(self.here.best_rec['stats'])
         
         if not hasattr(self, 'virtual_best'):
             self.set_virtual_best()
-        self.best_recommended['results'] =\
-        training.best_recommended(self.virtual_best,
-                                  parameter_names=self.parameter_names,
-                                  resource_col='resource',
-                                  additional_cols=['boots']).reset_index()
+        
+        if os.path.exists(self.here.best_rec['results']):
+            self.best_recommended['results'] = pd.read_pickle(self.here.best_rec['results'])
+        else:
+            self.best_recommended['results'] =\
+            training.best_recommended(self.virtual_best['train'],
+                                      parameter_names=self.parameter_names,
+                                      resource_col='resource',
+                                      additional_cols=['boots']).reset_index()
+            self.best_recommended['results'].to_pickle(self.here.best_rec['results'])
          
-    def evaluate_recommendations(self):
+    def project_recs(self):
         self.projections = {}
         if not hasattr(self, 'best_recommended'):
             self.set_recommended_parameters()
             
         testing_results = self.interp_results[self.interp_results['train'] == 0]
         for k, v in self.best_recommended.items():
-            self.projections[k] = training.evaluate(testing_results,
-                                                    v,
-                                                    training.scaled_distance,
-                                                    parameter_names=self.parameter_names)
+            if os.path.exists(self.here.projections[k]):
+                self.projections[k] = pd.read_pickle(self.here.projections[k])
+            else:
+                self.projections[k] = training.evaluate(testing_results,
+                                                        v,
+                                                        training.scaled_distance,
+                                                        parameter_names=self.parameter_names)
+                self.projections[k].to_pickle(self.here.projections[k])
+    
+    def run_random_exploration(self):
+        key = names.param2filename({'Key': 'PerfRatio', 'Metric':'median'}, '')
+        rsParams = random_exploration.RandomSearchParameters(parameter_names=self.parameter_names, key=key)
+        if os.path.exists(self.here.best_agg_alloc):
+            self.best_agg_alloc = pd.read_pickle(self.here.best_agg_alloc)
+            self.train_exp_at_best = pd.read_pickle(self.here.train_exp_at_best)
+            self.final_values = pd.read_pickle(self.here.final_values)
+            
+        else:
+            self.best_agg_alloc, self.train_exp_at_best, self.final_values = random_exploration.RandomExploration(self.training_stats, rsParams)
+            self.best_agg_alloc.to_pickle(self.here.best_agg_alloc)
+            self.train_exp_at_best.to_pickle(self.here.train_exp_at_best)
+            self.final_values.to_pickle(self.here.final_values)
+            
+            
+        if os.path.exists(self.here.test_exp_at_best):
+            self.test_exp_at_best = pd.read_pickle(self.here.test_exp_at_best)
+        else:
+            self.test_exp_at_best = random_exploration.apply_allocations(self.testing_stats, rsParams, self.best_agg_alloc)
+            self.test_exp_at_best.to_pickle(self.here.test_exp_at_best)
+        
     def plot_parameters(self):
         if not hasattr(self, 'best_recommended'):
             self.set_recommended_parameters()
@@ -149,10 +203,16 @@ class stochastic_benchmark:
             fig.suptitle('Best recommended parameters generated from {}'.format(k))
 
             for idx, param in enumerate(self.parameter_names):
-                sns.lineplot(x='resource', y=param, data=v, ax=axs[idx])
+                ax = axs[idx]
+                sns.lineplot(x='TotalBudget', y=param, data=self.train_exp_at_best, ax=ax, label='Random on train')
+                sns.lineplot(x='TotalBudget', y=param, data=self.test_exp_at_best, ax=ax, label='Random on test')
+                sns.lineplot(x='resource', y=param, data=v, ax=ax, label='Best rec')
+                sns.lineplot(x='resource', y=param, data=self.virtual_best['test'], ci='sd',\
+                         estimator='median', ax=ax, label = 'Virtual best')
                 axs[idx].set_xscale('log')
-            figname = os.path.join(self.here.plots, 'RecParams_Gen={}.pdf'.format(k))
-            plt.savefig(figname)
+                
+#             figname = os.path.join(self.here.plots, 'RecParams_Gen={}.pdf'.format(k))
+#             plt.savefig(figname)
             # plt.close(fig)
             
     def plot_performance(self):
@@ -165,10 +225,18 @@ class stochastic_benchmark:
             key = 'PerfRatio'
             fig.suptitle('{} from ({})'.format(key, k))
             key = names.param2filename({'Key': key}, '')
-            sns.lineplot(x='resource', y=key, data=v, ax=ax)
+            
+            sns.lineplot(x='resource', y=key, data=self.virtual_best['test'], ci='sd',\
+                         estimator='median', label = 'Virtual best')
+            
+            sns.lineplot(x='resource', y=key, data=v, ci='sd', estimator='median',\
+                         label = 'Projected best rec.')
+            
+            sns.lineplot(x='TotalBudget', y='Key=PerfRatio_Metric=median',\
+             data = self.test_exp_at_best, ci='sd', estimator='median', label = 'Random exploration')
             
             ax.set_xscale('log')
-            figname = os.path.join(self.here.plots, '{}_Gen={}.pdf'.format(key, k))
-            plt.savefig(figname)
+#             figname = os.path.join(self.here.plots, '{}_Gen={}.pdf'.format(key, k))
+#             plt.savefig(figname)
 
 

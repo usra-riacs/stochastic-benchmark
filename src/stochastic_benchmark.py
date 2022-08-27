@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import pandas as pd
 import seaborn as sns
@@ -9,15 +10,35 @@ import df_utils
 import interpolate
 import random_exploration
 import stats
+import success_metrics
 import training
 import names
 import utils_ws
 
 def prepare_bootstrap(nboots = 1000, 
                       response_col = names.param2filename({'Key': 'MinEnergy'}, ''),
-                      resource_col = names.param2filename({'Key': 'MeanTime'}, '')):
+                      resource_col = names.param2filename({'Key': 'MeanTime'}, '')):    
+    shared_args = {'response_col':response_col,\
+              'resource_col':resource_col,\
+              'response_dir':-1,\
+              'confidence_level':68,\
+              'random_value':0.}
+
+    metric_args = {}
+    metric_args['Response'] = {'opt_sense':-1}
+    metric_args['SuccessProb'] = {'gap':1.0, 'response_dir':-1}
+    metric_args['RTT'] = {'fail_value': np.nan, 'RTT_factor':1.,\
+                          'gap':1.0, 's':0.99}
+    sms = [success_metrics.Response,
+          success_metrics.PerfRatio,
+          success_metrics.InvPerfRatio,
+          success_metrics.SuccessProb,
+          success_metrics.Resource,
+          success_metrics.RTT]
+    bsParams = bootstrap.BootstrapParameters(shared_args, metric_args, sms)
+    
     bs_iter_class = bootstrap.BSParams_iter()
-    bsparams_iter = bs_iter_class(response_col, resource_col, nboots)
+    bsparams_iter = bs_iter_class(bsParams, nboots)
     return bsparams_iter
 
 def sweep_boots_resource(df):
@@ -28,20 +49,22 @@ class stochastic_benchmark:
                  parameter_names,
                  here=os.getcwd(),
                  instance_cols=['instance'],
-                 bs_params_iter = prepare_bootstrap(),
+                 bsParams_iter = prepare_bootstrap(),
                  stat_params = stats.StatsParameters(stats_measures=[stats.Median()]),
                  resource_fcn = sweep_boots_resource,
                  train_test_split = 0.5,
-                 recover=True):
+                 recover=True,
+                smooth=True):
         
         self.here = names.paths(here)
         self.parameter_names = parameter_names
         self.instance_cols = instance_cols
-        self.bs_params_iter = bs_params_iter
+        self.bsParams_iter = bsParams_iter
         self.stat_params = stat_params
         self.resource_fcn = resource_fcn
         self.train_test_split = train_test_split
         self.recover=recover
+        self.smooth = smooth
         
         self.bs_results = None
         self.interp_results = None
@@ -100,8 +123,10 @@ class stochastic_benchmark:
             if os.path.exists(self.here.bootstrap) and self.recover:
                 self.bs_results = pd.read_pickle(self.here.bootstrap)
             else:
-                group_on = self.parameters_names + self.instance_cols
-                self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, self.bsparams_iter)
+                group_on = self.parameter_names + self.instance_cols
+                if not hasattr(self, 'raw_data'):
+                    self.raw_data = df_utils.read_exp_raw(self.here.raw_data)
+                self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, self.bsParams_iter)
                 self.bs_results.to_pickle(self.here.bootstrap)
             
             
@@ -116,7 +141,9 @@ class stochastic_benchmark:
                                parameter_names=self.parameter_names,\
                                response_col='Key=PerfRatio',\
                                response_dir=1,\
-                               resource_col='resource')
+                               groupby = self.instance_cols,\
+                               resource_col='resource',\
+                                smooth=self.smooth)
             self.virtual_best['train'].to_pickle(self.here.virtual_best['train'])
         
         if os.path.exists(self.here.virtual_best['test']):
@@ -127,7 +154,9 @@ class stochastic_benchmark:
                                parameter_names=self.parameter_names,\
                                response_col='Key=PerfRatio',\
                                response_dir=1,\
-                               resource_col='resource')
+                               groupby = self.instance_cols,\
+                               resource_col='resource',\
+                                smooth=self.smooth)
             self.virtual_best['test'].to_pickle(self.here.virtual_best['test'])
 
         return 
@@ -146,7 +175,8 @@ class stochastic_benchmark:
                                      response_col=response_col,
                                      response_dir=1,
                                      resource_col='resource',
-                                     additional_cols=['boots'])
+                                     additional_cols=['boots'],
+                                    smooth=self.smooth)
             self.best_recommended['stats'].to_pickle(self.here.best_rec['stats'])
         
         if not hasattr(self, 'virtual_best'):
@@ -178,10 +208,10 @@ class stochastic_benchmark:
                                                         parameter_names=self.parameter_names)
                 self.projections[k].to_pickle(self.here.projections[k])
     
-    def run_random_exploration(self):
-        key = names.param2filename({'Key': 'PerfRatio', 'Metric':'median'}, '')
-#         budgets = utils_ws.gen_log_space(max(100, self.interp_results['resource'].min()), self.interp_results['resource'].max(), 25)
-        rsParams = random_exploration.RandomSearchParameters(parameter_names=self.parameter_names, key=key)
+    def run_random_exploration(self, rsParams):
+#         key = names.param2filename({'Key': 'PerfRatio', 'Metric':'median'}, '')
+# #         budgets = utils_ws.gen_log_space(max(100, self.interp_results['resource'].min()), self.interp_results['resource'].max(), 25)
+#         rsParams = random_exploration.RandomSearchParameters(parameter_names=self.parameter_names, key=key)
         if os.path.exists(self.here.best_agg_alloc):
             self.best_agg_alloc = pd.read_pickle(self.here.best_agg_alloc)
             self.train_exp_at_best = pd.read_pickle(self.here.train_exp_at_best)
@@ -206,15 +236,19 @@ class stochastic_benchmark:
         for k, v in self.best_recommended.items():
             fig, axs = plt.subplots(1, len(self.parameter_names), figsize=(len(self.parameter_names)*5 + 1, 5))
             fig.suptitle('Best recommended parameters generated from {}'.format(k))
-
+            
             for idx, param in enumerate(self.parameter_names):
-                ax = axs[idx]
+                if len(self.parameter_names) == 1:
+                    ax = axs
+                else:
+                    ax = axs[idx]
                 sns.lineplot(x='TotalBudget', y=param, data=self.train_exp_at_best, ax=ax, label='Random on train')
                 sns.lineplot(x='TotalBudget', y=param, data=self.test_exp_at_best, ax=ax, label='Random on test')
                 sns.lineplot(x='resource', y=param, data=v, ax=ax, label='Best rec')
                 sns.lineplot(x='resource', y=param, data=self.virtual_best['test'], ci='sd',\
                          estimator='median', ax=ax, label = 'Virtual best')
-                axs[idx].set_xscale('log')
+                ax.set_xscale('log')
+                ax.set_yscale('log')
                 
 #             figname = os.path.join(self.here.plots, 'RecParams_Gen={}.pdf'.format(k))
 #             plt.savefig(figname)
@@ -241,6 +275,7 @@ class stochastic_benchmark:
              data = self.test_exp_at_best, ci='sd', estimator='median', label = 'Random exploration')
             
             ax.set_xscale('log')
+            ax.set_ylim(-1, 1.1)
 #             figname = os.path.join(self.here.plots, '{}_Gen={}.pdf'.format(key, k))
 #             plt.savefig(figname)
 

@@ -21,7 +21,9 @@ class RandomSearchParameters:
     stat_measure: stats.StatsMeasure = stats.Mean()
 
 def prepare_search(stats_df: pd.DataFrame, rsParams: RandomSearchParameters):
-    resource_values = stats_df['resource']
+    resource_values = list(stats_df['resource'])
+#     print(resource_values)
+#     print(rsParams.taus)
     rsParams.taus = np.unique([take_closest(resource_values, r) for r in rsParams.taus])
     
 def summarize_experiments(df: pd.DataFrame, rsParams: RandomSearchParameters):
@@ -83,7 +85,8 @@ def single_experiment(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, 
         
 def run_experiments(df_stats: pd.DataFrame, rsParams: RandomSearchParameters):
     final_values = []
-    pbar = tqdm(product(rsParams.budgets, rsParams.exploration_fracs, rsParams.taus, range(rsParams.Nexperiments)))
+    total = len(rsParams.budgets) * len(rsParams.exploration_fracs) * len(rsParams.taus) *  rsParams.Nexperiments
+    pbar = tqdm(product(rsParams.budgets, rsParams.exploration_fracs, rsParams.taus, range(rsParams.Nexperiments)), total=total)
     for budget, explore_frac, tau, experiment in pbar:
         df_experiment = single_experiment(df_stats, rsParams, budget, explore_frac, tau)
         if df_experiment is None:

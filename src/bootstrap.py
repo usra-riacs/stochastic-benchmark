@@ -1,34 +1,67 @@
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
+from multiprocess import Process, Pool, Manager
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
+from typing import Callable
 
 import names
+import success_metrics
+
 EPSILON = 1e-10
 confidence_level = 68
 gap = 1.0
 
+tqdm.pandas()
 
+# @dataclass
+# class BootstrapParameters:
+#     """
+#     Parameters for the bootstrap method.
+#     """
+#     random_value: float = 0.0
+#     response_col: str = None
+#     response_dir: int = -1
+#     best_value: float = None
+#     success_metric: str = 'PerfRatio'
+#     resource_col: str = None
+#     downsample: int = 10
+#     bootstrap_iterations: int = 1000
+#     confidence_level: float = 68
+#     gap: float = 1.0
+#     s: float = 0.99
+#     fail_value: float = np.inf
+        
 @dataclass
 class BootstrapParameters:
     """
     Parameters for the bootstrap method.
     """
-    random_value: float = 0.0
-    response_col: str = None
-    response_dir: int = -1
-    best_value: float = None
-    success_metric: str = 'PerfRatio'
-    resource_col: str = None
-    downsample: int = 10
+    shared_args: dict #'resource_col, response_col, response_dir, best_value, random_value, confidence_level'
+    update_rule: Callable[[pd.DataFrame], None]= field()
+    agg: str = field()
+    metric_args: defaultdict[dict] = field(
+        default_factory=lambda: defaultdict(lambda: None))
+    success_metrics: dict = field(default_factory = lambda:[success_metrics.PerfRatio])
     bootstrap_iterations: int = 1000
-    confidence_level: float = 68
-    gap: float = 1.0
-    s: float = 0.99
-    fail_value: float = np.inf
-
+    downsample: int = 10
+    
+    def __post_init__(self):
+        temp_metric_args = defaultdict(lambda : None)
+        temp_metric_args.update(self.metric_args)
+        self.metric_args = temp_metric_args
+        
+        if not hasattr(self, 'update_rule'):
+            self.update_rule = self.default_update
+    
+    def default_update(self, df):
+        if self.shared_args['response_dir'] == -1:  # Minimization
+            self.shared_args['best_value'] = df[self.shared_args['response_col']].min()
+        else:  # Maximization
+            self.shared_args['best_value'] = df[self.shared_args['response_col']].max()
+        self.metric_args['RTT']['RTT_factor'] = 1e-6*df[self.shared_args['resource_col']].sum()
 # Iterator for bootstrap parameters
-
-
 class BSParams_iter:
     def __iter__(self):
         return self
@@ -41,12 +74,10 @@ class BSParams_iter:
         else:
             raise StopIteration
 
-    def __call__(self, response_col, resource_col, nboots):
+    def __call__(self, bs_params, nboots):
         self.nboots = nboots
-        self.bs_params = BootstrapParameters()
+        self.bs_params = bs_params
         self.bs_params.downsample = 0
-        self.bs_params.response_col = response_col
-        self.bs_params.resource_col = resource_col
         return self
 
 
@@ -71,19 +102,23 @@ def initBootstrap(df, bs_params):
     times : numpy.ndarray
         Array of times.
     """
-    resamples = np.random.randint(0, len(df), size=(
-        bs_params.downsample, bs_params.bootstrap_iterations), dtype=np.intp)
-    responses = df[bs_params.response_col].values
-    times = df[bs_params.resource_col].values
-
-    if bs_params.best_value is None:
-        if bs_params.response_dir == - 1:  # Minimization
-            bs_params.best_value = df[bs_params.response_col].min()
-        else:  # Maximization
-            bs_params.best_value = df[bs_params.response_col].max()
-    return resamples, responses, times
-    # return responses, times
-
+    if hasattr(bs_params, 'agg'):
+        p =  list(df[bs_params.agg] / df[bs_params.agg].sum())
+        resamples = np.random.choice(len(df), (bs_params.downsample, bs_params.bootstrap_iterations), p)
+    else:
+        resamples = np.random.randint(0, len(df), size=(
+            bs_params.downsample, bs_params.bootstrap_iterations), dtype=np.intp)
+    responses = df[bs_params.shared_args['response_col']].values[resamples]
+    resources = df[bs_params.shared_args['resource_col']].values[resamples]
+    
+    bs_params.update_rule(bs_params, df)
+#     #update shared_args
+#     if bs_params.shared_args['best_value'] is None:
+#         if bs_params.shared_args['response_dir'] == -1:  # Minimization
+#             bs_params.shared_args['best_value'] = df[bs_params.shared_args['response_col']].min()
+#         else:  # Maximization
+#             bs_params.shared_args['best_value'] = df[bs_params.shared_args['response_col']].max()
+    return responses, resources
 
 # def BootstrapSingle(df, bs_params, resamples):
 def BootstrapSingle(df, bs_params):
@@ -102,16 +137,20 @@ def BootstrapSingle(df, bs_params):
     bs_df : pandas.DataFrame
         DataFrame containing the bootstrap results.
     """
-    resamples, responses, times = initBootstrap(df, bs_params)
-    # responses, times = initBootstrap(df, bs_params, resamples)
+    responses, resources = initBootstrap(df, bs_params)
+    bs_params.update_rule(bs_params, df)
     bs_df = pd.DataFrame()
-    # TODO Pylance is crying here because pd is not defined
-    computeResponse(df, bs_df, bs_params, resamples, responses)
-    computePerfRatio(df, bs_df, bs_params)
-    computeSuccessProb(df, bs_df, bs_params, resamples, responses)
-    computeRTT(df, bs_df, bs_params, resamples, responses)
-    computeResource(df, bs_df, bs_params, resamples, times)
-    computeInvPerfRatio(df, bs_df, bs_params)
+    
+    for metric_ref in bs_params.success_metrics:
+        metric = metric_ref(bs_params.shared_args,bs_params.metric_args[metric_ref.__name__])
+        metric.evaluate(bs_df, responses, resources)
+
+#     computeResponse(df, bs_df, bs_params, resamples, responses)
+#     computePerfRatio(df, bs_df, bs_params)
+#     computeSuccessProb(df, bs_df, bs_params, resamples, responses)
+#     computeRTT(df, bs_df, bs_params, resamples, responses)
+#     computeResource(df, bs_df, bs_params, resamples, times)
+#     computeInvPerfRatio(df, bs_df, bs_params)
     return bs_df
 
 
@@ -132,15 +171,73 @@ def Bootstrap(df, group_on, bs_params_list):
     -------
     bs_df : pandas.DataFrame
         DataFrame containing the bootstrap results.
-    """
-    df_list = []
-    for bs_params in bs_params_list:
+    """       
+    def f(df_list, bs_params, boots):
+        bs_params.downsample = boots
         def dfBS(df): return BootstrapSingle(df, bs_params)
-        temp_df = df.groupby(group_on).apply(dfBS).reset_index()
+        temp_df = df.groupby(group_on).progress_apply(dfBS).reset_index()
         temp_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
-        temp_df['boots'] = bs_params.downsample
+        temp_df['boots'] = boots
+#         temp_df['boots'] = bs_params.downsample
         df_list.append(temp_df)
-    grouped_df = pd.concat(df_list, ignore_index=True)
+#         return temp_df
+    
+#     
+#     def log_result(result):
+#         df_list.append(result)
+        
+#     pool = Pool(12) 
+#     for bs_params in bs_params_list:
+#         pool.apply_async(f, args=(bs_params,), callback=log_result)
+#     pool.close()
+#     pool.join()
+    
+#     for bs_params in bs_params_list:
+#         res = f(bs_params)
+#         log_result(res)
+        
+#     pool.close()
+#     pool.join()
+#     print(len(df_list))
+#     grouped_df = pd.concat(df_list, ignore_index=True)
+    
+    df_list = []
+#     bs_params_list = list(bs_params_list)
+#     bs_params = bs_params_list[0]
+#     for boots in range(1, len(bs_params_list) + 1):
+#         f(df_list, bs_params, boots)
+#     grouped_df = pd.concat(df_list, ignore_index=True)
+        
+    with Manager() as manager:
+        df_list = manager.list()  # <-- can be shared between processes.
+        processes = []
+        pool = Pool()
+        bs_params_list = list(bs_params_list)
+        bs_params = bs_params_list[0]
+#         for bs_params in list(bs_params_list):
+        for boots in range(1, len(bs_params_list) + 1):
+            pool.apply_async(f, args=(df_list, bs_params,boots,))
+        pool.close()
+        pool.join()
+        
+        print(len(df_list))
+        grouped_df = pd.concat(df_list, ignore_index=True)
+    
+    
+#         for bs_params in bs_params_list:
+#             p = Process(target=f, args=(df_list, bs_params))  # Passing the list
+#             p.start()
+#             processes.append(p)
+#         for p in processes:
+#             p.join()
+        
+        
+#     for bs_params in tqdm(bs_params_list):
+#         def dfBS(df): return BootstrapSingle(df, bs_params)
+#         temp_df = df.groupby(group_on).progress_apply(dfBS).reset_index()
+#         temp_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
+#         temp_df['boots'] = bs_params.downsample
+#         df_list.append(temp_df)
     return grouped_df
 
 
@@ -167,14 +264,14 @@ def computeResponse(df, bs_df, bs_params, resamples, responses):
         DataFrame containing the bootstrap results.
     """
     # Compute the minimum value of each bootstrap samples and its corresponding confidence interval based on the resamples
-    if bs_params.response_dir == - 1:  # Minimization
+    if bs_params.response_dir == -1:  # Minimization
         response_dist = np.apply_along_axis(
             func1d=np.min, axis=0, arr=responses[resamples])
     else:  # Maximization
         response_dist = np.apply_along_axis(
             func1d=np.max, axis=0, arr=responses[resamples])
         # TODO This could be generalized as the X best samples
-
+    
     key = 'Response'
     basename = names.param2filename({'Key': key}, '')
     CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')

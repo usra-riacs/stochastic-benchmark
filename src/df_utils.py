@@ -36,9 +36,10 @@ def read_exp_raw(exp_raw_dir, name_params=[]):
     for f in filelist:
         temp_df = pd.read_pickle(f)
         # expand parameters in filename
-        params_dict = names.filename2param(os.path.basename(f))
-        for p in name_params:
-            temp_df[p] = params_dict[p]
+        if len(name_params) >= 1:
+            params_dict = names.filename2param(os.path.basename(f))
+            for p in name_params:
+                temp_df[p] = params_dict[p]
         df_list.append(temp_df)
     df_all = pd.concat(df_list, ignore_index=True)
     return df_all

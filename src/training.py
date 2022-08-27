@@ -12,7 +12,8 @@ def best_parameters(df: pd.DataFrame,
                      response_col: str,
                      response_dir: int,
                      resource_col: str = 'resource',
-                   additional_cols: List[str] = ['boots']):
+                   additional_cols: List[str] = ['boots'],
+                   smooth=False):
     """
     Returns the best recommended parameter set for each instance in df
 
@@ -44,7 +45,16 @@ def best_parameters(df: pd.DataFrame,
         warnings.warn('Unsupported response_dir, maximizing performance')
         best = df.sort_values(
             response_col, ascending=False).drop_duplicates(resource_col)
-
+    if smooth:
+        if response_dir == 1:
+            best.sort_values(resource_col, ascending=True, inplace=True)
+            running_max = best[response_col].cummax().to_frame()
+            best = running_max.merge(best, left_index=True, right_index=True, suffixes=(None, '_unsmoothed'))
+        elif response_dir == -1:
+            best.sort_values(resource_col, ascending=True, inplace=True)
+            running_min = best[response_col].cummin().to_frame()
+            best = running_max.merge(best, left_index=True, right_index=True, suffixes=(None, '_unsmoothed'))
+            
     best = best[np.unique([resource_col, response_col] + parameter_names + additional_cols)
                 ].sort_values(resource_col, ascending=True)
     return best
@@ -54,11 +64,13 @@ def virtual_best(df: pd.DataFrame,
                  parameter_names: List[str],
                  response_col: str,
                  response_dir: int,
+                 groupby: List[str]=['instance'],
                  resource_col: str = 'resource',
-                additional_cols: List[str] = ['boots']):
-    def br(df) : return best_parameters(df, parameter_names, response_col, response_dir, resource_col, additional_cols)
-    vb = df.groupby('instance').apply(br).reset_index()
-    vb.drop('level_1', axis=1, inplace=True)
+                additional_cols: List[str] = ['boots'],
+                smooth=False):
+    def br(df) : return best_parameters(df, parameter_names, response_col, response_dir, resource_col, additional_cols, smooth)
+    vb = df.groupby(groupby).apply(br).reset_index()
+    vb.drop('level_{}'.format(len(groupby)), axis=1, inplace=True)
     return vb
 
 

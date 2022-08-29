@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
-import seaborn as sns
+import seaborn.objects as so
 
 
 import bootstrap
@@ -14,6 +14,8 @@ import success_metrics
 import training
 import names
 import utils_ws
+
+colors = ['blue', 'orange', 'green', 'red', 'purple']
 
 def prepare_bootstrap(nboots = 1000, 
                       response_col = names.param2filename({'Key': 'MinEnergy'}, ''),
@@ -242,40 +244,72 @@ class stochastic_benchmark:
                     ax = axs
                 else:
                     ax = axs[idx]
-                sns.lineplot(x='TotalBudget', y=param, data=self.train_exp_at_best, ax=ax, label='Random on train')
-                sns.lineplot(x='TotalBudget', y=param, data=self.test_exp_at_best, ax=ax, label='Random on test')
-                sns.lineplot(x='resource', y=param, data=v, ax=ax, label='Best rec')
-                sns.lineplot(x='resource', y=param, data=self.virtual_best['test'], ci='sd',\
-                         estimator='median', ax=ax, label = 'Virtual best')
-                ax.set_xscale('log')
-                ax.set_yscale('log')
+                
+                color_count = 0
+                p = (
+                    so.Plot(data=self.train_exp_at_best, x='TotalBudget', y=param)
+                    .on(ax)
+                    .scale(x='log', y='log')
+                )
+                p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'))
+                color_count += 1
+                
+                p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'),
+                         data=self.test_exp_at_best, x='TotalBudget', y=param)
+                color_count += 1
+                
+                p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'),
+                         data=v, x='resource', y=param)
+                color_count += 1
+                
+                
+                p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'),
+                         data=self.virtual_best['test'], x='resource', y=param)
+                color_count += 1
+                p.show()
                 
 #             figname = os.path.join(self.here.plots, 'RecParams_Gen={}.pdf'.format(k))
 #             plt.savefig(figname)
             # plt.close(fig)
             
-    def plot_performance(self):
+    def plot_performance(self, key, metric):
         if not hasattr(self, 'projections'):
             self.evaluate_recommendations()
         for k, v in self.projections.items():
-            fig = plt.figure()
-            ax = plt.gca()
+#             fig = plt.figure()
+#             ax = plt.gca()
             
-            key = 'PerfRatio'
-            fig.suptitle('{} from ({})'.format(key, k))
-            key = names.param2filename({'Key': key}, '')
+            keyname = names.param2filename({'Key': key}, '')
             
-            sns.lineplot(x='resource', y=key, data=self.virtual_best['test'], ci='sd',\
-                         estimator='median', label = 'Virtual best')
+            color_count = 0
+            p = (
+                so.Plot(data=self.virtual_best['test'], x='resource', y=keyname)
+                )
+            p = p.add(so.Line(color=colors[color_count]), so.Agg('median'), legend=True)
+            color_count+=1
             
-            sns.lineplot(x='resource', y=key, data=v, ci='sd', estimator='median',\
-                         label = 'Projected best rec.')
             
-            sns.lineplot(x='TotalBudget', y='Key=PerfRatio_Metric=median',\
-             data = self.test_exp_at_best, ci='sd', estimator='median', label = 'Random exploration')
+            CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
+            CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
+            ConfInts_df = v.groupby('resource').median().reset_index()
+            p = p.add(so.Line(color=colors[color_count]), so.Agg('median'),
+                     data=v, x='resource', y=keyname)
+            p = p.add(so.Band(alpha=0.2, color=colors[color_count]), data=ConfInts_df, x='resource',\
+                      ymin=CIlower, ymax=CIupper)
+            color_count+=1
             
-            ax.set_xscale('log')
-            ax.set_ylim(-1, 1.1)
+            keyname = names.param2filename({'Key': key, 'Metric': metric}, '')
+            CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower', 'Metric': metric}, '')
+            CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper', 'Metric': metric}, '')
+            ConfInts_df = self.test_exp_at_best.groupby('TotalBudget').median().reset_index()
+            p = p.add(so.Line(color=colors[color_count]), so.Agg('median'),
+                     data=self.test_exp_at_best, x='TotalBudget', y=keyname)
+            p = p.add(so.Band(alpha=0.2, color=colors[color_count]), data=ConfInts_df, x='TotalBudget',\
+                      ymin=CIlower, ymax=CIupper)
+            
+            p = p.scale(x="log").limit(y=(-2., 1.5))
+            
+            p.show()
 #             figname = os.path.join(self.here.plots, '{}_Gen={}.pdf'.format(key, k))
 #             plt.savefig(figname)
 

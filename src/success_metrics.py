@@ -46,7 +46,7 @@ class PerfRatio(SuccessMetrics):
         self.opt_sense = 1
 #         self.depends = [Response()]
     
-    def evaluate(self, bs_df, responses, resources):
+    def evaluate(self, bs_df, responses, resources, lower=None, upper=1.):
         key = self.name
         basename = names.param2filename({'Key': key}, '')
         CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
@@ -61,6 +61,10 @@ class PerfRatio(SuccessMetrics):
             / (random_value - best_value)
         bs_df[CIupper] = (random_value - bs_df[names.param2filename({'Key': 'Response', 'ConfInt': 'lower'}, '')])\
             / (random_value - best_value)
+        
+        bs_df.loc[:, basename].clip(lower=lower, upper=upper, inplace=True)
+        bs_df.loc[:, CIlower].clip(lower=lower, upper=upper, inplace=True)
+        bs_df.loc[:, CIupper].clip(lower=lower, upper=upper, inplace=True)
 
 class InvPerfRatio(SuccessMetrics):
     def __init__(self, shared_args, metric_args):

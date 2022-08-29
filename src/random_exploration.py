@@ -22,8 +22,6 @@ class RandomSearchParameters:
 
 def prepare_search(stats_df: pd.DataFrame, rsParams: RandomSearchParameters):
     resource_values = list(stats_df['resource'])
-#     print(resource_values)
-#     print(rsParams.taus)
     rsParams.taus = np.unique([take_closest(resource_values, r) for r in rsParams.taus])
     
 def summarize_experiments(df: pd.DataFrame, rsParams: RandomSearchParameters):

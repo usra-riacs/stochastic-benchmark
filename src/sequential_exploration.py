@@ -4,6 +4,7 @@ from itertools import product
 from tqdm import tqdm
 
 import pandas as pd
+import df_utils
 from utils_ws import *
 
 import stats
@@ -92,12 +93,17 @@ def run_experiments(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters
     final_values = []
     total = len(ssParams.budgets) * len(ssParams.exploration_fracs) * len(ssParams.taus)
     pbar = tqdm(product(ssParams.budgets, ssParams.exploration_fracs, ssParams.taus), total=total)
+#     pbar = product(ssParams.budgets, ssParams.exploration_fracs, ssParams.taus)
     for budget, explore_frac, tau in pbar:
         df_experiment = SequentialExplorationSingle(df_stats, ssParams, budget, explore_frac, tau)
         if df_experiment is None:
             continue
         final_values.append(df_experiment.iloc[[-1]])
-    return pd.concat(final_values, ignore_index=True)
+    if len(final_values) == 0:
+        return pd.DataFrame(columns=(list(df_stats.columns) + ['exploit', 'tau', 'TotalBudget', 'ExplorationBudget', 'CummResource']))
+    
+    else:
+        return pd.concat(final_values, ignore_index=True)
 
 def apply_allocations(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, best_agg_alloc: pd.DataFrame):
     final_values = []
@@ -112,5 +118,6 @@ def apply_allocations(df_stats: pd.DataFrame, ssParams: SequentialSearchParamete
                                 
 def SequentialSearch(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, group_on: list):
     prepare_search(df_stats, ssParams)
-    final_values = df_stats.groupby(group_on).progress_apply(lambda df: run_experiments(df, ssParams))
+    final_values = df_utils.applyParallel(df_stats.groupby(group_on), lambda df: run_experiments(df, ssParams))
+#     final_values = df_stats.groupby(group_on).progress_apply(lambda df: run_experiments(df, ssParams))
     return final_values

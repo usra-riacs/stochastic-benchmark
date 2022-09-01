@@ -91,7 +91,11 @@ def run_experiments(df_stats: pd.DataFrame, rsParams: RandomSearchParameters):
             continue
         df_experiment['Experiment'] = experiment
         final_values.append(df_experiment.iloc[[-1]])
-    return pd.concat(final_values, ignore_index=True)
+    if len(final_values) == 0:
+        return pd.DataFrame(columns=(list(df_stats.columns) + ['exploit', 'tau', 'TotalBudget', 'ExplorationBudget', 'CummResource']))
+    
+    else:
+        return pd.concat(final_values, ignore_index=True)
 
 def apply_allocations(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, best_agg_alloc: pd.DataFrame):
     final_values = []

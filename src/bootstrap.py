@@ -1,4 +1,5 @@
 from collections import defaultdict
+import copy
 from dataclasses import dataclass, field
 from multiprocess import Process, Pool, Manager
 import numpy as np
@@ -61,6 +62,7 @@ class BootstrapParameters:
         else:  # Maximization
             self.shared_args['best_value'] = df[self.shared_args['response_col']].max()
         self.metric_args['RTT']['RTT_factor'] = 1e-6*df[self.shared_args['resource_col']].sum()
+
 # Iterator for bootstrap parameters
 class BSParams_iter:
     def __iter__(self):
@@ -70,7 +72,7 @@ class BSParams_iter:
         if self.bs_params.downsample <= self.nboots - 1:
             boots = self.bs_params.downsample
             self.bs_params.downsample += 1
-            return self.bs_params
+            return copy.deepcopy(self.bs_params)
         else:
             raise StopIteration
 
@@ -172,73 +174,24 @@ def Bootstrap(df, group_on, bs_params_list):
     bs_df : pandas.DataFrame
         DataFrame containing the bootstrap results.
     """       
-    def f(df_list, bs_params, boots):
-        bs_params.downsample = boots
+    def f(bs_params):
         def dfBS(df): return BootstrapSingle(df, bs_params)
         temp_df = df.groupby(group_on).progress_apply(dfBS).reset_index()
         temp_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
-        temp_df['boots'] = boots
-#         temp_df['boots'] = bs_params.downsample
-        df_list.append(temp_df)
-#         return temp_df
-    
-#     
-#     def log_result(result):
-#         df_list.append(result)
-        
-#     pool = Pool(12) 
-#     for bs_params in bs_params_list:
-#         pool.apply_async(f, args=(bs_params,), callback=log_result)
-#     pool.close()
-#     pool.join()
-    
-#     for bs_params in bs_params_list:
-#         res = f(bs_params)
-#         log_result(res)
-        
-#     pool.close()
-#     pool.join()
-#     print(len(df_list))
-#     grouped_df = pd.concat(df_list, ignore_index=True)
-    
-    df_list = []
-#     bs_params_list = list(bs_params_list)
-#     bs_params = bs_params_list[0]
-#     for boots in range(1, len(bs_params_list) + 1):
-#         f(df_list, bs_params, boots)
-#     grouped_df = pd.concat(df_list, ignore_index=True)
-        
-    with Manager() as manager:
-        df_list = manager.list()  # <-- can be shared between processes.
-        processes = []
-        pool = Pool()
-        bs_params_list = list(bs_params_list)
-        bs_params = bs_params_list[0]
-#         for bs_params in list(bs_params_list):
-        for boots in range(1, len(bs_params_list) + 1):
-            pool.apply_async(f, args=(df_list, bs_params,boots,))
-        pool.close()
-        pool.join()
-        
-        print(len(df_list))
-        grouped_df = pd.concat(df_list, ignore_index=True)
-    
-    
-#         for bs_params in bs_params_list:
-#             p = Process(target=f, args=(df_list, bs_params))  # Passing the list
-#             p.start()
-#             processes.append(p)
-#         for p in processes:
-#             p.join()
-        
-        
+        temp_df['boots'] = bs_params.downsample
+        return temp_df
+
+    with Pool() as p:
+        df_list = p.map(f, bs_params_list)
+    return pd.concat(df_list)
+
 #     for bs_params in tqdm(bs_params_list):
 #         def dfBS(df): return BootstrapSingle(df, bs_params)
 #         temp_df = df.groupby(group_on).progress_apply(dfBS).reset_index()
 #         temp_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
 #         temp_df['boots'] = bs_params.downsample
 #         df_list.append(temp_df)
-    return grouped_df
+#     return grouped_df
 
 
 def computeResponse(df, bs_df, bs_params, resamples, responses):

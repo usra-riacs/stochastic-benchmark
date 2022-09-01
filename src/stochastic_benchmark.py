@@ -1,4 +1,6 @@
+import copy
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import numpy as np
 import os
 import pandas as pd
@@ -9,6 +11,7 @@ import bootstrap
 import df_utils
 import interpolate
 import random_exploration
+import sequential_exploration
 import stats
 import success_metrics
 import training
@@ -138,7 +141,7 @@ class stochastic_benchmark:
         if os.path.exists(self.here.virtual_best['train']):
             self.virtual_best['train'] = pd.read_pickle(self.here.virtual_best['train'])
         else:
-            training_results = self.interp_results[self.interp_results['train'] == 1]
+            training_results = self.interp_results[self.interp_results['train'] == 1].copy()
             self.virtual_best['train'] = training.virtual_best(training_results,\
                                parameter_names=self.parameter_names,\
                                response_col='Key=PerfRatio',\
@@ -151,7 +154,7 @@ class stochastic_benchmark:
         if os.path.exists(self.here.virtual_best['test']):
             self.virtual_best['test'] = pd.read_pickle(self.here.virtual_best['test'])
         else:
-            testing_results = self.interp_results[self.interp_results['train'] == 0]
+            testing_results = self.interp_results[self.interp_results['train'] == 0].copy()
             self.virtual_best['test'] = training.virtual_best(testing_results,\
                                parameter_names=self.parameter_names,\
                                response_col='Key=PerfRatio',\
@@ -172,7 +175,7 @@ class stochastic_benchmark:
             self.best_recommended['stats'] = pd.read_pickle(self.here.best_rec['stats'])
         else:
             self.best_recommended['stats'] =\
-            training.best_parameters(self.training_stats,
+            training.best_parameters(self.training_stats.copy(),
                                      parameter_names=self.parameter_names,
                                      response_col=response_col,
                                      response_dir=1,
@@ -188,7 +191,7 @@ class stochastic_benchmark:
             self.best_recommended['results'] = pd.read_pickle(self.here.best_rec['results'])
         else:
             self.best_recommended['results'] =\
-            training.best_recommended(self.virtual_best['train'],
+            training.best_recommended(self.virtual_best['train'].copy(),
                                       parameter_names=self.parameter_names,
                                       resource_col='resource',
                                       additional_cols=['boots']).reset_index()
@@ -199,7 +202,7 @@ class stochastic_benchmark:
         if not hasattr(self, 'best_recommended'):
             self.set_recommended_parameters()
             
-        testing_results = self.interp_results[self.interp_results['train'] == 0]
+        testing_results = self.interp_results[self.interp_results['train'] == 0].copy()
         for k, v in self.best_recommended.items():
             if os.path.exists(self.here.projections[k]):
                 self.projections[k] = pd.read_pickle(self.here.projections[k])
@@ -211,9 +214,6 @@ class stochastic_benchmark:
                 self.projections[k].to_pickle(self.here.projections[k])
     
     def run_random_exploration(self, rsParams):
-#         key = names.param2filename({'Key': 'PerfRatio', 'Metric':'median'}, '')
-# #         budgets = utils_ws.gen_log_space(max(100, self.interp_results['resource'].min()), self.interp_results['resource'].max(), 25)
-#         rsParams = random_exploration.RandomSearchParameters(parameter_names=self.parameter_names, key=key)
         if os.path.exists(self.here.best_agg_alloc):
             self.best_agg_alloc = pd.read_pickle(self.here.best_agg_alloc)
             self.train_exp_at_best = pd.read_pickle(self.here.train_exp_at_best)
@@ -229,44 +229,70 @@ class stochastic_benchmark:
         if os.path.exists(self.here.test_exp_at_best):
             self.test_exp_at_best = pd.read_pickle(self.here.test_exp_at_best)
         else:
-            self.test_exp_at_best = random_exploration.apply_allocations(self.testing_stats, rsParams, self.best_agg_alloc)
+            self.test_exp_at_best = random_exploration.apply_allocations(self.testing_stats.copy(), rsParams, self.best_agg_alloc)
             self.test_exp_at_best.to_pickle(self.here.test_exp_at_best)
-        
-    def plot_parameters(self):
+    
+    def run_sequential_exploration(self, ssParams):
+        if os.path.exists(self.here.seq_exp_values):
+            self.seq_exp_values = pd.read_pickle(self.here.seq_exp_values)
+        else:
+            self.seq_exp_values = sequential_exploration.SequentialSearch(self.interp_results.copy(), ssParams, group_on=self.instance_cols)
+            self.seq_exp_values.to_pickle(self.here.seq_exp_values)
+            
+            
+    def plot_parameters(self, key):
         if not hasattr(self, 'best_recommended'):
             self.set_recommended_parameters()
+        plot_dict = {}
         for k, v in self.best_recommended.items():
-            fig, axs = plt.subplots(1, len(self.parameter_names), figsize=(len(self.parameter_names)*5 + 1, 5))
+#             fig, axs = plt.subplots(1, len(self.parameter_names), figsize=(len(self.parameter_names)*5 + 1, 5))
+            fig = plt.figure()
             fig.suptitle('Best recommended parameters generated from {}'.format(k))
+            print('Best recommended parameters generated from {}'.format(k))
             
             for idx, param in enumerate(self.parameter_names):
-                if len(self.parameter_names) == 1:
-                    ax = axs
-                else:
-                    ax = axs[idx]
+#                 if len(self.parameter_names) == 1:
+#                     ax = axs
+#                 else:
+#                     ax = axs[idx]
+                    
+                if idx == 0:
+                    ax = plt.gca()
+                    labels = ['Virtual best', 'Seq. expl.', 'Project from {} vb'.format(k), 'Random expl']
+                    patches = [mpatches.Patch(color=colors[i], label=labels[i]) for i in range(4)]
+                    ax.legend(handles=patches)
                 
                 color_count = 0
                 p = (
-                    so.Plot(data=self.train_exp_at_best, x='TotalBudget', y=param)
-                    .on(ax)
-                    .scale(x='log', y='log')
+                    so.Plot(data=self.virtual_best['test'], x='resource', y=param)
+#                     .on(ax)
+                    .scale(x='log')
                 )
                 p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'))
                 color_count += 1
                 
+                keyname = names.param2filename({'Key': key}, '')
+                if hasattr(self, 'seq_exp_values'):
+                    test_seq_exp = self.seq_exp_values[self.seq_exp_values['train'] == 0].copy()
+                    test_seq_exp.sort_values(keyname, ascending=False, inplace=True)
+                    test_seq_exp.drop_duplicates(['TotalBudget', 'N', 'n', 'idx'])
+
+                    best_test_seq = test_seq_exp.copy()
+                    best_test_seq = best_test_seq.groupby('TotalBudget').mean().reset_index()
+                    p = p.add(so.Line(color=colors[color_count]),
+                         data=best_test_seq, x='TotalBudget', y=param)
+                color_count += 1
+            
+                p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'),
+                         data=v, x='resource', y=param)
+                color_count += 1
+
                 p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'),
                          data=self.test_exp_at_best, x='TotalBudget', y=param)
                 color_count += 1
                 
-                p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'),
-                         data=v, x='resource', y=param)
-                color_count += 1
-                
-                
-                p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'),
-                         data=self.virtual_best['test'], x='resource', y=param)
-                color_count += 1
-                p.show()
+                plot_dict[(k, param)] = copy.copy(p)
+                plot_dict[(k, param)].show()
                 
 #             figname = os.path.join(self.here.plots, 'RecParams_Gen={}.pdf'.format(k))
 #             plt.savefig(figname)
@@ -276,18 +302,33 @@ class stochastic_benchmark:
         if not hasattr(self, 'projections'):
             self.evaluate_recommendations()
         for k, v in self.projections.items():
-#             fig = plt.figure()
-#             ax = plt.gca()
+            fig = plt.figure()
+            ax = plt.gca()
+            ax.set_title('Performance')
+            labels = ['Virtual best', 'Seq. expl.', 'Project from {} vb'.format(k), 'Random expl']
+            patches = [mpatches.Patch(color=colors[i], label=labels[i]) for i in range(4)]
+            ax.legend(handles=patches)
             
             keyname = names.param2filename({'Key': key}, '')
             
             color_count = 0
             p = (
                 so.Plot(data=self.virtual_best['test'], x='resource', y=keyname)
+                .on(ax)
                 )
             p = p.add(so.Line(color=colors[color_count]), so.Agg('median'), legend=True)
             color_count+=1
             
+            if hasattr(self, 'seq_exp_values'):
+                test_seq_exp = self.seq_exp_values[self.seq_exp_values['train'] == 0].copy()
+                test_seq_exp.sort_values(keyname, ascending=False, inplace=True)
+                test_seq_exp.drop_duplicates(['TotalBudget', 'N', 'n', 'idx'])
+
+                best_test_seq = test_seq_exp.copy()
+                best_test_seq = best_test_seq.groupby('TotalBudget').median().reset_index()
+
+                p = p.add(so.Line(color=colors[color_count]), so.Agg('median'), data=best_test_seq, x='TotalBudget', y=keyname)
+            color_count+=1
             
             CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
             CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
@@ -306,11 +347,26 @@ class stochastic_benchmark:
                      data=self.test_exp_at_best, x='TotalBudget', y=keyname)
             p = p.add(so.Band(alpha=0.2, color=colors[color_count]), data=ConfInts_df, x='TotalBudget',\
                       ymin=CIlower, ymax=CIupper)
-            
-            p = p.scale(x="log").limit(y=(-2., 1.5))
-            
+            p = p.scale(x="log").limit(y=(0., 1.1))
+
             p.show()
 #             figname = os.path.join(self.here.plots, '{}_Gen={}.pdf'.format(key, k))
 #             plt.savefig(figname)
 
-
+    def plot_random_metaparams(self):
+        metaparams = ['ExploreFrac','tau']
+        df = self.train_exp_at_best.copy()
+        df['ExploreFrac'] = df['ExplorationBudget'] / df['TotalBudget']
+        
+        fig = plt.figure()
+        sfigs = fig.subfigures(1, len(metaparams),facecolor='White')
+        p = {}
+        for idx, param in enumerate(metaparams):
+            p[idx] = (
+                so.Plot(data=df, x='TotalBudget', y=param)
+#                 .on(sfigs[idx])
+                .scale(x="log")
+                .add(so.Line(), so.Agg())
+            )
+            p[idx].show()
+        return p

@@ -32,6 +32,7 @@ class paths:
         self.train_exp_at_best = os.path.join(self.checkpoints, 'train_exp_at_best.pkl')
         self.final_values = os.path.join(self.checkpoints, 'final_values.pkl')
         self.test_exp_at_best = os.path.join(self.checkpoints, 'test_exp_at_best.pkl')
+        self.seq_exp_values = os.path.join(self.checkpoints, 'seq_exp_values.pkl')
 
 def param2filename(param_dict, ext, ignore=[]):
     """

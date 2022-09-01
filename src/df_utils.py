@@ -1,4 +1,5 @@
 import glob
+from multiprocess import Pool
 import os
 import pandas as pd
 import names
@@ -12,6 +13,11 @@ confidence_level = 68
 s = 0.99
 gap = 1.0
 
+#Taken from https://stackoverflow.com/questions/26187759/parallelize-apply-after-pandas-groupby/29281494#29281494
+def applyParallel(dfGrouped, func):
+    with Pool() as p:
+        ret_list = p.map(func, [group for name, group in dfGrouped])
+    return pd.concat(ret_list)
 
 def read_exp_raw(exp_raw_dir, name_params=[]):
     """

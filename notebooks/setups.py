@@ -78,10 +78,12 @@ def max_clique_setup(p):
                                                                 taus=taus,\
                                                                 parameter_names=parameter_names,\
                                                                 key='Key=PerfRatio')
-    sb.run_random_exploration(rsParams)
-    sb.project_recs()
-    sb.run_sequential_exploration(ssParams)
-    
+ 
+    sb.run_baseline()
+    sb.run_ProjectionExperiment('TrainingStats')
+    sb.run_ProjectionExperiment('TrainingResults')
+    sb.run_RandomSearchExperiment(rsParams)
+    sb.run_SequentialSearchExperiment(ssParams)
     return sb
 
 def wishart_setup(N, alpha, suffix=None):
@@ -94,17 +96,26 @@ def wishart_setup(N, alpha, suffix=None):
     def resource_fcn(df):
         return df['swe'] * df['rep'] * df['boots']
     sb = stochastic_benchmark.stochastic_benchmark(parameter_names, here=here,\
-                                                   resource_fcn=resource_fcn)
-    rsParams = random_exploration.RandomSearchParameters()
-    sb.project_recs()
-    sb.run_random_exploration(rsParams)
+                                                   train_test_split=0.8, resource_fcn=resource_fcn)
+    key = names.param2filename({'Key': 'PerfRatio', 'Metric':'median'}, '')
+    rsParams = random_exploration.RandomSearchParameters(
+        parameter_names=parameter_names,
+        key=key)
+    sb.run_baseline()
+    sb.run_ProjectionExperiment('TrainingStats')
+    sb.run_ProjectionExperiment('TrainingResults')
+    sb.run_RandomSearchExperiment(rsParams)
     return sb
     
 def skpleiades_setup(n):
     here = 'example_data/sk_pleiades_n={}'.format(n)
     parameter_names = ['sweep', 'Tcfactor', 'Thfactor']
-    rsParams = random_exploration.RandomSearchParameters()
+    key = names.param2filename({'Key': 'PerfRatio', 'Metric':'median'}, '')
+    rsParams = random_exploration.RandomSearchParameters(parameter_names=parameter_names,
+        key=key)
     sb = stochastic_benchmark.stochastic_benchmark(parameter_names, here=here)
-    sb.project_recs()
-    sb.run_random_exploration(rsParams)
+    sb.run_baseline()
+    sb.run_ProjectionExperiment('TrainingStats')
+    sb.run_ProjectionExperiment('TrainingResults')
+    sb.run_RandomSearchExperiment(rsParams)
     return sb

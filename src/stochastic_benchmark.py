@@ -49,6 +49,270 @@ def prepare_bootstrap(nboots = 1000,
 def sweep_boots_resource(df):
     return df['sweep'] * df['boots']
 
+class ProjectionExperiment:
+    def __init__(self, parent, project_from):
+        self.parent = parent
+        self.name = 'Projection'
+        self.project_from = project_from
+        self.populate()
+        
+    def populate(self):
+        rec_path = os.path.join(self.parent.here.checkpoints, 'Projection_from={}.pkl'.format(self.project_from))
+        
+        # Prepare the recipes
+        if self.project_from == 'TrainingStats':
+            br_train_path = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train.pkl')
+            if os.path.exists(br_train_path):
+                self.recipe = pd.read_pickle(br_train_path)
+            else:
+                response_col = names.param2filename(
+            {'Key': self.parent.response_key, 'Metric': self.parent.stat_params.stats_measures[0].name}, '')
+                self.recipe = training.best_parameters(self.parent.training_stats.copy(),
+                                     parameter_names=self.parent.parameter_names,
+                                     response_col=response_col,
+                                     response_dir=1,
+                                     resource_col='resource',
+                                     additional_cols=['boots'],
+                                    smooth=self.parent.smooth)
+                self.recipe.to_pickle(br_train_path)
+
+        elif self.project_from == 'TrainingResults':
+            vb_train_path = os.path.join(self.parent.here.checkpoints, 'VirtualBest_train.pkl')
+            if os.path.exists(vb_train_path):
+                self.vb_train = pd.read_pickle(vb_train_path)
+            else:
+                response_col = names.param2filename({'Key': self.parent.response_key}, '')
+                training_results = self.parent.interp_results[self.parent.interp_results['train'] == 1].copy()
+                self.vb_train = training.virtual_best(training_results,\
+                                   parameter_names=self.parent.parameter_names,\
+                                   response_col=response_col,\
+                                   response_dir=1,\
+                                   groupby = self.parent.instance_cols,\
+                                   resource_col='resource',\
+                                    smooth=self.parent.smooth)
+                self.vb_train.to_pickle(vb_train_path)
+
+            self.recipe = training.best_recommended(self.vb_train.copy(),
+                              parameter_names=self.parent.parameter_names,
+                              resource_col='resource',
+                              additional_cols=['boots']).reset_index()
+        else:
+            raise NotImplementedError('Projection from {} has not been implemented'.format(project_from))
+        
+        # Run the projections
+        if os.path.exists(rec_path):
+            self.rec_params = pd.read_pickle(rec_path)
+        else:
+            testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
+            self.rec_params = training.evaluate(testing_results,\
+                                                self.recipe,\
+                                                training.scaled_distance,\
+                                                parameter_names=self.parent.parameter_names)
+            self.rec_params.to_pickle(rec_path)
+    
+    def evaluate(self):
+        params_df = self.rec_params.loc[:, ['resource'] + self.parent.parameter_names].copy()
+        params_df = params_df.groupby('resource').mean()
+        params_df.reset_index(inplace=True)
+        
+        base = names.param2filename({'Key': self.parent.response_key}, '')
+        CIlower = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'lower'}, '')
+        CIupper = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'upper'}, '')
+        eval_df = self.rec_params.copy()
+        eval_df.rename(columns = {
+            base :'response',
+            CIlower :'response_lower',
+            CIupper :'response_upper',
+        }, inplace=True
+        )
+        eval_df = eval_df.loc[:, ['resource','response', 'response_lower', 'response_upper']]
+        eval_df = eval_df.groupby('resource').median()
+        eval_df.reset_index(inplace=True)
+        return params_df, eval_df
+    
+    def evaluate_monotone(self):
+        params_df, eval_df = self.evaluate()
+        joint = params_df.merge(eval_df, on='resource')
+        joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
+        params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
+        eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
+        return params_df, eval_df
+    
+class RandomSearchExperiment:
+    def __init__(self, parent, rsParams):
+        self.parent = parent
+        self.name = 'RandomSearch'
+        self.rsParams = rsParams
+        self.populate()
+        
+    def populate(self):
+        strategy_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_strategy.pkl')
+        eval_train_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_evalTrain.pkl')
+        eval_test_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_evalTest.pkl')
+        if os.path.exists(strategy_path):
+            self.strategy = pd.read_pickle(strategy_path)
+        else:
+            self.strategy, self.eval_train, _ = random_exploration.RandomExploration(self.parent.training_stats, self.rsParams)
+            self.strategy.to_pickle(strategy_path)
+            self.eval_train.to_pickle(eval_train_path)
+        
+        if os.path.exists(eval_test_path):
+            self.eval_test = pd.read_pickle(eval_test_path)
+        else:
+            self.eval_test = random_exploration.apply_allocations(self.parent.testing_stats.copy(), self.rsParams, self.strategy)
+            self.eval_test.to_pickle(eval_test_path)
+            
+    def evaluate(self):
+        params_df = self.eval_test.loc[:, ['TotalBudget'] + self.parent.parameter_names]
+        params_df = params_df.groupby('TotalBudget').mean()
+        params_df.reset_index(inplace=True)
+        params_df.rename(columns = {
+            'TotalBudget' : 'resource'}, inplace=True)
+        
+        base = names.param2filename({'Key': self.parent.response_key,
+                                    'Metric': self.parent.stat_params.stats_measures[0].name}, '')
+        CIlower = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'lower',
+                                        'Metric': self.parent.stat_params.stats_measures[0].name}, '')
+        CIupper = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'upper',
+                                        'Metric': self.parent.stat_params.stats_measures[0].name}, '')
+        eval_df = self.eval_test.copy()
+        eval_df.drop('resource', axis=1, inplace=True)
+        eval_df.rename(columns = {
+            'TotalBudget' : 'resource',
+            base :'response',
+            CIlower :'response_lower',
+            CIupper :'response_upper',
+        },inplace=True
+        )
+        
+        eval_df = eval_df.loc[:, ['resource','response', 'response_lower', 'response_upper']]
+        eval_df = eval_df.groupby('resource').median()
+        eval_df.reset_index(inplace=True)
+        return params_df, eval_df
+    
+    def evaluate_monotone(self):
+        params_df, eval_df = self.evaluate()
+        joint = params_df.merge(eval_df, on='resource')
+        joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
+        params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
+        eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
+        return params_df, eval_df
+    
+class SequentialSearchExperiment:
+    def __init__(self, parent, ssParams):
+        self.parent = parent
+        self.name = 'SequentialSearch'
+        self.ssParams = ssParams
+        self.populate()
+        
+    def populate(self):
+        strategy_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_strategy.pkl')
+        eval_train_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTrain.pkl')
+        eval_test_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTest.pkl')
+        if os.path.exists(strategy_path):
+            self.strategy = pd.read_pickle(strategy_path)
+            self.eval_train = pd.read_pickle(eval_train_path)
+        else:
+            training_results = self.parent.interp_results[self.parent.interp_results['train'] == 1].copy()
+            self.strategy, self.eval_train, _ = sequential_exploration.SequentialExploration(training_results, self.ssParams, group_on=self.parent.instance_cols)
+            self.strategy.to_pickle(strategy_path)
+            self.eval_train.to_pickle(eval_train_path)
+        
+        if os.path.exists(eval_test_path):
+            self.eval_test = pd.read_pickle(eval_test_path)
+        else:
+            testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
+            self.eval_test = sequential_exploration.apply_allocations(testing_results,
+                                                                      self.ssParams,
+                                                                      self.strategy,
+                                                                      self.parent.instance_cols)
+            self.eval_test.to_pickle(eval_test_path)
+    
+    def evaluate(self):
+        params_df = self.eval_test.loc[:, ['TotalBudget'] + self.parent.parameter_names]
+        params_df = params_df.groupby('TotalBudget').mean()
+        params_df.reset_index(inplace=True)
+        params_df.rename(columns = {
+            'TotalBudget' : 'resource'}, inplace=True)
+        
+        base = names.param2filename({'Key': self.parent.response_key}, '')
+        CIlower = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'lower'}, '')
+        CIupper = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'upper'}, '')
+        eval_df = self.eval_test.copy()
+        eval_df.drop('resource', axis=1, inplace=True)
+        eval_df.rename(columns = {
+            'TotalBudget' : 'resource',
+            base :'response',
+            CIlower :'response_lower',
+            CIupper :'response_upper',
+        },inplace=True
+        )
+        
+        eval_df = eval_df.loc[:, ['resource','response', 'response_lower', 'response_upper']]
+        eval_df = eval_df.groupby('resource').median()
+        eval_df.reset_index(inplace=True)
+        return params_df, eval_df
+    
+    def evaluate_monotone(self):
+        params_df, eval_df = self.evaluate()
+        joint = params_df.merge(eval_df, on='resource')
+        joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
+        params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
+        eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
+        return params_df, eval_df
+        
+class VirtualBestBaseline:
+    def __init__(self, parent):
+        self.parent = parent
+        self.name = 'VirtualBest'
+        self.populate()
+        
+    def savename(self):
+        return os.path.join(self.parent.here.checkpoints, 'VirtualBest_test.pkl')
+    
+    def populate(self):
+        if os.path.exists(self.savename()):
+            self.rec_params = pd.read_pickle(self.savename())
+        else:
+            response_col = names.param2filename({'Key': self.parent.response_key}, '')
+            testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
+            self.rec_params = training.virtual_best(testing_results,\
+                               parameter_names=self.parent.parameter_names,\
+                               response_col=response_col,\
+                               response_dir=1,\
+                               groupby = self.parent.instance_cols,\
+                               resource_col='resource',\
+                                smooth=self.parent.smooth)
+            self.rec_params.to_pickle(self.savename())
+                
+    def evaluate(self):
+        params_df = self.rec_params.loc[:, ['resource'] + self.parent.parameter_names]
+        params_df = params_df.groupby('resource').mean()
+        
+        base = names.param2filename({'Key': self.parent.response_key}, '')
+        CIlower = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'lower'}, '')
+        CIupper = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'upper'}, '')
+        eval_df = self.rec_params.copy()
+        eval_df.rename(columns = {
+            base :'response',
+            CIlower :'response_lower',
+            CIupper :'response_upper',
+        },inplace=True
+        )
+        
+        eval_df = eval_df.loc[:, ['resource', 'response']]
+        eval_df = eval_df.groupby('resource').median()
+        eval_df.reset_index(inplace=True)
+        return params_df, eval_df
+
 class stochastic_benchmark:
     def __init__(self, 
                  parameter_names,
@@ -57,9 +321,12 @@ class stochastic_benchmark:
                  bsParams_iter = prepare_bootstrap(),
                  stat_params = stats.StatsParameters(stats_measures=[stats.Median()]),
                  resource_fcn = sweep_boots_resource,
+                 response_key = 'PerfRatio',
                  train_test_split = 0.5,
                  recover=True,
-                smooth=True):
+                smooth=True,
+                baseline = 'VirtualBest',
+                experiments = ['Projection', 'RandomSearch', 'SequentialSearch']):
         
         self.here = names.paths(here)
         self.parameter_names = parameter_names
@@ -67,14 +334,18 @@ class stochastic_benchmark:
         self.bsParams_iter = bsParams_iter
         self.stat_params = stat_params
         self.resource_fcn = resource_fcn
+        self.response_key = response_key
         self.train_test_split = train_test_split
         self.recover=recover
         self.smooth = smooth
         
+        ## Dataframes needed for experiments and baselines
         self.bs_results = None
         self.interp_results = None
         self.training_stats = None
         self.testing_stats = None
+        
+        self.experiments = []
         
         #Recursive file recovery 
         while any([v is None for v in [self.interp_results, self.training_stats, self.testing_stats]]):
@@ -134,103 +405,15 @@ class stochastic_benchmark:
                 self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, self.bsParams_iter)
                 self.bs_results.to_pickle(self.here.bootstrap)
             
-            
-    def set_virtual_best(self):
-        self.virtual_best = {}
+    def run_baseline(self):
+        self.baseline = VirtualBestBaseline(self)
+    def run_ProjectionExperiment(self, project_from):
+        self.experiments.append(ProjectionExperiment(self, project_from))
+    def run_RandomSearchExperiment(self, rsParams):
+        self.experiments.append(RandomSearchExperiment(self, rsParams))
+    def run_SequentialSearchExperiment(self, ssParams):
+        self.experiments.append(SequentialSearchExperiment(self, ssParams))
         
-        if os.path.exists(self.here.virtual_best['train']):
-            self.virtual_best['train'] = pd.read_pickle(self.here.virtual_best['train'])
-        else:
-            training_results = self.interp_results[self.interp_results['train'] == 1].copy()
-            self.virtual_best['train'] = training.virtual_best(training_results,\
-                               parameter_names=self.parameter_names,\
-                               response_col='Key=PerfRatio',\
-                               response_dir=1,\
-                               groupby = self.instance_cols,\
-                               resource_col='resource',\
-                                smooth=self.smooth)
-            self.virtual_best['train'].to_pickle(self.here.virtual_best['train'])
-        
-        if os.path.exists(self.here.virtual_best['test']):
-            self.virtual_best['test'] = pd.read_pickle(self.here.virtual_best['test'])
-        else:
-            testing_results = self.interp_results[self.interp_results['train'] == 0].copy()
-            self.virtual_best['test'] = training.virtual_best(testing_results,\
-                               parameter_names=self.parameter_names,\
-                               response_col='Key=PerfRatio',\
-                               response_dir=1,\
-                               groupby = self.instance_cols,\
-                               resource_col='resource',\
-                                smooth=self.smooth)
-            self.virtual_best['test'].to_pickle(self.here.virtual_best['test'])
-
-        return 
-    
-    def set_recommended_parameters(self):
-        self.best_recommended = {}
-        response_col = names.param2filename(
-            {'Key': 'PerfRatio', 'Metric': self.stat_params.stats_measures[0].name}, '')
-        
-        if os.path.exists(self.here.best_rec['stats']):
-            self.best_recommended['stats'] = pd.read_pickle(self.here.best_rec['stats'])
-        else:
-            self.best_recommended['stats'] =\
-            training.best_parameters(self.training_stats.copy(),
-                                     parameter_names=self.parameter_names,
-                                     response_col=response_col,
-                                     response_dir=1,
-                                     resource_col='resource',
-                                     additional_cols=['boots'],
-                                    smooth=self.smooth)
-            self.best_recommended['stats'].to_pickle(self.here.best_rec['stats'])
-        
-        if not hasattr(self, 'virtual_best'):
-            self.set_virtual_best()
-        
-        if os.path.exists(self.here.best_rec['results']):
-            self.best_recommended['results'] = pd.read_pickle(self.here.best_rec['results'])
-        else:
-            self.best_recommended['results'] =\
-            training.best_recommended(self.virtual_best['train'].copy(),
-                                      parameter_names=self.parameter_names,
-                                      resource_col='resource',
-                                      additional_cols=['boots']).reset_index()
-            self.best_recommended['results'].to_pickle(self.here.best_rec['results'])
-         
-    def project_recs(self):
-        self.projections = {}
-        if not hasattr(self, 'best_recommended'):
-            self.set_recommended_parameters()
-            
-        testing_results = self.interp_results[self.interp_results['train'] == 0].copy()
-        for k, v in self.best_recommended.items():
-            if os.path.exists(self.here.projections[k]):
-                self.projections[k] = pd.read_pickle(self.here.projections[k])
-            else:
-                self.projections[k] = training.evaluate(testing_results,
-                                                        v,
-                                                        training.scaled_distance,
-                                                        parameter_names=self.parameter_names)
-                self.projections[k].to_pickle(self.here.projections[k])
-    
-    def run_random_exploration(self, rsParams):
-        if os.path.exists(self.here.best_agg_alloc):
-            self.best_agg_alloc = pd.read_pickle(self.here.best_agg_alloc)
-            self.train_exp_at_best = pd.read_pickle(self.here.train_exp_at_best)
-            self.final_values = pd.read_pickle(self.here.final_values)
-            
-        else:
-            self.best_agg_alloc, self.train_exp_at_best, self.final_values = random_exploration.RandomExploration(self.training_stats, rsParams)
-            self.best_agg_alloc.to_pickle(self.here.best_agg_alloc)
-            self.train_exp_at_best.to_pickle(self.here.train_exp_at_best)
-            self.final_values.to_pickle(self.here.final_values)
-            
-            
-        if os.path.exists(self.here.test_exp_at_best):
-            self.test_exp_at_best = pd.read_pickle(self.here.test_exp_at_best)
-        else:
-            self.test_exp_at_best = random_exploration.apply_allocations(self.testing_stats.copy(), rsParams, self.best_agg_alloc)
-            self.test_exp_at_best.to_pickle(self.here.test_exp_at_best)
     
     def run_sequential_exploration(self, ssParams):
         if os.path.exists(self.here.seq_exp_values):
@@ -239,119 +422,46 @@ class stochastic_benchmark:
             self.seq_exp_values = sequential_exploration.SequentialSearch(self.interp_results.copy(), ssParams, group_on=self.instance_cols)
             self.seq_exp_values.to_pickle(self.here.seq_exp_values)
             
-            
-    def plot_parameters(self, key):
-        if not hasattr(self, 'best_recommended'):
-            self.set_recommended_parameters()
-        plot_dict = {}
-        for k, v in self.best_recommended.items():
-#             fig, axs = plt.subplots(1, len(self.parameter_names), figsize=(len(self.parameter_names)*5 + 1, 5))
-            fig = plt.figure()
-            fig.suptitle('Best recommended parameters generated from {}'.format(k))
-            print('Best recommended parameters generated from {}'.format(k))
-            
-            for idx, param in enumerate(self.parameter_names):
-#                 if len(self.parameter_names) == 1:
-#                     ax = axs
-#                 else:
-#                     ax = axs[idx]
-                    
-                if idx == 0:
-                    ax = plt.gca()
-                    labels = ['Virtual best', 'Seq. expl.', 'Project from {} vb'.format(k), 'Random expl']
-                    patches = [mpatches.Patch(color=colors[i], label=labels[i]) for i in range(4)]
-                    ax.legend(handles=patches)
+    def assign_colors(self):
+        if hasattr(self.baseline, 'color'):
+            return
+        else:
+            colorcount = 0
+            self.baseline.color = colors[colorcount]
+            colorcount += 1
+            for experiment in self.experiments:
+#                 print('Assigning {} to {}'.format(colors[colorcount], experiment.name))
+                experiment.color = colors[colorcount]
+                colorcount += 1
                 
-                color_count = 0
-                p = (
-                    so.Plot(data=self.virtual_best['test'], x='resource', y=param)
-#                     .on(ax)
-                    .scale(x='log')
+    def plot_parameters(self):
+        self.assign_colors()
+        params_df,_ = self.baseline.evaluate()
+        p = {}
+        for param in self.parameter_names:
+            p[param] = (so.Plot(data=params_df, x='resource', y=param)
+                        .add(so.Line(color = self.baseline.color))
+                       )
+        for experiment in self.experiments:
+            params_df, _ = experiment.evaluate_monotone()
+            for param in self.parameter_names:
+                p[param] = p[param].add(so.Line(color =experiment.color), data=params_df, x='resource', y=param)
+        return p
+    
+    def plot_performance(self):
+        self.assign_colors()
+        _, eval_df = self.baseline.evaluate()
+        eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
+        p = (so.Plot(data=eval_df, x='resource', y='response')
+             .add(so.Line(color = self.baseline.color))
+            )
+        for experiment in self.experiments:
+            _, eval_df = experiment.evaluate_monotone()
+            p = (p.add(so.Line(color=experiment.color), data=eval_df, x='resource', y='response')
+                 .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
+                      ymin='response_lower', ymax='response_upper')
                 )
-                p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'))
-                color_count += 1
-                
-                keyname = names.param2filename({'Key': key}, '')
-                if hasattr(self, 'seq_exp_values'):
-                    test_seq_exp = self.seq_exp_values[self.seq_exp_values['train'] == 0].copy()
-                    test_seq_exp.sort_values(keyname, ascending=False, inplace=True)
-                    test_seq_exp.drop_duplicates(['TotalBudget', 'N', 'n', 'idx'])
-
-                    best_test_seq = test_seq_exp.copy()
-                    best_test_seq = best_test_seq.groupby('TotalBudget').mean().reset_index()
-                    p = p.add(so.Line(color=colors[color_count]),
-                         data=best_test_seq, x='TotalBudget', y=param)
-                color_count += 1
-            
-                p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'),
-                         data=v, x='resource', y=param)
-                color_count += 1
-
-                p = p.add(so.Line(color=colors[color_count]), so.Agg('mean'),
-                         data=self.test_exp_at_best, x='TotalBudget', y=param)
-                color_count += 1
-                
-                plot_dict[(k, param)] = copy.copy(p)
-                plot_dict[(k, param)].show()
-                
-#             figname = os.path.join(self.here.plots, 'RecParams_Gen={}.pdf'.format(k))
-#             plt.savefig(figname)
-            # plt.close(fig)
-            
-    def plot_performance(self, key, metric):
-        if not hasattr(self, 'projections'):
-            self.evaluate_recommendations()
-        for k, v in self.projections.items():
-            fig = plt.figure()
-            ax = plt.gca()
-            ax.set_title('Performance')
-            labels = ['Virtual best', 'Seq. expl.', 'Project from {} vb'.format(k), 'Random expl']
-            patches = [mpatches.Patch(color=colors[i], label=labels[i]) for i in range(4)]
-            ax.legend(handles=patches)
-            
-            keyname = names.param2filename({'Key': key}, '')
-            
-            color_count = 0
-            p = (
-                so.Plot(data=self.virtual_best['test'], x='resource', y=keyname)
-                .on(ax)
-                )
-            p = p.add(so.Line(color=colors[color_count]), so.Agg('median'), legend=True)
-            color_count+=1
-            
-            if hasattr(self, 'seq_exp_values'):
-                test_seq_exp = self.seq_exp_values[self.seq_exp_values['train'] == 0].copy()
-                test_seq_exp.sort_values(keyname, ascending=False, inplace=True)
-                test_seq_exp.drop_duplicates(['TotalBudget', 'N', 'n', 'idx'])
-
-                best_test_seq = test_seq_exp.copy()
-                best_test_seq = best_test_seq.groupby('TotalBudget').median().reset_index()
-
-                p = p.add(so.Line(color=colors[color_count]), so.Agg('median'), data=best_test_seq, x='TotalBudget', y=keyname)
-            color_count+=1
-            
-            CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower'}, '')
-            CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
-            ConfInts_df = v.groupby('resource').median().reset_index()
-            p = p.add(so.Line(color=colors[color_count]), so.Agg('median'),
-                     data=v, x='resource', y=keyname)
-            p = p.add(so.Band(alpha=0.2, color=colors[color_count]), data=ConfInts_df, x='resource',\
-                      ymin=CIlower, ymax=CIupper)
-            color_count+=1
-            
-            keyname = names.param2filename({'Key': key, 'Metric': metric}, '')
-            CIlower = names.param2filename({'Key': key, 'ConfInt': 'lower', 'Metric': metric}, '')
-            CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper', 'Metric': metric}, '')
-            ConfInts_df = self.test_exp_at_best.groupby('TotalBudget').median().reset_index()
-            p = p.add(so.Line(color=colors[color_count]), so.Agg('median'),
-                     data=self.test_exp_at_best, x='TotalBudget', y=keyname)
-            p = p.add(so.Band(alpha=0.2, color=colors[color_count]), data=ConfInts_df, x='TotalBudget',\
-                      ymin=CIlower, ymax=CIupper)
-            p = p.scale(x="log").limit(y=(0., 1.1))
-
-            p.show()
-#             figname = os.path.join(self.here.plots, '{}_Gen={}.pdf'.format(key, k))
-#             plt.savefig(figname)
+        return p
 
     def plot_random_metaparams(self):
         metaparams = ['ExploreFrac','tau']
@@ -364,9 +474,11 @@ class stochastic_benchmark:
         for idx, param in enumerate(metaparams):
             p[idx] = (
                 so.Plot(data=df, x='TotalBudget', y=param)
-#                 .on(sfigs[idx])
                 .scale(x="log")
                 .add(so.Line(), so.Agg())
             )
+            figname = os.path.join(self.here.plots, 'metaparam_{}.pdf'.format(param))
+            
             p[idx].show()
+            p[idx].save(figname)
         return p

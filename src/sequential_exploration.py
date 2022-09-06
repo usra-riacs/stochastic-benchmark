@@ -5,6 +5,7 @@ from tqdm import tqdm
 
 import pandas as pd
 import df_utils
+import names
 from utils_ws import *
 
 import stats
@@ -74,11 +75,17 @@ def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSear
     exploit_df = df_stats.merge(best_pars, on=ssParams.parameter_names)
     exploit_df['exploit'] = 1
     exploit_df.loc[:, ssParams.key].fillna(0., inplace=True)
+    
+    names_dict = names.filename2param(ssParams.key)
+    names_dict.update({'ConfInt': 'lower'})
+    CIlower = names.param2filename(names_dict, '')
+    names_dict.update({'ConfInt': 'upper'})
+    CIupper = names.param2filename(names_dict, '')
 
     if ssParams.optimization_dir == 1:
-        exploit_df.loc[:, ssParams.key].clip(lower=best_val, inplace=True)
+        exploit_df.loc[:, [ssParams.key, CIlower, CIupper]].clip(lower=best_val, inplace=True)
     elif ssParams.optimization_dir == -1:
-        exploit_df.loc[:, ssParams.key].clip(upper=best_val, inplace=True)
+        exploit_df.loc[:, [ssParams.key, CIlower, CIupper]].clip(upper=best_val, inplace=True)
 
     df_experiment = pd.concat([df_tau, exploit_df], ignore_index=True)
     df_experiment['tau'] = tau
@@ -93,31 +100,34 @@ def run_experiments(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters
     final_values = []
     total = len(ssParams.budgets) * len(ssParams.exploration_fracs) * len(ssParams.taus)
     pbar = tqdm(product(ssParams.budgets, ssParams.exploration_fracs, ssParams.taus), total=total)
-#     pbar = product(ssParams.budgets, ssParams.exploration_fracs, ssParams.taus)
     for budget, explore_frac, tau in pbar:
         df_experiment = SequentialExplorationSingle(df_stats, ssParams, budget, explore_frac, tau)
         if df_experiment is None:
             continue
         final_values.append(df_experiment.iloc[[-1]])
     if len(final_values) == 0:
-        return pd.DataFrame(columns=(list(df_stats.columns) + ['exploit', 'tau', 'TotalBudget', 'ExplorationBudget', 'CummResource']))
+        return pd.DataFrame(columns=(list(df_stats.columns)\
+                                     + ['exploit', 'tau', 'TotalBudget', 'ExplorationBudget', 'CummResource']))
     
     else:
         return pd.concat(final_values, ignore_index=True)
 
-def apply_allocations(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, best_agg_alloc: pd.DataFrame):
+def apply_allocations(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, best_agg_alloc: pd.DataFrame, group_on: list):
     final_values = []
     for _, row in best_agg_alloc.iterrows():
         budget = row['TotalBudget']
         explore_budget = row['ExplorationBudget']
         tau = row['tau']
         explore_frac = float(explore_budget) / float(budget)
-        df_experiment = SequentialExplorationSingle(df_stats, ssParams, budget, explore_frac, tau)
+        df_experiment = df_utils.applyParallel(df_stats.groupby(group_on),
+                                              lambda df: SequentialExplorationSingle(df, ssParams, budget, explore_frac, tau))
+#         df_experiment = SequentialExplorationSingle(df_stats, ssParams, budget, explore_frac, tau)
         final_values.append(df_experiment.iloc[[-1]])
     return pd.concat(final_values, ignore_index=True)
                                 
-def SequentialSearch(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, group_on: list):
+def SequentialExploration(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, group_on: list):
     prepare_search(df_stats, ssParams)
     final_values = df_utils.applyParallel(df_stats.groupby(group_on), lambda df: run_experiments(df, ssParams))
 #     final_values = df_stats.groupby(group_on).progress_apply(lambda df: run_experiments(df, ssParams))
-    return final_values
+    best_agg_alloc, exp_at_best = summarize_experiments(final_values, ssParams)
+    return best_agg_alloc, exp_at_best, final_values

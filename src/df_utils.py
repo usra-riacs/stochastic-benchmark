@@ -19,6 +19,38 @@ def applyParallel(dfGrouped, func):
         ret_list = p.map(func, [group for name, group in dfGrouped])
     return pd.concat(ret_list)
 
+def monotone_df(df, resource_col, response_col, opt_sense):
+    df.sort_values(resource_col, ascending=True, inplace=True)
+    resource_vals = df[resource_col].copy()
+    if opt_sense == 1:
+        running_max = df[response_col].cummax().to_frame()
+        df = running_max.merge(df, on=response_col, suffixes=(None, '_unsmoothed'))
+    elif response_dir == -1:
+        running_min = df[response_col].cummin().to_frame()
+        df = running_min.merge(df, on=response_col, suffixes=(None, '_unsmoothed'))
+    df.drop_duplicates(inplace=True)
+    df.sort_values(resource_col, ascending=True, inplace=True)
+#     df.reset_index(inplace=True)
+#     df.loc[:, resource_col] = resource_vals
+    return df
+
+def prune_diff(df, diff_col, group_on):
+    def unique_vals(df):
+        return np.unique(df[diff_col])
+    
+    return
+
+def eval_cumm(df, group_on, resource_col, response_col, opt_sense):
+    
+    def cummSingle(single_df):
+        single_df = monotone_df(single_df.copy(), resource_col, response_col, 1)
+        single_df.loc[:, 'cummulative'+resource_col] = single_df[resource_col].expanding(min_periods=1).sum()
+        return single_df
+    
+    cumm_df = df.groupby(group_on).apply(cummSingle)
+#     cumm_df.reset_index(inplace=True)
+    return cumm_df
+
 def read_exp_raw(exp_raw_dir, name_params=[]):
     """
     Generates a combined dataframe of all experiments in exp_raw_dir

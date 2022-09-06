@@ -223,6 +223,7 @@ def StatsSingle(df_single: pd.DataFrame, stat_params: StatsParameters):
             df_dict[metric_basename] = [base]
             df_dict[metric_CIlower_name] = [CIlower]
             df_dict[metric_CIupper_name] = [CIupper]
+            df_dict['count'] = len(df_single[pre_base])
 
     df_stats_single = pd.DataFrame.from_dict(df_dict)
     return df_stats_single

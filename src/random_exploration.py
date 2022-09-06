@@ -7,6 +7,7 @@ import pandas as pd
 from utils_ws import *
 
 import stats
+import names
 
 @dataclass
 class RandomSearchParameters:
@@ -66,11 +67,15 @@ def single_experiment(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, 
     exploit_df = df_stats.merge(best_pars, on=rsParams.parameter_names)
     exploit_df['exploit'] = 1
     exploit_df.loc[:, rsParams.key].fillna(0., inplace=True)
-
+    names_dict = names.filename2param(rsParams.key)
+    names_dict.update({'ConfInt': 'lower'})
+    CIlower = names.param2filename(names_dict, '')
+    names_dict.update({'ConfInt': 'upper'})
+    CIupper = names.param2filename(names_dict, '')
     if rsParams.optimization_dir == 1:
-        exploit_df.loc[:, rsParams.key].clip(lower=best_val, inplace=True)
+        exploit_df.loc[:, [rsParams.key, CIlower, CIupper]].clip(lower=best_val, inplace=True)
     elif rsParams.optimization_dir == -1:
-        exploit_df.loc[:, rsParams.key].clip(upper=best_val, inplace=True)
+        exploit_df.loc[:, [rsParams.key, CIlower, CIupper]].clip(upper=best_val, inplace=True)
 
     df_experiment = pd.concat([df_tau, exploit_df], ignore_index=True)
     df_experiment['tau'] = tau
@@ -112,7 +117,7 @@ def apply_allocations(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, 
                                 
 def RandomExploration(df_stats: pd.DataFrame, rsParams: RandomSearchParameters):
     prepare_search(df_stats, rsParams)
-    final_values = run_experiments(df_stats, rsParams)
+    final_values = run_experiments(df_stats, rsParams) #The final values (i.e., last response for each experiment)
     best_agg_alloc, exp_at_best = summarize_experiments(final_values, rsParams)
     return best_agg_alloc, exp_at_best, final_values
     

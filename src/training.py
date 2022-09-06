@@ -6,6 +6,8 @@ import pandas as pd
 from typing import List, Tuple, Union
 import warnings
 
+import df_utils
+
 
 def best_parameters(df: pd.DataFrame,
                      parameter_names: List[str],
@@ -46,14 +48,7 @@ def best_parameters(df: pd.DataFrame,
         best = df.sort_values(
             response_col, ascending=False).drop_duplicates(resource_col)
     if smooth:
-        if response_dir == 1:
-            best.sort_values(resource_col, ascending=True, inplace=True)
-            running_max = best[response_col].cummax().to_frame()
-            best = running_max.merge(best, left_index=True, right_index=True, suffixes=(None, '_unsmoothed'))
-        elif response_dir == -1:
-            best.sort_values(resource_col, ascending=True, inplace=True)
-            running_min = best[response_col].cummin().to_frame()
-            best = running_max.merge(best, left_index=True, right_index=True, suffixes=(None, '_unsmoothed'))
+        best = df_utils.monotone_df(best, resource_col, response_col, response_dir)
             
     best = best[np.unique([resource_col, response_col] + parameter_names + additional_cols)
                 ].sort_values(resource_col, ascending=True)
@@ -92,7 +87,7 @@ def evaluate_single(df_eval: pd.DataFrame,
                     parameter_names: List[str],
                     resource_col: str = 'resource'):
     df_list = []
-    def argmin(df): return df[df['distance_scaled'] == df['distance_scaled'].min()]
+    def argmin(df) : return df[df['distance_scaled'] == df['distance_scaled'].min()]
     for _,recipe in recipes.iterrows():
         temp_df_eval = argmin(distance_fcn(df_eval[df_eval[resource_col]==recipe[resource_col]], recipe, parameter_names))
         temp_df_eval.loc[:,resource_col] = recipe[resource_col]

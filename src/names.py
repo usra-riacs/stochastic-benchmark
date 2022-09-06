@@ -78,8 +78,9 @@ def filename2param(filename):
     """
     # utility to turn filename into parameter dictionary, user needs to fix types of values
     split_filename = filename.split('_')
-    ext_idx = split_filename[-1].rindex('.')
-    split_filename[-1] = split_filename[-1][:ext_idx]
+    if '.' in split_filename[-1]:
+        ext_idx = split_filename[-1].rindex('.')
+        split_filename[-1] = split_filename[-1][:ext_idx]
 
     param_dict = {}
     for kv in split_filename:

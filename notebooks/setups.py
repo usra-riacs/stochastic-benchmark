@@ -1,4 +1,6 @@
+import dill
 import numpy as np
+import os
 
 import bootstrap
 import df_utils
@@ -101,11 +103,53 @@ def wishart_setup(N, alpha, suffix=None):
     rsParams = random_exploration.RandomSearchParameters(
         parameter_names=parameter_names,
         key=key)
+    
+    ssParams = sequential_exploration.SequentialSearchParameters(parameter_names=parameter_names,\
+                                                                key='Key=PerfRatio')
+    
+    add_hyperopt_trial(sb, offset=0)
+    if not (('order' in sb.interp_results.columns) and ('order' in sb.bs_results.columns)):
+        print('calling hpo')
+        add_hyperopt_trial(sb, offset=0)
     sb.run_baseline()
     sb.run_ProjectionExperiment('TrainingStats')
     sb.run_ProjectionExperiment('TrainingResults')
     sb.run_RandomSearchExperiment(rsParams)
+    sb.run_SequentialSearchExperiment(ssParams)
+
     return sb
+
+def add_hyperopt_trial(sb, offset=100):
+    ### Bandaid for adding hyperopt ordering data. Add after sb is initialized but before trials are run
+    
+    base_dir = sb.here.cwd
+    hpo_pickle_path = os.path.join(base_dir, 'processing_data/hyperopt_trial.pickle')
+    
+    with open(hpo_pickle_path, 'rb') as in_strm:
+        trials = dill.load(in_strm)
+
+    vals = trials.vals
+    for df in [sb.interp_results, sb.bs_results]:
+        df['order'] = np.nan
+        count = 0
+        for idx in range(offset, len(vals['sweeps'])):
+            sweeps = vals['sweeps'][idx]
+            replicas = vals['replicas'][idx] 
+            pcold = vals['pcold'][idx]
+            phot = vals['phot'][idx]
+
+            df_idx = df.index[(df['swe'] == sweeps) 
+                              & (df['rep'] == replicas)
+                              & (df['pcold'] == pcold)
+                              & (df['phot'] == phot)]
+
+            if len(df_idx) == 0:
+                continue
+            else:
+                df.loc[df_idx, 'order'] = count
+                count += 1
+    sb.bs_results.to_pickle(sb.here.bootstrap)
+    sb.interp_results.to_pickle(sb.here.interpolate)
     
 def skpleiades_setup(n):
     here = 'example_data/sk_pleiades_n={}'.format(n)

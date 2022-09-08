@@ -21,17 +21,23 @@ def applyParallel(dfGrouped, func):
 
 def monotone_df(df, resource_col, response_col, opt_sense):
     df.sort_values(resource_col, ascending=True, inplace=True)
-    resource_vals = df[resource_col].copy()
+    df.reset_index(inplace=True)
     if opt_sense == 1:
-        running_max = df[response_col].cummax().to_frame()
-        df = running_max.merge(df, on=response_col, suffixes=(None, '_unsmoothed'))
+        running_val = df[response_col].cummax()
     elif response_dir == -1:
-        running_min = df[response_col].cummin().to_frame()
-        df = running_min.merge(df, on=response_col, suffixes=(None, '_unsmoothed'))
-    df.drop_duplicates(inplace=True)
-    df.sort_values(resource_col, ascending=True, inplace=True)
-#     df.reset_index(inplace=True)
-#     df.loc[:, resource_col] = resource_vals
+        running_val = df[response_col].cummin()
+    
+    count = 0
+    rolling_cols = [cols for cols in df.columns if cols != 'resource']
+    for idx, row in df.iterrows():
+        if count == 0:
+            count += 1
+            prev_row = row.copy()
+        elif running_val[idx] != row['response']:
+            df.loc[idx, rolling_cols] = prev_row[rolling_cols].copy()
+        else:
+            prev_row = row.copy()
+    df.drop(columns=[c for c in df.columns if 'level' in c])
     return df
 
 def prune_diff(df, diff_col, group_on):

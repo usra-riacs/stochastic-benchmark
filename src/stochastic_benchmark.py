@@ -18,7 +18,7 @@ import training
 import names
 import utils_ws
 
-colors = ['blue', 'orange', 'green', 'red', 'purple']
+colors = ['black', 'blue', 'green', 'red', 'purple']
 
 def prepare_bootstrap(nboots = 1000, 
                       response_col = names.param2filename({'Key': 'MinEnergy'}, ''),
@@ -225,26 +225,39 @@ class SequentialSearchExperiment:
         if os.path.exists(eval_test_path):
             self.eval_test = pd.read_pickle(eval_test_path)
         else:
-            testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
-            self.eval_test = sequential_exploration.apply_allocations(testing_results,
-                                                                      self.ssParams,
-                                                                      self.strategy,
-                                                                      self.parent.instance_cols)
-            self.eval_test.to_pickle(eval_test_path)
+            try:
+                testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
+                self.eval_test = sequential_exploration.apply_allocations(testing_results,
+                                                                          self.ssParams,
+                                                                          self.strategy,
+                                                                          self.parent.instance_cols)
+                self.eval_test.to_pickle(eval_test_path)
+            except:
+                print('Not enough test data for sequential search. Evaluating on train.')
     
     def evaluate(self):
-        params_df = self.eval_test.loc[:, ['TotalBudget'] + self.parent.parameter_names]
-        params_df = params_df.groupby('TotalBudget').mean()
+        if hasattr(self, 'eval_test'):
+            params_df = self.eval_test.loc[:, ['TotalBudget'] + self.parent.parameter_names]
+            eval_df = self.eval_test.copy()
+        else:
+            params_df = self.eval_train.loc[:, ['TotalBudget'] + self.parent.parameter_names]
+            eval_df = self.eval_train.copy()
+        
+        
+        for col in params_df.columns:
+            if params_df[col].dtype == 'object':
+                params_df.loc[:, col] = params_df.loc[:, col].astype(float)
+
+        temp = params_df.groupby('TotalBudget').mean()
         params_df.reset_index(inplace=True)
         params_df.rename(columns = {
             'TotalBudget' : 'resource'}, inplace=True)
-        
         base = names.param2filename({'Key': self.parent.response_key}, '')
         CIlower = names.param2filename({'Key': self.parent.response_key,
                                         'ConfInt':'lower'}, '')
         CIupper = names.param2filename({'Key': self.parent.response_key,
                                         'ConfInt':'upper'}, '')
-        eval_df = self.eval_test.copy()
+        
         eval_df.drop('resource', axis=1, inplace=True)
         eval_df.rename(columns = {
             'TotalBudget' : 'resource',
@@ -453,11 +466,11 @@ class stochastic_benchmark:
         _, eval_df = self.baseline.evaluate()
         eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
         p = (so.Plot(data=eval_df, x='resource', y='response')
-             .add(so.Line(color = self.baseline.color))
+             .add(so.Line(color = self.baseline.color, marker="x"))
             )
         for experiment in self.experiments:
             _, eval_df = experiment.evaluate_monotone()
-            p = (p.add(so.Line(color=experiment.color), data=eval_df, x='resource', y='response')
+            p = (p.add(so.Line(color=experiment.color, marker="x"), data=eval_df, x='resource', y='response')
                  .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
                       ymin='response_lower', ymax='response_upper')
                 )

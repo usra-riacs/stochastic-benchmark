@@ -52,13 +52,20 @@ def summarize_experiments(df: pd.DataFrame, ssParams: SequentialSearchParameters
 def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, budget: float, explore_frac:float, tau:int):
     explore_budget = budget * explore_frac
     if explore_budget < tau:
+        print('Sequential search experiment terminated due to budget')
         return
     
     df_tau = df_stats[df_stats['resource'] == tau].copy()
+    display(df_tau)
     df_tau.sort_values(by=ssParams.order_col, ascending=True, inplace=True, ignore_index=True)
+    display(df_tau)
     df_tau.dropna(axis=0, how='any', subset=[ssParams.order_col, ssParams.key], inplace=True)
+    display(df_tau)
+    
     if len(df_tau) == 0:
+        print('Sequential search experiment terminated due to not enough data')
         return
+    
     n = int(explore_budget / tau)
     df_tau = df_tau.iloc[0:min(n, len(df_tau))]
     
@@ -127,7 +134,7 @@ def apply_allocations(df_stats: pd.DataFrame, ssParams: SequentialSearchParamete
                                 
 def SequentialExploration(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, group_on: list):
     prepare_search(df_stats, ssParams)
-    final_values = df_utils.applyParallel(df_stats.groupby(group_on), lambda df: run_experiments(df, ssParams))
-#     final_values = df_stats.groupby(group_on).progress_apply(lambda df: run_experiments(df, ssParams))
+#     final_values = df_utils.applyParallel(df_stats.groupby(group_on), lambda df: run_experiments(df, ssParams))
+    final_values = df_stats.groupby(group_on).progress_apply(lambda df: run_experiments(df, ssParams))
     best_agg_alloc, exp_at_best = summarize_experiments(final_values, ssParams)
     return best_agg_alloc, exp_at_best, final_values

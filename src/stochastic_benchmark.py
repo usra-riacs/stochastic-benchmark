@@ -453,12 +453,44 @@ class stochastic_benchmark:
         p = {}
         for param in self.parameter_names:
             p[param] = (so.Plot(data=params_df, x='resource', y=param)
-                        .add(so.Line(color = self.baseline.color))
+                        .add(so.Line(color = self.baseline.color, marker='x'))
                        )
         for experiment in self.experiments:
             params_df, _ = experiment.evaluate_monotone()
             for param in self.parameter_names:
-                p[param] = p[param].add(so.Line(color =experiment.color), data=params_df, x='resource', y=param)
+                p[param] = p[param].add(so.Line(color=experiment.color, marker='x'), data=params_df, x='resource', y=param)
+        return p
+    
+    def plot_parameters_distance(self):
+        self.assign_colors()
+        
+        recipes,_ = self.baseline.evaluate()
+        
+        
+        all_params_list = []
+        count = 0
+        for experiment in self.experiments:
+            params_df, _ = experiment.evaluate_monotone()
+            params_df['exp_idx'] = count
+            all_params_list.append(params_df)
+            count += 1
+        
+        
+        all_params = pd.concat(all_params_list, ignore_index=True)
+        dist_params_list = []
+
+        for _, recipe in recipes.reset_index().iterrows():
+            res_df = all_params[all_params['resource'] == recipe['resource']]
+            temp_df_eval = training.scaled_distance(res_df, recipe, self.parameter_names)
+            temp_df_eval.loc[:,'resource'] = recipe['resource']
+            dist_params_list.append(temp_df_eval)
+        all_params = pd.concat(dist_params_list, ignore_index=True)
+        
+        p = so.Plot(data=all_params, x='resource', y='distance_scaled')
+        for idx, experiment in enumerate(self.experiments):
+            params_df = all_params[all_params['exp_idx'] == idx]
+            p = (p.add(so.Line(color=experiment.color, marker='x'),
+                      data=params_df, x='resource', y='distance_scaled'))
         return p
     
     def plot_performance(self):
@@ -476,9 +508,9 @@ class stochastic_benchmark:
                 )
         return p
 
-    def plot_random_metaparams(self):
+    def plot_random_metaparams(self, experiment):
         metaparams = ['ExploreFrac','tau']
-        df = self.train_exp_at_best.copy()
+        df = experiment.train_exp_at_best.copy()
         df['ExploreFrac'] = df['ExplorationBudget'] / df['TotalBudget']
         
         fig = plt.figure()
@@ -488,7 +520,7 @@ class stochastic_benchmark:
             p[idx] = (
                 so.Plot(data=df, x='TotalBudget', y=param)
                 .scale(x="log")
-                .add(so.Line(), so.Agg())
+                .add(so.Line(color=experiment.color, marker='x'), so.Agg())
             )
             figname = os.path.join(self.here.plots, 'metaparam_{}.pdf'.format(param))
             

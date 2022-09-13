@@ -20,20 +20,33 @@ def applyParallel(dfGrouped, func):
     return pd.concat(ret_list)
 
 def monotone_df(df, resource_col, response_col, opt_sense):
+    
+    if opt_sense == 1:
+#         print('dropping duplicates')
+        df.sort_values(response_col, ascending=False, inplace=True)
+        df.drop_duplicates(resource_col, inplace=True)
+#         display(df.loc[4])
+#         display(df.loc[5])
+    elif opt_sense == -1:
+        df = df.sort_values(
+            response_col, ascending=True).drop_duplicates(resource_col)
+        
     df.sort_values(resource_col, ascending=True, inplace=True)
     df.reset_index(inplace=True)
+    
     if opt_sense == 1:
         running_val = df[response_col].cummax()
-    elif response_dir == -1:
+    elif opt_sense == -1:
         running_val = df[response_col].cummin()
     
     count = 0
-    rolling_cols = [cols for cols in df.columns if cols != 'resource']
+    rolling_cols = [cols for cols in df.columns if cols != resource_col]
+#     print(rolling_cols)
     for idx, row in df.iterrows():
         if count == 0:
             count += 1
             prev_row = row.copy()
-        elif running_val[idx] != row['response']:
+        elif running_val[idx] != row[response_col]:
             df.loc[idx, rolling_cols] = prev_row[rolling_cols].copy()
         else:
             prev_row = row.copy()

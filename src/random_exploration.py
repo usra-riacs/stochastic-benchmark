@@ -51,6 +51,8 @@ def single_experiment(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, 
     explore_budget = budget * explore_frac
     if explore_budget < tau:
         return
+    if np.isclose(tau, 0.):
+        return
     df_tau = df_stats[df_stats['resource'] == tau].copy()
     df_tau = df_tau.sample(n = int(explore_budget / tau), replace=True)
     

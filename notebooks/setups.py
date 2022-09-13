@@ -1,4 +1,5 @@
 import dill
+import math
 import numpy as np
 import os
 
@@ -12,6 +13,7 @@ import names
 import stats
 import success_metrics
 import training
+from utils_ws import *
 
 def max_clique_setup(p):
     here = '../notebooks/example_data/max_clique_p={}'.format(p)
@@ -82,6 +84,8 @@ def max_clique_setup(p):
                                                                 key='Key=PerfRatio')
  
     sb.run_baseline()
+    
+    
     sb.run_ProjectionExperiment('TrainingStats')
     sb.run_ProjectionExperiment('TrainingResults')
     sb.run_RandomSearchExperiment(rsParams)
@@ -100,18 +104,73 @@ def wishart_setup(N, alpha, suffix=None):
     sb = stochastic_benchmark.stochastic_benchmark(parameter_names, here=here,\
                                                    train_test_split=0.8, resource_fcn=resource_fcn)
     key = names.param2filename({'Key': 'PerfRatio', 'Metric':'median'}, '')
+    
+    
+    add_hyperopt_trial(sb, offset=0)
+    sb.run_baseline()
+    recipes,_ = sb.baseline.evaluate()
+    recipes.reset_index(inplace=True)
+    
+    resource_values = list(recipes['resource'])
+    budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7]
+             for j in [3, 4, 5]] + [1e6]
+    budgets = np.unique([take_closest(resource_values, b) for b in budgets])
+    
     rsParams = random_exploration.RandomSearchParameters(
+        budgets=budgets,
         parameter_names=parameter_names,
         key=key)
     
-    ssParams = sequential_exploration.SequentialSearchParameters(parameter_names=parameter_names,\
-                                                                key='Key=PerfRatio')
+    ssParams = sequential_exploration.SequentialSearchParameters(
+        budgets=budgets,
+        parameter_names=parameter_names,
+        key='Key=PerfRatio')
+    
+    sb.run_ProjectionExperiment('TrainingStats')
+    sb.run_ProjectionExperiment('TrainingResults')
+    sb.run_RandomSearchExperiment(rsParams)
+    sb.run_SequentialSearchExperiment(ssParams)
+
+    return sb
+
+def mod_wishart_setup(N, alpha, mod, suffix=None):
+    if suffix is None:
+        here = '../notebooks/example_data/wishart_N={}_alpha={}_mod{}'.format(N, alpha, mod)
+        parameter_names = ['swe', 'rep', 'pcold', 'phot']
+    else:
+        here = '../notebooks/example_data/wishart_N={}_alpha={}_{}'.format(N, alpha, suffix)
+        parameter_names = ['swe', 'rep', 'phot']
+    
+    def resource_fcn(df):
+        df['mod_rep'] = (df['rep'] / mod).apply(np.ceil)
+        return df['swe'] * df['mod_rep'] * df['boots']
+    sb = stochastic_benchmark.stochastic_benchmark(parameter_names, here=here,\
+                                                   train_test_split=0.8, resource_fcn=resource_fcn)
+    key = names.param2filename({'Key': 'PerfRatio', 'Metric':'median'}, '')
     
     add_hyperopt_trial(sb, offset=0)
-    if not (('order' in sb.interp_results.columns) and ('order' in sb.bs_results.columns)):
-        print('calling hpo')
-        add_hyperopt_trial(sb, offset=0)
+#     if not (('order' in sb.interp_results.columns) and ('order' in sb.bs_results.columns)):
+#         print('calling hpo')
+#         add_hyperopt_trial(sb, offset=0)
     sb.run_baseline()
+    recipes,_ = sb.baseline.evaluate()
+    recipes.reset_index(inplace=True)
+    
+    resource_values = list(recipes['resource'])
+    budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7]
+             for j in [3, 4, 5]] + [1e6]
+    budgets = np.unique([take_closest(resource_values, b) for b in budgets])
+    
+    rsParams = random_exploration.RandomSearchParameters(
+        budgets=budgets,
+        parameter_names=parameter_names,
+        key=key)
+    
+    ssParams = sequential_exploration.SequentialSearchParameters(
+        budgets=budgets,
+        parameter_names=parameter_names,
+        key='Key=PerfRatio')
+    
     sb.run_ProjectionExperiment('TrainingStats')
     sb.run_ProjectionExperiment('TrainingResults')
     sb.run_RandomSearchExperiment(rsParams)
@@ -144,6 +203,7 @@ def add_hyperopt_trial(sb, offset=100):
                               & (df['phot'] == phot)]
 
             if len(df_idx) == 0:
+#                 print('No rows found for idx {}'.format(idx))
                 continue
             else:
                 df.loc[df_idx, 'order'] = count

@@ -52,18 +52,15 @@ def summarize_experiments(df: pd.DataFrame, ssParams: SequentialSearchParameters
 def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, budget: float, explore_frac:float, tau:int):
     explore_budget = budget * explore_frac
     if explore_budget < tau:
-        print('Sequential search experiment terminated due to budget')
+#         print('Sequential search experiment terminated due to budget')
         return
     
     df_tau = df_stats[df_stats['resource'] == tau].copy()
-    display(df_tau)
     df_tau.sort_values(by=ssParams.order_col, ascending=True, inplace=True, ignore_index=True)
-    display(df_tau)
     df_tau.dropna(axis=0, how='any', subset=[ssParams.order_col, ssParams.key], inplace=True)
-    display(df_tau)
     
     if len(df_tau) == 0:
-        print('Sequential search experiment terminated due to not enough data')
+#         print('Sequential search experiment terminated due to not enough data')
         return
     
     n = int(explore_budget / tau)

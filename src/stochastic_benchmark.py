@@ -1,10 +1,12 @@
 import copy
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 import os
 import pandas as pd
 import seaborn.objects as so
+import seaborn as sns
 
 
 import bootstrap
@@ -18,7 +20,7 @@ import training
 import names
 import utils_ws
 
-colors = ['black', 'blue', 'green', 'red', 'purple']
+
 
 def prepare_bootstrap(nboots = 1000, 
                       response_col = names.param2filename({'Key': 'MinEnergy'}, ''),
@@ -52,7 +54,7 @@ def sweep_boots_resource(df):
 class ProjectionExperiment:
     def __init__(self, parent, project_from):
         self.parent = parent
-        self.name = 'Projection'
+        self.name = 'Projection from {}'.format(project_from)
         self.project_from = project_from
         self.populate()
         
@@ -326,6 +328,156 @@ class VirtualBestBaseline:
         eval_df.reset_index(inplace=True)
         return params_df, eval_df
 
+class Plotting:
+    def __init__(self, parent):
+        self.parent = parent
+        self.colors = ['blue', 'green', 'red', 'purple']
+        self.assign_colors()
+        self.xscale='log'
+    
+    def set_colors(self, cp):
+        self.colors = cp
+        self.assign_colors()
+        
+    def set_xlims(self, xlims):
+        self.xlims = xlims
+    
+    def make_legend(self, ax):
+        color_patches = [mpatches.Patch(color=self.parent.baseline.color, label=self.parent.baseline.name)]
+        color_patches = color_patches + [mpatches.Patch(color=experiment.color, label=experiment.name)
+                        for experiment in self.parent.experiments]
+        ax.legend(handles=[cpatch for cpatch in color_patches])
+    
+    def apply_shared(self, p):
+        if type(p) is dict:
+            for k, v in p.items():
+                p[k] = self.apply_shared(v)
+            return p
+            
+        p = p.scale(x=self.xscale)
+        if hasattr(self, 'xlims'):
+            p = p.limit(x=self.xlims)
+        
+        fig = plt.figure()
+        p = p.on(fig).plot()
+        ax = fig.axes[0]
+        self.make_legend(ax)
+            
+        return fig
+        
+    def assign_colors(self):
+        self.parent.baseline.color = 'black'
+        for idx, experiment in enumerate(self.parent.experiments):
+            experiment.color = self.colors[idx]
+    
+    def plot_parameters(self):
+        params_df,_ = self.parent.baseline.evaluate()
+        p = {}
+        for param in self.parent.parameter_names:
+            p[param] = (so.Plot(data=params_df, x='resource', y=param)
+                        .add(so.Line(color = self.parent.baseline.color, marker='x'))
+                       )
+        for experiment in self.parent.experiments:
+            params_df, _ = experiment.evaluate_monotone()
+            for param in self.parent.parameter_names:
+                p[param] = (p[param].add(so.Line(color=experiment.color, marker='x'),
+                                         data=params_df, x='resource', y=param)
+                            .scale(x='log'))
+        p = self.apply_shared(p)
+            
+        return p
+    
+    def plot_parameters_distance(self):
+        recipes,_ = self.parent.baseline.evaluate()
+
+        all_params_list = []
+        count = 0
+        for experiment in self.parent.experiments:
+            params_df, _ = experiment.evaluate_monotone()
+            params_df['exp_idx'] = count
+            all_params_list.append(params_df)
+            count += 1
+        
+        all_params = pd.concat(all_params_list, ignore_index=True)
+        dist_params_list = []
+
+        for _, recipe in recipes.reset_index().iterrows():
+            res_df = all_params[all_params['resource'] == recipe['resource']]
+            temp_df_eval = training.scaled_distance(res_df, recipe, self.parent.parameter_names)
+            temp_df_eval.loc[:,'resource'] = recipe['resource']
+            dist_params_list.append(temp_df_eval)
+        all_params = pd.concat(dist_params_list, ignore_index=True)
+        
+        p = so.Plot(data=all_params, x='resource', y='distance_scaled')
+        for idx, experiment in enumerate(self.parent.experiments):
+            params_df = all_params[all_params['exp_idx'] == idx]
+            p = (p.add(so.Line(color=experiment.color, marker='x'),
+                      data=params_df, x='resource', y='distance_scaled'))
+
+        p = self.apply_shared(p)
+        
+        return p
+    
+    def plot_performance(self):
+        _, eval_df = self.parent.baseline.evaluate()
+        eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
+        p = (so.Plot(data=eval_df, x='resource', y='response')
+             .add(so.Line(color = self.parent.baseline.color, marker="x"))
+            )
+        
+        for experiment in self.parent.experiments:
+            _, eval_df = experiment.evaluate_monotone()
+            p = (p.add(so.Line(color=experiment.color, marker="x"), data=eval_df, x='resource', y='response')
+                 .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
+                      ymin='response_lower', ymax='response_upper')
+                )
+
+#         _, eval_df = self.parent.baseline.evaluate()
+#         eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
+#         eval_df['Experiment'] = self.parent.baseline.name
+        
+#         p = (so.Plot(data=eval_df, x='resource', y='response')
+#              .add(so.Line(color = self.parent.baseline.color, marker="x"))
+#             )
+        
+#         joint_list = []
+#         for experiment in self.parent.experiments:
+#             _, eval_df = experiment.evaluate_monotone()
+#             eval_df['Experiment'] = experiment.name
+#             joint_list.append(eval_df)
+            
+#         joint = pd.concat(joint_list, ignore_index=True)
+#         p = sns.lineplot(data=joint, x='resource', y='response', hue='Experiment')
+#             p = (p.add(so.Line(color=experiment.color, marker="x"), data=eval_df, x='resource', y='response')
+#                  .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
+#                       ymin='response_lower', ymax='response_upper')
+#                 )
+            
+        
+        
+        p = self.apply_shared(p)
+        return p
+
+    def plot_random_metaparams(self, experiment):
+        metaparams = ['ExploreFrac','tau']
+        df = experiment.train_exp_at_best.copy()
+        df['ExploreFrac'] = df['ExplorationBudget'] / df['TotalBudget']
+        
+        fig = plt.figure()
+        sfigs = fig.subfigures(1, len(metaparams),facecolor='White')
+        p = {}
+        for idx, param in enumerate(metaparams):
+            p[idx] = (
+                so.Plot(data=df, x='TotalBudget', y=param)
+                .scale(x="log")
+                .add(so.Line(color=experiment.color, marker='x'), so.Agg())
+            )
+            figname = os.path.join(self.here.plots, 'metaparam_{}.pdf'.format(param))
+            
+            p[idx].show()
+            p[idx].save(figname)
+        return p
+        
 class stochastic_benchmark:
     def __init__(self, 
                  parameter_names,
@@ -426,104 +578,6 @@ class stochastic_benchmark:
         self.experiments.append(RandomSearchExperiment(self, rsParams))
     def run_SequentialSearchExperiment(self, ssParams):
         self.experiments.append(SequentialSearchExperiment(self, ssParams))
-        
+    def initPlotting(self):
+        self.plots = Plotting(self)
     
-    def run_sequential_exploration(self, ssParams):
-        if os.path.exists(self.here.seq_exp_values):
-            self.seq_exp_values = pd.read_pickle(self.here.seq_exp_values)
-        else:
-            self.seq_exp_values = sequential_exploration.SequentialSearch(self.interp_results.copy(), ssParams, group_on=self.instance_cols)
-            self.seq_exp_values.to_pickle(self.here.seq_exp_values)
-            
-    def assign_colors(self):
-        if hasattr(self.baseline, 'color'):
-            return
-        else:
-            colorcount = 0
-            self.baseline.color = colors[colorcount]
-            colorcount += 1
-            for experiment in self.experiments:
-#                 print('Assigning {} to {}'.format(colors[colorcount], experiment.name))
-                experiment.color = colors[colorcount]
-                colorcount += 1
-                
-    def plot_parameters(self):
-        self.assign_colors()
-        params_df,_ = self.baseline.evaluate()
-        p = {}
-        for param in self.parameter_names:
-            p[param] = (so.Plot(data=params_df, x='resource', y=param)
-                        .add(so.Line(color = self.baseline.color, marker='x'))
-                       )
-        for experiment in self.experiments:
-            params_df, _ = experiment.evaluate_monotone()
-            for param in self.parameter_names:
-                p[param] = p[param].add(so.Line(color=experiment.color, marker='x'), data=params_df, x='resource', y=param)
-        return p
-    
-    def plot_parameters_distance(self):
-        self.assign_colors()
-        
-        recipes,_ = self.baseline.evaluate()
-        
-        
-        all_params_list = []
-        count = 0
-        for experiment in self.experiments:
-            params_df, _ = experiment.evaluate_monotone()
-            params_df['exp_idx'] = count
-            all_params_list.append(params_df)
-            count += 1
-        
-        
-        all_params = pd.concat(all_params_list, ignore_index=True)
-        dist_params_list = []
-
-        for _, recipe in recipes.reset_index().iterrows():
-            res_df = all_params[all_params['resource'] == recipe['resource']]
-            temp_df_eval = training.scaled_distance(res_df, recipe, self.parameter_names)
-            temp_df_eval.loc[:,'resource'] = recipe['resource']
-            dist_params_list.append(temp_df_eval)
-        all_params = pd.concat(dist_params_list, ignore_index=True)
-        
-        p = so.Plot(data=all_params, x='resource', y='distance_scaled')
-        for idx, experiment in enumerate(self.experiments):
-            params_df = all_params[all_params['exp_idx'] == idx]
-            p = (p.add(so.Line(color=experiment.color, marker='x'),
-                      data=params_df, x='resource', y='distance_scaled'))
-        return p
-    
-    def plot_performance(self):
-        self.assign_colors()
-        _, eval_df = self.baseline.evaluate()
-        eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
-        p = (so.Plot(data=eval_df, x='resource', y='response')
-             .add(so.Line(color = self.baseline.color, marker="x"))
-            )
-        for experiment in self.experiments:
-            _, eval_df = experiment.evaluate_monotone()
-            p = (p.add(so.Line(color=experiment.color, marker="x"), data=eval_df, x='resource', y='response')
-                 .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
-                      ymin='response_lower', ymax='response_upper')
-                )
-        return p
-
-    def plot_random_metaparams(self, experiment):
-        metaparams = ['ExploreFrac','tau']
-        df = experiment.train_exp_at_best.copy()
-        df['ExploreFrac'] = df['ExplorationBudget'] / df['TotalBudget']
-        
-        fig = plt.figure()
-        sfigs = fig.subfigures(1, len(metaparams),facecolor='White')
-        p = {}
-        for idx, param in enumerate(metaparams):
-            p[idx] = (
-                so.Plot(data=df, x='TotalBudget', y=param)
-                .scale(x="log")
-                .add(so.Line(color=experiment.color, marker='x'), so.Agg())
-            )
-            figname = os.path.join(self.here.plots, 'metaparam_{}.pdf'.format(param))
-            
-            p[idx].show()
-            p[idx].save(figname)
-        return p

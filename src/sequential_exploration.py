@@ -17,7 +17,7 @@ class SequentialSearchParameters:
              for j in [3, 4, 5]] + [1e6] )
     exploration_fracs: list = field(default_factory=lambda: [0.05, 0.1, 0.2, 0.5, 0.75])
     taus: list = field(default_factory=lambda: [10, 20, 50, 100, 200, 500, 1000, 10000])
-    order_col: str = 'order'
+    order_cols: list = field(default_factory=lambda: ['order'])
     optimization_dir: int = 1
     parameter_names: list = field(default_factory=lambda: ['sweep', 'replica'])
     key: str = 'PerfRatio'
@@ -49,15 +49,15 @@ def summarize_experiments(df: pd.DataFrame, ssParams: SequentialSearchParameters
     exp_at_best = pd.concat(df_list, ignore_index=True)
     return best_agg_alloc, exp_at_best
 
-def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, budget: float, explore_frac:float, tau:int):
+def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, experiment:int, budget: float, explore_frac:float, tau:int):
     explore_budget = budget * explore_frac
     if explore_budget < tau:
 #         print('Sequential search experiment terminated due to budget')
         return
     
     df_tau = df_stats[df_stats['resource'] == tau].copy()
-    df_tau.sort_values(by=ssParams.order_col, ascending=True, inplace=True, ignore_index=True)
-    df_tau.dropna(axis=0, how='any', subset=[ssParams.order_col, ssParams.key], inplace=True)
+    df_tau.sort_values(by=ssParams.order_cols[experiment], ascending=True, inplace=True, ignore_index=True)
+    df_tau.dropna(axis=0, how='any', subset=[ssParams.order_cols[experiment], ssParams.key], inplace=True)
     
     if len(df_tau) == 0:
 #         print('Sequential search experiment terminated due to not enough data')
@@ -98,20 +98,22 @@ def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSear
     df_experiment['CummResource'] = df_experiment['resource'].expanding(min_periods=1).sum()
     df_experiment = df_experiment[df_experiment['CummResource'] <= budget]
     
+    
     return df_experiment
         
 def run_experiments(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters):
     final_values = []
-    total = len(ssParams.budgets) * len(ssParams.exploration_fracs) * len(ssParams.taus)
-    pbar = tqdm(product(ssParams.budgets, ssParams.exploration_fracs, ssParams.taus), total=total)
-    for budget, explore_frac, tau in pbar:
-        df_experiment = SequentialExplorationSingle(df_stats, ssParams, budget, explore_frac, tau)
+    total = len(ssParams.budgets) * len(ssParams.exploration_fracs) * len(ssParams.taus) * len(ssParams.order_cols)
+    pbar = tqdm(product(ssParams.budgets, ssParams.exploration_fracs, ssParams.taus, range(len(ssParams.order_cols))), total=total)
+    for budget, explore_frac, tau, experiment in pbar:
+        df_experiment = SequentialExplorationSingle(df_stats, ssParams, experiment, budget, explore_frac, tau)
         if df_experiment is None:
             continue
+        df_experiment['Experiment'] = experiment
         final_values.append(df_experiment.iloc[[-1]])
     if len(final_values) == 0:
         return pd.DataFrame(columns=(list(df_stats.columns)\
-                                     + ['exploit', 'tau', 'TotalBudget', 'ExplorationBudget', 'CummResource']))
+                                     + ['exploit', 'tau', 'TotalBudget', 'ExplorationBudget', 'CummResource', 'Experiment']))
     
     else:
         return pd.concat(final_values, ignore_index=True)
@@ -125,6 +127,7 @@ def apply_allocations(df_stats: pd.DataFrame, ssParams: SequentialSearchParamete
         explore_frac = float(explore_budget) / float(budget)
         df_experiment = df_utils.applyParallel(df_stats.groupby(group_on),
                                               lambda df: SequentialExplorationSingle(df, ssParams, budget, explore_frac, tau))
+        df_experiment['Experiment'] = experiment
 #         df_experiment = SequentialExplorationSingle(df_stats, ssParams, budget, explore_frac, tau)
         final_values.append(df_experiment.iloc[[-1]])
     return pd.concat(final_values, ignore_index=True)

@@ -52,18 +52,27 @@ def sweep_boots_resource(df):
     return df['sweep'] * df['boots']
 
 class ProjectionExperiment:
-    def __init__(self, parent, project_from):
+    def __init__(self, parent, project_from, postprocess=None, postprocess_name=None):
         self.parent = parent
         self.name = 'Projection from {}'.format(project_from)
         self.project_from = project_from
+        self.postprocess = postprocess
+        self.postprocess_name = postprocess_name
         self.populate()
         
     def populate(self):
-        rec_path = os.path.join(self.parent.here.checkpoints, 'Projection_from={}.pkl'.format(self.project_from))
+        if self.postprocess is not None:
+            rec_path = os.path.join(self.parent.here.checkpoints, 'Projection_from={}_postprocess={}.pkl'.format(self.project_from, self.postprocess_name))
+        else:
+            rec_path = os.path.join(self.parent.here.checkpoints, 'Projection_from={}.pkl'.format(self.project_from))
         
         # Prepare the recipes
         if self.project_from == 'TrainingStats':
-            br_train_path = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train.pkl')
+            if self.postprocess is not None:
+                br_train_path = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train_postprocess={}.pkl'.format(self.postprocess_name))
+            else:
+                br_train_path = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train.pkl')
+            
             if os.path.exists(br_train_path):
                 self.recipe = pd.read_pickle(br_train_path)
             else:
@@ -76,10 +85,15 @@ class ProjectionExperiment:
                                      resource_col='resource',
                                      additional_cols=['boots'],
                                     smooth=self.parent.smooth)
+                if self.postprocess is not None:
+                    self.recipe = self.postprocess(self.recipe)
+                    
                 self.recipe.to_pickle(br_train_path)
 
         elif self.project_from == 'TrainingResults':
+
             vb_train_path = os.path.join(self.parent.here.checkpoints, 'VirtualBest_train.pkl')
+            
             if os.path.exists(vb_train_path):
                 self.vb_train = pd.read_pickle(vb_train_path)
             else:
@@ -98,6 +112,10 @@ class ProjectionExperiment:
                               parameter_names=self.parent.parameter_names,
                               resource_col='resource',
                               additional_cols=['boots']).reset_index()
+            
+            if self.postprocess is not None:
+                    self.recipe = self.postprocess(self.recipe)
+                    
         else:
             raise NotImplementedError('Projection from {} has not been implemented'.format(project_from))
         
@@ -111,7 +129,7 @@ class ProjectionExperiment:
                                                 training.scaled_distance,\
                                                 parameter_names=self.parent.parameter_names)
             self.rec_params.to_pickle(rec_path)
-    
+        
     def evaluate(self):
         params_df = self.rec_params.loc[:, ['resource'] + self.parent.parameter_names].copy()
         params_df = params_df.groupby('resource').mean()
@@ -141,6 +159,7 @@ class ProjectionExperiment:
         params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
         eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
         return params_df, eval_df
+
     
 class RandomSearchExperiment:
     def __init__(self, parent, rsParams):
@@ -380,9 +399,18 @@ class Plotting:
         for experiment in self.parent.experiments:
             params_df, _ = experiment.evaluate_monotone()
             for param in self.parent.parameter_names:
+                if hasattr(experiment, 'recipe'):
+                    if experiment.project_from == 'TrainingStats':
+                        color = 'orange'
+                    else:
+                        color = 'cyan'
+                    recipe = experiment.recipe
+                    p[param] = (p[param].add(so.Line(color=color, marker='x'),
+                                             data=recipe, x='resource', y=param))
                 p[param] = (p[param].add(so.Line(color=experiment.color, marker='x'),
                                          data=params_df, x='resource', y=param)
                             .scale(x='log'))
+                            
         p = self.apply_shared(p)
             
         return p
@@ -572,8 +600,8 @@ class stochastic_benchmark:
             
     def run_baseline(self):
         self.baseline = VirtualBestBaseline(self)
-    def run_ProjectionExperiment(self, project_from):
-        self.experiments.append(ProjectionExperiment(self, project_from))
+    def run_ProjectionExperiment(self, project_from, postprocess=None, postprocess_name=None):
+        self.experiments.append(ProjectionExperiment(self, project_from, postprocess, postprocess_name))
     def run_RandomSearchExperiment(self, rsParams):
         self.experiments.append(RandomSearchExperiment(self, rsParams))
     def run_SequentialSearchExperiment(self, ssParams):

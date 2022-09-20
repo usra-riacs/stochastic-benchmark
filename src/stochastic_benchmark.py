@@ -512,6 +512,7 @@ class stochastic_benchmark:
                  here=os.getcwd(),
                  instance_cols=['instance'],
                  bsParams_iter = prepare_bootstrap(),
+                 iParams = None,
                  stat_params = stats.StatsParameters(stats_measures=[stats.Median()]),
                  resource_fcn = sweep_boots_resource,
                  response_key = 'PerfRatio',
@@ -531,6 +532,12 @@ class stochastic_benchmark:
         self.train_test_split = train_test_split
         self.recover=recover
         self.smooth = smooth
+        
+        if iParams is None:
+            self.iParams = interpolate.InterpolationParameters(self.resource_fcn,
+                                                  parameters=self.parameter_names)
+        else:
+            self.iParams = iParams
         
         ## Dataframes needed for experiments and baselines
         self.bs_results = None
@@ -578,11 +585,9 @@ class stochastic_benchmark:
                     self.interp_results.to_pickle(self.here.interpolate)
 
             elif self.bs_results is not None:
-                iParams = interpolate.InterpolationParameters(self.resource_fcn,
-                                                              parameters=self.parameter_names)
-                print('Interpolating results with parameters: ', iParams)
+                print('Interpolating results with parameters: ', self.iParams)
                 self.interp_results = interpolate.Interpolate(self.bs_results,
-                                                              iParams, self.parameter_names+self.instance_cols)
+                                                              self.iParams, self.parameter_names+self.instance_cols)
                 self.interp_results.to_pickle(self.here.interpolate)
                 self.interp_results = training.split_train_test(self.interp_results, self.instance_cols, self.train_test_split)
                 self.interp_results.to_pickle(self.here.interpolate)
@@ -590,11 +595,13 @@ class stochastic_benchmark:
     def populate_bs_results(self):
         if self.bs_results is None:
             if os.path.exists(self.here.bootstrap) and self.recover:
+                print('reading bs results')
                 self.bs_results = pd.read_pickle(self.here.bootstrap)
             else:
                 group_on = self.parameter_names + self.instance_cols
                 if not hasattr(self, 'raw_data'):
                     self.raw_data = df_utils.read_exp_raw(self.here.raw_data)
+                print('running bs results')
                 self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, self.bsParams_iter)
                 self.bs_results.to_pickle(self.here.bootstrap)
             

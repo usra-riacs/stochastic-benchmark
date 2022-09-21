@@ -22,9 +22,12 @@ import utils_ws
 
 
 
-def prepare_bootstrap(nboots = 1000, 
+def default_bootstrap(nboots = 1000, 
                       response_col = names.param2filename({'Key': 'MinEnergy'}, ''),
-                      resource_col = names.param2filename({'Key': 'MeanTime'}, '')):    
+                      resource_col = names.param2filename({'Key': 'MeanTime'}, '')):
+    """
+    Default bootstrapping parameters
+    """
     shared_args = {'response_col':response_col,\
               'resource_col':resource_col,\
               'response_dir':-1,\
@@ -49,6 +52,9 @@ def prepare_bootstrap(nboots = 1000,
     return bsparams_iter
 
 def sweep_boots_resource(df):
+    """
+    Default resource computation - resource = sweeps * boots
+    """
     return df['sweep'] * df['boots']
 
 class ProjectionExperiment:
@@ -459,29 +465,6 @@ class Plotting:
                  .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
                       ymin='response_lower', ymax='response_upper')
                 )
-
-#         _, eval_df = self.parent.baseline.evaluate()
-#         eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
-#         eval_df['Experiment'] = self.parent.baseline.name
-        
-#         p = (so.Plot(data=eval_df, x='resource', y='response')
-#              .add(so.Line(color = self.parent.baseline.color, marker="x"))
-#             )
-        
-#         joint_list = []
-#         for experiment in self.parent.experiments:
-#             _, eval_df = experiment.evaluate_monotone()
-#             eval_df['Experiment'] = experiment.name
-#             joint_list.append(eval_df)
-            
-#         joint = pd.concat(joint_list, ignore_index=True)
-#         p = sns.lineplot(data=joint, x='resource', y='response', hue='Experiment')
-#             p = (p.add(so.Line(color=experiment.color, marker="x"), data=eval_df, x='resource', y='response')
-#                  .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
-#                       ymin='response_lower', ymax='response_upper')
-#                 )
-            
-        
         
         p = self.apply_shared(p)
         return p
@@ -511,7 +494,7 @@ class stochastic_benchmark:
                  parameter_names,
                  here=os.getcwd(),
                  instance_cols=['instance'],
-                 bsParams_iter = prepare_bootstrap(),
+                 bsParams_iter = default_bootstrap(),
                  iParams = None,
                  stat_params = stats.StatsParameters(stats_measures=[stats.Median()]),
                  resource_fcn = sweep_boots_resource,

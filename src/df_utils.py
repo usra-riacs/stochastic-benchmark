@@ -5,28 +5,55 @@ import pandas as pd
 import names
 import numpy as np
 
-# import parameters
-# TODO PyLance is crying here because parameters is not defined
-
 EPSILON = 1e-10
 confidence_level = 68
 s = 0.99
 gap = 1.0
 
-#Taken from https://stackoverflow.com/questions/26187759/parallelize-apply-after-pandas-groupby/29281494#29281494
 def applyParallel(dfGrouped, func):
+    """
+    Apply pandas groupby operation using multiprocessing.
+    Taken from https://stackoverflow.com/questions/26187759/parallelize-apply-after-pandas-groupby/29281494#29281494
+
+    Parameters
+    ----------
+    dfGrouped : pandas.GroupBy
+        groupby object to perform function on
+    func : Callable
+        Function to apply to each group
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        DataFrame containing the results from applying func to each group of dfGrouped.
+    """  
     with Pool() as p:
         ret_list = p.map(func, [group for name, group in dfGrouped])
     return pd.concat(ret_list)
 
 def monotone_df(df, resource_col, response_col, opt_sense):
+    """
+    Makes dataframe monotone with the response column as a function of the response column.
+    
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        dataframe to monotonize
+    resource_col : str
+    response_col : str
+    opt_sense : int
+        Indicates whether response should be increasing (1) or decreasing (-1) as a function of resou
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        DataFrame containing the parameters and response rolled-over if the response is not monotonic against the resource. 
+    """
     
     if opt_sense == 1:
-#         print('dropping duplicates')
         df.sort_values(response_col, ascending=False, inplace=True)
         df.drop_duplicates(resource_col, inplace=True)
-#         display(df.loc[4])
-#         display(df.loc[5])
     elif opt_sense == -1:
         df = df.sort_values(
             response_col, ascending=True).drop_duplicates(resource_col)
@@ -41,7 +68,6 @@ def monotone_df(df, resource_col, response_col, opt_sense):
     
     count = 0
     rolling_cols = [cols for cols in df.columns if cols != resource_col]
-#     print(rolling_cols)
     for idx, row in df.iterrows():
         if count == 0:
             count += 1
@@ -53,13 +79,28 @@ def monotone_df(df, resource_col, response_col, opt_sense):
     df.drop(columns=[c for c in df.columns if 'level' in c])
     return df
 
-def prune_diff(df, diff_col, group_on):
-    def unique_vals(df):
-        return np.unique(df[diff_col])
-    
-    return
 
 def eval_cumm(df, group_on, resource_col, response_col, opt_sense):
+    """
+    Cumulatively evaluates all resources below a set resource value and selects best parameters.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe to perform operation on
+    group_on : list[str]
+        Columns to group on
+    resource_col : str
+        Column considered the resource
+    response_col
+        Column with the response metric
+    opt_sense : int
+    
+    Returns
+    -------
+    df : pd.DataFrame
+        Datafram with the cummulative evaluation
+    """
     
     def cummSingle(single_df):
         single_df = monotone_df(single_df.copy(), resource_col, response_col, 1)
@@ -67,7 +108,6 @@ def eval_cumm(df, group_on, resource_col, response_col, opt_sense):
         return single_df
     
     cumm_df = df.groupby(group_on).apply(cummSingle)
-#     cumm_df.reset_index(inplace=True)
     return cumm_df
 
 def read_exp_raw(exp_raw_dir, name_params=[]):

@@ -70,6 +70,18 @@ def virtual_best(df: pd.DataFrame,
 
 
 def split_train_test(df: pd.DataFrame, split_on: List[str], ptrain: float):
+    """
+    Create column, 'train' that splits training and testing instances
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe to write the train column to
+    split_on : list[str]
+        List of columns that define an instance (i.e., if they match on all columns in split_on, they will have the same label)
+    ptrain : float
+        Fraction of instances should be a training instance
+    """
     df = df.groupby(split_on).apply(lambda df : pd.DataFrame.from_dict({'train': [np.random.binomial(1, ptrain)]})).merge(df, on=split_on)
     return df
 

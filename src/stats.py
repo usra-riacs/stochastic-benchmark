@@ -210,15 +210,16 @@ def StatsSingle(df_single: pd.DataFrame, stat_params: StatsParameters):
                 {'Key': key, 'ConfInt': 'lower'}, '')
             pre_CIupper = names.param2filename(
                 {'Key': key, 'ConfInt': 'upper'}, '')
-
-            base, CIlower, CIupper = sm.ConfInts(
-                df_single[pre_base], df_single[pre_CIlower], df_single[pre_CIupper])
+            
             metric_basename = names.param2filename(
                 {'Key': key, 'Metric': sm.name}, '')
             metric_CIlower_name = names.param2filename(
                 {'Key': key, 'Metric': sm.name, 'ConfInt': 'lower'}, '')
             metric_CIupper_name = names.param2filename(
                 {'Key': key, 'Metric': sm.name, 'ConfInt': 'upper'}, '')
+            
+            base, CIlower, CIupper = sm.ConfInts(
+                df_single[pre_base], df_single[pre_CIlower], df_single[pre_CIupper])
 
             df_dict[metric_basename] = [base]
             df_dict[metric_CIlower_name] = [CIlower]

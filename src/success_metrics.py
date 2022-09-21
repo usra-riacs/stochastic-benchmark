@@ -6,11 +6,32 @@ EPSILON = 1e-10
 
 
 class SuccessMetrics:
+    """
+    Parent class for success metrics. Saves shared arguments for all success metrics. 
+    """
     def __init__(self, shared_args):
         self.shared_args = shared_args #confidence level, best_value, random_values
+    
+    def evaluate(self, bs_df, responses, resources):
+        """
+        Template function for evaluating a success metric
 
+        Parameters
+        ----------
+        bs_df : pd.DataFrame
+            Dataframe to write the corresponding results to
+        responses : np.array
+            Array of responses
+        resources : np.array
+            Array of resources
+        """
+        raise NotImplementedError(
+            "Evaluate should be overriden by a subclass of SuccessMetrics")
 
 class Response(SuccessMetrics):
+    """
+    Compute the response of each bootstrap samples and its corresponding confidence interval based on the resamples.
+    """
     def __init__(self, shared_args, metric_args):
         SuccessMetrics.__init__(self, shared_args)
         self.name='Response'
@@ -23,8 +44,6 @@ class Response(SuccessMetrics):
         else:  # Maximization
             response_dist = np.apply_along_axis(
                 func1d=np.max, axis=0, arr=responses)
-        plt.hist(response_dist)
-        plt.title('Histogram of samples')
         key = self.name
         basename = names.param2filename({'Key': key}, '')
         CIupper = names.param2filename({'Key': key, 'ConfInt': 'upper'}, '')
@@ -40,6 +59,9 @@ class Response(SuccessMetrics):
         bs_df[CIupper] = mean_val + fact*std_dev
         
 class PerfRatio(SuccessMetrics):
+    """
+    Compute the performance ratio of each bootstrap samples and its corresponding confidence interval based on the resamples.
+    """
     def __init__(self, shared_args, metric_args):
         SuccessMetrics.__init__(self, shared_args)
         self.name = 'PerfRatio'
@@ -67,6 +89,9 @@ class PerfRatio(SuccessMetrics):
         bs_df.loc[:, CIupper].clip(lower=lower, upper=upper, inplace=True)
 
 class InvPerfRatio(SuccessMetrics):
+    """
+    Compute the inverse performance ratio of each bootstrap samples and its corresponding confidence interval based on the resamples.
+    """
     def __init__(self, shared_args, metric_args):
         SuccessMetrics.__init__(self, shared_args)
         self.name = 'InvPerfRatio'
@@ -90,6 +115,9 @@ class InvPerfRatio(SuccessMetrics):
             / (random_value - best_value) + EPSILON
         
 class SuccessProb(SuccessMetrics):
+    """
+    Compute the success probability of each bootstrap samples and its corresponding confidence interval based on the resamples.
+    """
     def __init__(self, shared_args, metric_args):
         SuccessMetrics.__init__(self, shared_args)
         self.name = 'SuccProb'
@@ -132,6 +160,9 @@ class SuccessProb(SuccessMetrics):
 
 # This one is kind of weird
 class Resource(SuccessMetrics):
+    """
+    Compute the resource of each bootstrap samples and its corresponding confidence interval based on the resamples.
+    """
     def __init__(self, shared_args, metric_args):
         SuccessMetrics.__init__(self, shared_args)
 #         self.args = args
@@ -156,6 +187,9 @@ class Resource(SuccessMetrics):
             resource_dist, 50 + confidence_level/2)
 
 class RTT(SuccessMetrics):
+    """
+    Compute the RTT of each bootstrap samples and its corresponding confidence interval based on the resamples.
+    """
     def __init__(self, shared_args, metric_args):
         SuccessMetrics.__init__(self, shared_args)
         self.name = 'RTT'

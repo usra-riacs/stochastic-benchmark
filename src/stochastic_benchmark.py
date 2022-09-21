@@ -569,12 +569,17 @@ class stochastic_benchmark:
         if self.testing_stats is None:
             if os.path.exists(self.here.testing_stats) and self.recover:
                 self.testing_stats = pd.read_pickle(self.here.testing_stats)
+                
             elif self.interp_results is not None:
                 testing_results = self.interp_results[self.interp_results['train'] == 0]
                 print('Computing testing stats')
-                self.testing_stats = stats.Stats(testing_results, self.stat_params,
-                                             self.parameter_names + ['boots', 'resource'])
-                self.testing_stats.to_pickle(self.here.testing_stats)
+                if len(testing_results) ==0:
+                    self.testing_stats = pd.DataFrame()
+                    
+                else:
+                    self.testing_stats = stats.Stats(testing_results, self.stat_params,
+                                                 self.parameter_names + ['boots', 'resource'])
+                    self.testing_stats.to_pickle(self.here.testing_stats)
             
     def populate_interp_results(self):
         if self.interp_results is None:
@@ -595,13 +600,13 @@ class stochastic_benchmark:
     def populate_bs_results(self):
         if self.bs_results is None:
             if os.path.exists(self.here.bootstrap) and self.recover:
-                print('reading bs results')
+                print('Reading bs results')
                 self.bs_results = pd.read_pickle(self.here.bootstrap)
             else:
                 group_on = self.parameter_names + self.instance_cols
                 if not hasattr(self, 'raw_data'):
                     self.raw_data = df_utils.read_exp_raw(self.here.raw_data)
-                print('running bs results')
+                print('Running bs results')
                 self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, self.bsParams_iter)
                 self.bs_results.to_pickle(self.here.bootstrap)
             

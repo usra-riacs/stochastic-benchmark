@@ -108,8 +108,10 @@ def InterpolateSingle(df_single: pd.DataFrame, interp_params: InterpolationParam
 
     for colname, col in df_single.iteritems():
         col = pd.to_numeric(col, errors='ignore')
-        if colname in group_on + interp_params.ignore_cols:
+        if colname in group_on:
             continue
+        elif colname in interp_params.ignore_cols:
+            df_out[colname] = df_single[colname].iloc[0]
         elif np.issubdtype(col, int) or np.issubdtype(col, float):
             df_out[colname] = np.interp(
                 interpolate_resource, df_single.index, col, left=np.nan)

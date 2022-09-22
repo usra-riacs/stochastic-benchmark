@@ -58,6 +58,24 @@ def sweep_boots_resource(df):
     return df['sweep'] * df['boots']
 
 class ProjectionExperiment:
+    """
+    Holds information needed for projection experiments. 
+    Used for evaluating performance of a recipe on the test set if the user cannot re-run experiments.
+    Recipes can be post-processed by a user-defined function (e.g., smoothed fit) and queried for running
+    evaluatation experiments.
+    
+    Attributes
+    ----------
+    parent : stochatic_benchmark
+    name : str
+        name for pretty printing
+    project_from : str 
+        'TrainingStats' or 'TrainingResults'
+    recipe : pd.DataFrame
+        Recommended parameters for each resource (can be postprocessed). This is not projected
+    rec_params : pd.DataFrame
+        Projected recommended parameters
+    """
     def __init__(self, parent, project_from, postprocess=None, postprocess_name=None):
         self.parent = parent
         self.name = 'Projection from {}'.format(project_from)
@@ -67,6 +85,10 @@ class ProjectionExperiment:
         self.populate()
         
     def populate(self):
+        """
+        Adds recipe depending on source. Currently only projection from the best recommended from the training stats or results are available.
+        Any addition recipe specifications should be implemented here
+        """
         if self.postprocess is not None:
             rec_path = os.path.join(self.parent.here.checkpoints, 'Projection_from={}_postprocess={}.pkl'.format(self.project_from, self.postprocess_name))
         else:
@@ -137,6 +159,14 @@ class ProjectionExperiment:
             self.rec_params.to_pickle(rec_path)
         
     def evaluate(self):
+        """
+        Returns
+        -------
+        params_df : pd.DataFrame
+            Dataframe of recommended parameters
+        eval_df : pd.DataFrame
+            Dataframe of responses, renamed to generic columns for compatibility
+        """
         params_df = self.rec_params.loc[:, ['resource'] + self.parent.parameter_names].copy()
         params_df = params_df.groupby('resource').mean()
         params_df.reset_index(inplace=True)
@@ -159,6 +189,16 @@ class ProjectionExperiment:
         return params_df, eval_df
     
     def evaluate_monotone(self):
+        """
+        Monotonizes the response and parameters from evaluate
+        
+        Returns
+        -------
+        params_df : pd.DataFrame
+            Dataframe of recommended parameters
+        eval_df : pd.DataFrame
+            Dataframe of responses, renamed to generic columns for compatibility
+        """
         params_df, eval_df = self.evaluate()
         joint = params_df.merge(eval_df, on='resource')
         joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
@@ -168,30 +208,59 @@ class ProjectionExperiment:
 
     
 class RandomSearchExperiment:
+    """
+    Holds parameters needed for random search experiment
+    
+    Attributes
+    ----------
+    parent : stochatic_benchmark
+    name : str
+        name for pretty printing
+    meta_params : pd.DataFrame
+        Best metaparameters (Exploration budget and Tau) 
+    eval_train : pd.DataFrame
+        Resulting parameters of meta_params on training set
+    eval_test : pd.DataFrame
+        Resulting parameters of meta_params on testing set    
+    """
     def __init__(self, parent, rsParams):
         self.parent = parent
         self.name = 'RandomSearch'
         self.rsParams = rsParams
+        self.meta_parameter_names = ['ExploreFrac', 'tau']
+        self.resource = 'TotalBudget'
         self.populate()
         
     def populate(self):
-        strategy_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_strategy.pkl')
+        """
+        Populates meta_params, eval_train, eval_test 
+        """
+        meta_params_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_meta_params.pkl')
         eval_train_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_evalTrain.pkl')
         eval_test_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_evalTest.pkl')
-        if os.path.exists(strategy_path):
-            self.strategy = pd.read_pickle(strategy_path)
+        if os.path.exists(meta_params_path):
+            self.meta_params = pd.read_pickle(meta_params_path)
         else:
-            self.strategy, self.eval_train, _ = random_exploration.RandomExploration(self.parent.training_stats, self.rsParams)
-            self.strategy.to_pickle(strategy_path)
+            self.meta_params, self.eval_train, _ = random_exploration.RandomExploration(self.parent.training_stats, self.rsParams)
+            self.meta_params.to_pickle(meta_params_path)
             self.eval_train.to_pickle(eval_train_path)
+        self.meta_params['ExploreFrac'] = self.meta_params['ExplorationBudget'] / self.meta_params['TotalBudget']
         
         if os.path.exists(eval_test_path):
             self.eval_test = pd.read_pickle(eval_test_path)
         else:
-            self.eval_test = random_exploration.apply_allocations(self.parent.testing_stats.copy(), self.rsParams, self.strategy)
+            self.eval_test = random_exploration.apply_allocations(self.parent.testing_stats.copy(), self.rsParams, self.meta_params)
             self.eval_test.to_pickle(eval_test_path)
             
     def evaluate(self):
+        """
+        Returns
+        -------
+        params_df : pd.DataFrame
+            Dataframe of recommended parameters
+        eval_df : pd.DataFrame
+            Dataframe of responses, renamed to generic columns for compatibility
+        """
         params_df = self.eval_test.loc[:, ['TotalBudget'] + self.parent.parameter_names]
         params_df = params_df.groupby('TotalBudget').mean()
         params_df.reset_index(inplace=True)
@@ -222,6 +291,16 @@ class RandomSearchExperiment:
         return params_df, eval_df
     
     def evaluate_monotone(self):
+        """
+        Monotonizes the response and parameters from evaluate
+        
+        Returns
+        -------
+        params_df : pd.DataFrame
+            Dataframe of recommended parameters
+        eval_df : pd.DataFrame
+            Dataframe of responses, renamed to generic columns for compatibility
+        """
         params_df, eval_df = self.evaluate()
         joint = params_df.merge(eval_df, on='resource')
         joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
@@ -230,24 +309,42 @@ class RandomSearchExperiment:
         return params_df, eval_df
     
 class SequentialSearchExperiment:
+    """
+    Holds parameters needed for sequential search experiment
+    
+    Attributes
+    ----------
+    parent : stochatic_benchmark
+    name : str
+        name for pretty printing
+    meta_params : pd.DataFrame
+        Best metaparameters (Exploration budget and Tau) 
+    eval_train : pd.DataFrame
+        Resulting parameters of meta_params on training set
+    eval_test : pd.DataFrame
+        Resulting parameters of meta_params on testing set    
+    """
     def __init__(self, parent, ssParams):
         self.parent = parent
         self.name = 'SequentialSearch'
         self.ssParams = ssParams
+        self.meta_parameter_names = ['ExploreFrac', 'tau']
+        self.resource = 'TotalBudget'
         self.populate()
         
     def populate(self):
-        strategy_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_strategy.pkl')
+        meta_params_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_meta_params.pkl')
         eval_train_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTrain.pkl')
         eval_test_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTest.pkl')
-        if os.path.exists(strategy_path):
-            self.strategy = pd.read_pickle(strategy_path)
+        if os.path.exists(meta_params_path):
+            self.meta_params = pd.read_pickle(meta_params_path)
             self.eval_train = pd.read_pickle(eval_train_path)
         else:
             training_results = self.parent.interp_results[self.parent.interp_results['train'] == 1].copy()
-            self.strategy, self.eval_train, _ = sequential_exploration.SequentialExploration(training_results, self.ssParams, group_on=self.parent.instance_cols)
-            self.strategy.to_pickle(strategy_path)
+            self.meta_params, self.eval_train, _ = sequential_exploration.SequentialExploration(training_results, self.ssParams, group_on=self.parent.instance_cols)
+            self.meta_params.to_pickle(meta_params_path)
             self.eval_train.to_pickle(eval_train_path)
+        self.meta_params['ExploreFrac'] = self.meta_params['ExplorationBudget'] / self.meta_params['TotalBudget']
         
         if os.path.exists(eval_test_path):
             self.eval_test = pd.read_pickle(eval_test_path)
@@ -256,13 +353,21 @@ class SequentialSearchExperiment:
                 testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
                 self.eval_test = sequential_exploration.apply_allocations(testing_results,
                                                                           self.ssParams,
-                                                                          self.strategy,
+                                                                          self.meta_params,
                                                                           self.parent.instance_cols)
                 self.eval_test.to_pickle(eval_test_path)
             except:
                 print('Not enough test data for sequential search. Evaluating on train.')
     
     def evaluate(self):
+        """
+        Returns
+        -------
+        params_df : pd.DataFrame
+            Dataframe of recommended parameters
+        eval_df : pd.DataFrame
+            Dataframe of responses, renamed to generic columns for compatibility
+        """
         if hasattr(self, 'eval_test'):
             params_df = self.eval_test.loc[:, ['TotalBudget'] + self.parent.parameter_names]
             eval_df = self.eval_test.copy()
@@ -300,6 +405,16 @@ class SequentialSearchExperiment:
         return params_df, eval_df
     
     def evaluate_monotone(self):
+        """
+        Monotonizes the response and parameters from evaluate
+        
+        Returns
+        -------
+        params_df : pd.DataFrame
+            Dataframe of recommended parameters
+        eval_df : pd.DataFrame
+            Dataframe of responses, renamed to generic columns for compatibility
+        """
         params_df, eval_df = self.evaluate()
         joint = params_df.merge(eval_df, on='resource')
         joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
@@ -308,6 +423,18 @@ class SequentialSearchExperiment:
         return params_df, eval_df
         
 class VirtualBestBaseline:
+    """
+    Calculates virtual best on an instance by instance basis
+    
+    Attributes
+    ----------
+    parent : stochatic_benchmark
+    name : str
+        name for pretty printing
+    rec_params : pd.DataFrame
+        Dataframe of best paremeters per instance and resource level
+    
+    """
     def __init__(self, parent):
         self.parent = parent
         self.name = 'VirtualBest'
@@ -332,6 +459,14 @@ class VirtualBestBaseline:
             self.rec_params.to_pickle(self.savename())
                 
     def evaluate(self):
+        """
+        Returns
+        -------
+        params_df : pd.DataFrame
+            Dataframe of recommended parameters
+        eval_df : pd.DataFrame
+            Dataframe of responses, renamed to generic columns for compatibility
+        """
         params_df = self.rec_params.loc[:, ['resource'] + self.parent.parameter_names]
         params_df = params_df.groupby('resource').mean()
         
@@ -354,6 +489,20 @@ class VirtualBestBaseline:
         return params_df, eval_df
 
 class Plotting:
+    """
+    Plotting helpers for coordinating plots
+    
+    Attributes
+    ----------
+    parent : stochatic_benchmark
+    colors : list[str]
+        Color palette for experiments. Baseline will always be black
+    xcale : str
+        scale for shared x axis
+    xlims : tuple
+        limits for shared x axis
+    """
+    
     def __init__(self, parent):
         self.parent = parent
         self.colors = ['blue', 'green', 'red', 'purple']
@@ -361,19 +510,31 @@ class Plotting:
         self.xscale='log'
     
     def set_colors(self, cp):
+        """
+        Sets color palette and reassigns colors to experiments
+        """
         self.colors = cp
         self.assign_colors()
         
     def set_xlims(self, xlims):
+        """
+        Sets limits for shared x 
+        """
         self.xlims = xlims
     
     def make_legend(self, ax):
+        """
+        Makes legend for each experiment
+        """
         color_patches = [mpatches.Patch(color=self.parent.baseline.color, label=self.parent.baseline.name)]
         color_patches = color_patches + [mpatches.Patch(color=experiment.color, label=experiment.name)
                         for experiment in self.parent.experiments]
         ax.legend(handles=[cpatch for cpatch in color_patches])
     
     def apply_shared(self, p):
+        """
+        Apply shared plot components (xscale, xlim, legends)
+        """
         if type(p) is dict:
             for k, v in p.items():
                 p[k] = self.apply_shared(v)
@@ -391,11 +552,17 @@ class Plotting:
         return fig
         
     def assign_colors(self):
+        """
+        Assigns colors to experiments
+        """
         self.parent.baseline.color = 'black'
         for idx, experiment in enumerate(self.parent.experiments):
             experiment.color = self.colors[idx]
     
     def plot_parameters(self):
+        """
+        Plots the recommnded parameters for each experiment
+        """
         params_df,_ = self.parent.baseline.evaluate()
         p = {}
         for param in self.parent.parameter_names:
@@ -405,14 +572,14 @@ class Plotting:
         for experiment in self.parent.experiments:
             params_df, _ = experiment.evaluate_monotone()
             for param in self.parent.parameter_names:
-                if hasattr(experiment, 'recipe'):
-                    if experiment.project_from == 'TrainingStats':
-                        color = 'orange'
-                    else:
-                        color = 'cyan'
-                    recipe = experiment.recipe
-                    p[param] = (p[param].add(so.Line(color=color, marker='x'),
-                                             data=recipe, x='resource', y=param))
+#                 if hasattr(experiment, 'recipe'):
+#                     if experiment.project_from == 'TrainingStats':
+#                         color = 'orange'
+#                     else:
+#                         color = 'cyan'
+#                     recipe = experiment.recipe
+#                     p[param] = (p[param].add(so.Line(color=color, marker='x'),
+#                                              data=recipe, x='resource', y=param))
                 p[param] = (p[param].add(so.Line(color=experiment.color, marker='x'),
                                          data=params_df, x='resource', y=param)
                             .scale(x='log'))
@@ -422,6 +589,9 @@ class Plotting:
         return p
     
     def plot_parameters_distance(self):
+        """
+        Plots the scaled distance between the recommended parameters and virtual best
+        """
         recipes,_ = self.parent.baseline.evaluate()
 
         all_params_list = []
@@ -453,6 +623,9 @@ class Plotting:
         return p
     
     def plot_performance(self):
+        """
+        Plots the monotonized performance for each experiment
+        """
         _, eval_df = self.parent.baseline.evaluate()
         eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
         p = (so.Plot(data=eval_df, x='resource', y='response')
@@ -469,27 +642,48 @@ class Plotting:
         p = self.apply_shared(p)
         return p
 
-    def plot_random_metaparams(self, experiment):
-        metaparams = ['ExploreFrac','tau']
-        df = experiment.train_exp_at_best.copy()
-        df['ExploreFrac'] = df['ExplorationBudget'] / df['TotalBudget']
-        
-        fig = plt.figure()
-        sfigs = fig.subfigures(1, len(metaparams),facecolor='White')
-        p = {}
-        for idx, param in enumerate(metaparams):
-            p[idx] = (
-                so.Plot(data=df, x='TotalBudget', y=param)
-                .scale(x="log")
-                .add(so.Line(color=experiment.color, marker='x'), so.Agg())
-            )
-            figname = os.path.join(self.here.plots, 'metaparam_{}.pdf'.format(param))
-            
-            p[idx].show()
-            p[idx].save(figname)
-        return p
+    def plot_meta_parameters(self):
+        """
+        Plots meta parameters for experiments that have them (random search and sequential search)
+        """
+        plots_dict = {}
+        for experiment in self.parent.experiments:
+            exp_plot_dict ={}
+            if hasattr(experiment, 'meta_params'):
+                for param in experiment.meta_parameter_names:
+                    exp_plot_dict[param] = (so.Plot(data = experiment.meta_params, x=experiment.resource, y=param)
+                         .add(so.Line(color=experiment.color))
+                        )
+                expl_plot_dict = self.apply_shared(exp_plot_dict)
+                plots_dict[experiment.name] = exp_plot_dict
+                    
+        return plots_dict
         
 class stochastic_benchmark:
+    """
+    Attributes
+    ----------
+    parameter_names : list[str]
+        list of parameter names
+    here : str
+        path to parent directory of data
+    instance_cols : list[str]
+        Columns that define an instance. i.e., datapoints that match on all of these cols are the same instance
+    bsParams_iter : 
+        Iterator that yields bootstrap parameters
+    iParams : 
+        Interpolation parameters
+    stat_params : stats.StatsParameters
+        Parameters for computing stats dataframes
+    resource_fcn : callable(pd.DataFrame)
+        Function that writes a 'resource' function depending on dataframe parameters
+    response_key : str
+        Column that we want to optimize
+    train_test_split : float
+        Fraction of instances that should be training data
+    recover : bool
+        Whether dataframes should be recovered where available or generated from scratch
+    """
     def __init__(self, 
                  parameter_names,
                  here=os.getcwd(),
@@ -501,9 +695,7 @@ class stochastic_benchmark:
                  response_key = 'PerfRatio',
                  train_test_split = 0.5,
                  recover=True,
-                smooth=True,
-                baseline = 'VirtualBest',
-                experiments = ['Projection', 'RandomSearch', 'SequentialSearch']):
+                smooth=True):
         
         self.here = names.paths(here)
         self.parameter_names = parameter_names
@@ -538,6 +730,9 @@ class stochastic_benchmark:
             self.populate_bs_results()
         
     def populate_training_stats(self):
+        """
+        Tries to recover or computes training stats
+        """
         if self.training_stats is None:
             if os.path.exists(self.here.training_stats) and self.recover:
                 self.training_stats = pd.read_pickle(self.here.training_stats)
@@ -549,6 +744,9 @@ class stochastic_benchmark:
                 self.training_stats.to_pickle(self.here.training_stats)
                 
     def populate_testing_stats(self):
+        """
+        Tries to recover or computes testing stats
+        """
         if self.testing_stats is None:
             if os.path.exists(self.here.testing_stats) and self.recover:
                 self.testing_stats = pd.read_pickle(self.here.testing_stats)
@@ -565,6 +763,9 @@ class stochastic_benchmark:
                     self.testing_stats.to_pickle(self.here.testing_stats)
             
     def populate_interp_results(self):
+        """
+        Tries to recover or computes interpolated results
+        """
         if self.interp_results is None:
             if os.path.exists(self.here.interpolate) and self.recover:
                 self.interp_results = pd.read_pickle(self.here.interpolate)
@@ -581,6 +782,9 @@ class stochastic_benchmark:
                 self.interp_results.to_pickle(self.here.interpolate)
     
     def populate_bs_results(self):
+        """
+        Tries to recover or computes bootstrapped results
+        """
         if self.bs_results is None:
             if os.path.exists(self.here.bootstrap) and self.recover:
                 print('Reading bs results')
@@ -594,13 +798,28 @@ class stochastic_benchmark:
                 self.bs_results.to_pickle(self.here.bootstrap)
             
     def run_baseline(self):
+        """
+        Adds virtual best baseline
+        """
         self.baseline = VirtualBestBaseline(self)
     def run_ProjectionExperiment(self, project_from, postprocess=None, postprocess_name=None):
+        """
+        Runs projections experiments
+        """
         self.experiments.append(ProjectionExperiment(self, project_from, postprocess, postprocess_name))
     def run_RandomSearchExperiment(self, rsParams):
+        """
+        Runs random search experiments
+        """
         self.experiments.append(RandomSearchExperiment(self, rsParams))
     def run_SequentialSearchExperiment(self, ssParams):
+        """
+        Runs sequential search experiments
+        """
         self.experiments.append(SequentialSearchExperiment(self, ssParams))
     def initPlotting(self):
+        """
+        Sets up plotting - this should be run after all experiments are run
+        """
         self.plots = Plotting(self)
     

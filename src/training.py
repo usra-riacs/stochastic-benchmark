@@ -63,6 +63,24 @@ def virtual_best(df: pd.DataFrame,
                  resource_col: str = 'resource',
                 additional_cols: List[str] = ['boots'],
                 smooth=False):
+    """
+    Returns best parameters for each instance and resource level
+    
+    Parameters
+    ----------
+    parameter_names : list[str]
+    response_col : str
+    response_dir : int
+        Maximizing (1) or minimizing(-1)
+    groupby : list[str]
+        columns that define and instance
+    resouce_col : str
+    additional_cols : list[str]
+        Additional columns that should be kept in the dataframe
+    smooth: bool
+        Whether to monotonize the dataframe
+    """
+    
     def br(df) : return best_parameters(df, parameter_names, response_col, response_dir, resource_col, additional_cols, smooth)
     vb = df.groupby(groupby).apply(br).reset_index()
     vb.drop('level_{}'.format(len(groupby)), axis=1, inplace=True)
@@ -89,6 +107,9 @@ def best_recommended(vb: pd.DataFrame,
                      parameter_names: List[str],
                      resource_col: str = 'resource',
                     additional_cols: List[str]=[]):
+    """
+    Returns aggregated recommneded parameters
+    """
     
     br = vb.groupby(resource_col).mean()
     return br[parameter_names + additional_cols]
@@ -98,6 +119,18 @@ def evaluate_single(df_eval: pd.DataFrame,
                     distance_fcn,
                     parameter_names: List[str],
                     resource_col: str = 'resource'):
+    """
+    Parameters
+    ----------
+    df_eval : pd.DataFrame
+        Dataframe with points that should be used for projection
+    recipes : pd.DataFrame
+        recipes that should be tried out on df_eval
+    distance_fcn : callable
+        Function that defines distance from df_eval parameters to recipe parameters
+    parameter_names : list[str]
+    resource_col : str
+    """
     df_list = []
     def argmin(df) : return df[df['distance_scaled'] == df['distance_scaled'].min()]
     for _,recipe in recipes.iterrows():
@@ -112,6 +145,10 @@ def evaluate_single(df_eval: pd.DataFrame,
 def scaled_distance(df_eval: pd.DataFrame,
                     recipe: pd.DataFrame,
                     parameter_names: List[str]):
+    """
+    Scaled distance function that defines distance from every point in df_eval to one recipe
+    
+    """
     local_df_eval = df_eval.copy()
     local_df_eval['distance_scaled'] = 0.
     for colname in parameter_names:
@@ -134,6 +171,22 @@ def evaluate(df: pd.DataFrame,
              parameter_names: List[str],
              resource_col: str = 'resource',
              group_on=[]):
+    """
+    Divides df by instance and applies projection from recipes onto df
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe to do the projection from
+    recipes : pd.DataFrame
+        Recipes to try out
+    distance_fcn : Callable
+        Computes distance between parameters for projection
+    parameters_names : list[str]
+    resource_col : str
+    group_on : list[str]
+        list of columns that define an instance
+    """
     if len(group_on) == 0:
         return evaluate_single(df, recipes, distance_fcn, parameter_names, resource_col)
     else:

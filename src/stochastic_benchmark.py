@@ -508,6 +508,7 @@ class Plotting:
         self.colors = ['blue', 'green', 'red', 'purple']
         self.assign_colors()
         self.xscale='log'
+
     
     def set_colors(self, cp):
         """
@@ -522,22 +523,30 @@ class Plotting:
         """
         self.xlims = xlims
     
-    def make_legend(self, ax):
+    def make_legend(self, ax, baseline_bool, experiment_bools):
         """
         Makes legend for each experiment
         """
-        color_patches = [mpatches.Patch(color=self.parent.baseline.color, label=self.parent.baseline.name)]
+        if baseline_bool:
+            color_patches = [mpatches.Patch(color=self.parent.baseline.color, label=self.parent.baseline.name)]
+        else:
+            color_patches = []
+            
         color_patches = color_patches + [mpatches.Patch(color=experiment.color, label=experiment.name)
-                        for experiment in self.parent.experiments]
+                        for idx, experiment in enumerate(self.parent.experiments)
+                                        if experiment_bools[idx]]
         ax.legend(handles=[cpatch for cpatch in color_patches])
     
-    def apply_shared(self, p):
+    def apply_shared(self, p, baseline_bool=True, experiment_bools=None):
         """
         Apply shared plot components (xscale, xlim, legends)
         """
+        if experiment_bools is None:
+            experiment_bools = [True] * len(self.parent.experiments)
+        
         if type(p) is dict:
             for k, v in p.items():
-                p[k] = self.apply_shared(v)
+                p[k] = self.apply_shared(v, baseline_bool, experiment_bools)
             return p
             
         p = p.scale(x=self.xscale)
@@ -547,7 +556,7 @@ class Plotting:
         fig = plt.figure()
         p = p.on(fig).plot()
         ax = fig.axes[0]
-        self.make_legend(ax)
+        self.make_legend(ax, baseline_bool, experiment_bools)
             
         return fig
         
@@ -567,11 +576,21 @@ class Plotting:
         p = {}
         for param in self.parent.parameter_names:
             p[param] = (so.Plot(data=params_df, x='resource', y=param)
-                        .add(so.Line(color = self.parent.baseline.color, marker='x'))
+                        .add(so.Line(color = self.parent.baseline.color, linestyle='--'))
                        )
         for experiment in self.parent.experiments:
+            metaflag = hasattr(experiment, 'meta_params')
             params_df, _ = experiment.evaluate_monotone()
             for param in self.parent.parameter_names:
+                if metaflag:
+                    p[param] = (p[param].add(so.Line(color=experiment.color, linestyle=':'),
+                                         data=params_df, x='resource', y=param)
+                            .scale(x='log'))
+                else:
+                    p[param] = (p[param].add(so.Line(color=experiment.color, marker='x'),
+                                         data=params_df, x='resource', y=param)
+                            .scale(x='log'))     
+                
 #                 if hasattr(experiment, 'recipe'):
 #                     if experiment.project_from == 'TrainingStats':
 #                         color = 'orange'
@@ -580,9 +599,7 @@ class Plotting:
 #                     recipe = experiment.recipe
 #                     p[param] = (p[param].add(so.Line(color=color, marker='x'),
 #                                              data=recipe, x='resource', y=param))
-                p[param] = (p[param].add(so.Line(color=experiment.color, marker='x'),
-                                         data=params_df, x='resource', y=param)
-                            .scale(x='log'))
+                
                             
         p = self.apply_shared(p)
             
@@ -614,11 +631,16 @@ class Plotting:
         
         p = so.Plot(data=all_params, x='resource', y='distance_scaled')
         for idx, experiment in enumerate(self.parent.experiments):
+            metaflag = hasattr(experiment, 'meta_params')
             params_df = all_params[all_params['exp_idx'] == idx]
-            p = (p.add(so.Line(color=experiment.color, marker='x'),
+            if metaflag:
+                p = (p.add(so.Line(color=experiment.color, linestyle=':'),
+                      data=params_df, x='resource', y='distance_scaled'))
+            else:
+                p = (p.add(so.Line(color=experiment.color, marker='x'),
                       data=params_df, x='resource', y='distance_scaled'))
 
-        p = self.apply_shared(p)
+        p = self.apply_shared(p, baseline_bool=False)
         
         return p
     
@@ -647,14 +669,19 @@ class Plotting:
         Plots meta parameters for experiments that have them (random search and sequential search)
         """
         plots_dict = {}
-        for experiment in self.parent.experiments:
+        for idx, experiment in enumerate(self.parent.experiments):
             exp_plot_dict ={}
             if hasattr(experiment, 'meta_params'):
                 for param in experiment.meta_parameter_names:
                     exp_plot_dict[param] = (so.Plot(data = experiment.meta_params, x=experiment.resource, y=param)
-                         .add(so.Line(color=experiment.color))
+                         .add(so.Line(color=experiment.color, marker ='x'))
                         )
-                expl_plot_dict = self.apply_shared(exp_plot_dict)
+                baseline_bool = False
+                experiment_bools = [False] * len(self.parent.experiments)
+                experiment_bools[idx] = True
+                expl_plot_dict = self.apply_shared(exp_plot_dict,
+                                                   baseline_bool=baseline_bool,
+                                                   experiment_bools=experiment_bools)
                 plots_dict[experiment.name] = exp_plot_dict
                     
         return plots_dict

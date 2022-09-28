@@ -139,8 +139,8 @@ def evaluate_single(df_eval: pd.DataFrame,
         for p in parameter_names:
             temp_df_eval['{}_rec'.format(p)] = recipe[p]
         df_list.append(temp_df_eval)
-
-    return pd.concat(df_list, ignore_index=True)
+    res = pd.concat(df_list, ignore_index=True)
+    return res
 
 def scaled_distance(df_eval: pd.DataFrame,
                     recipe: pd.DataFrame,

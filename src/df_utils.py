@@ -31,7 +31,7 @@ def applyParallel(dfGrouped, func):
         ret_list = p.map(func, [group for name, group in dfGrouped])
     return pd.concat(ret_list)
 
-def monotone_df(df, resource_col, response_col, opt_sense):
+def monotone_df(df, resource_col, response_col, opt_sense, extrapolate_from=None, match_on=None):
     """
     Makes dataframe monotone with the response column as a function of the response column.
     
@@ -59,13 +59,13 @@ def monotone_df(df, resource_col, response_col, opt_sense):
             response_col, ascending=True).drop_duplicates(resource_col)
         
     df.sort_values(resource_col, ascending=True, inplace=True)
-    df.reset_index(inplace=True)
+    # df.reset_index(inplace=True)
     
     if opt_sense == 1:
         running_val = df[response_col].cummax()
     elif opt_sense == -1:
         running_val = df[response_col].cummin()
-    
+    dont_extrap = (extrapolate_from is None)
     count = 0
     rolling_cols = [cols for cols in df.columns if cols != resource_col]
     for idx, row in df.iterrows():
@@ -73,7 +73,20 @@ def monotone_df(df, resource_col, response_col, opt_sense):
             count += 1
             prev_row = row.copy()
         elif running_val[idx] != row[response_col]:
-            df.loc[idx, rolling_cols] = prev_row[rolling_cols].copy()
+            if dont_extrap:
+                df.loc[idx, rolling_cols] = prev_row[rolling_cols].copy()
+            else:
+                matched_row = extrapolate_from[(extrapolate_from[resource_col] == row[resource_col])
+                            & np.all([extrapolate_from[col] == row[col] for col in match_on], axis=0)]
+                if len(matched_row) == 0:
+                    print("No matched row found for")
+                    print(row)
+                    continue
+                else:
+                    matched_row = matched_row.iloc[0]
+                # print(matched_row[rolling_cols])
+                # print(df.loc[idx, rolling_cols])
+                df.loc[idx, rolling_cols]= matched_row[rolling_cols].copy()
         else:
             prev_row = row.copy()
     df.drop(columns=[c for c in df.columns if 'level' in c])

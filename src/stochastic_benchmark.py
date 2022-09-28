@@ -1,3 +1,4 @@
+from collections import namedtuple
 import copy
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -7,6 +8,7 @@ import os
 import pandas as pd
 import seaborn.objects as so
 import seaborn as sns
+import warnings
 
 
 import bootstrap
@@ -57,7 +59,31 @@ def sweep_boots_resource(df):
     """
     return df['sweep'] * df['boots']
 
-class ProjectionExperiment:
+class Experiment:
+    def __init__(self):
+        return 
+    def evaluate(self):
+       raise NotImplementedError(
+            "Evaluate should be overriden by a subclass of SuccessMetrics") 
+    def evaluate_monotone(self):
+        """
+        Monotonizes the response and parameters from evaluate
+        
+        Returns
+        -------
+        params_df : pd.DataFrame
+            Dataframe of recommended parameters
+        eval_df : pd.DataFrame
+            Dataframe of responses, renamed to generic columns for compatibility
+        """
+        params_df, eval_df = self.evaluate()
+        joint = params_df.merge(eval_df, on='resource')
+        joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
+        params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
+        eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
+        return params_df, eval_df
+
+class ProjectionExperiment(Experiment):
     """
     Holds information needed for projection experiments. 
     Used for evaluating performance of a recipe on the test set if the user cannot re-run experiments.
@@ -83,6 +109,7 @@ class ProjectionExperiment:
         self.postprocess = postprocess
         self.postprocess_name = postprocess_name
         self.populate()
+        self.attached = None
         
     def populate(self):
         """
@@ -145,7 +172,7 @@ class ProjectionExperiment:
                     self.recipe = self.postprocess(self.recipe)
                     
         else:
-            raise NotImplementedError('Projection from {} has not been implemented'.format(project_from))
+            raise NotImplementedError('Projection from {} has not been implemented'.format(self.project_from))
         
         # Run the projections
         if os.path.exists(rec_path):
@@ -155,10 +182,11 @@ class ProjectionExperiment:
             self.rec_params = training.evaluate(testing_results,\
                                                 self.recipe,\
                                                 training.scaled_distance,\
-                                                parameter_names=self.parent.parameter_names)
+                                                parameter_names=self.parent.parameter_names,\
+                                                group_on = self.parent.instance_cols)
             self.rec_params.to_pickle(rec_path)
         
-    def evaluate(self):
+    def evaluate(self, monotone=False):
         """
         Returns
         -------
@@ -167,6 +195,64 @@ class ProjectionExperiment:
         eval_df : pd.DataFrame
             Dataframe of responses, renamed to generic columns for compatibility
         """
+        # params_df = self.rec_params.loc[:, ['resource'] + self.parent.parameter_names].copy()
+        
+        # base = names.param2filename({'Key': self.parent.response_key}, '')
+        # CIlower = names.param2filename({'Key': self.parent.response_key,
+        #                                 'ConfInt':'lower'}, '')
+        # CIupper = names.param2filename({'Key': self.parent.response_key,
+        #                                 'ConfInt':'upper'}, '')
+        # eval_df = self.rec_params.copy()
+        # eval_df.rename(columns = {
+        #     base :'response',
+        #     CIlower :'response_lower',
+        #     CIupper :'response_upper',
+        # }, inplace=True
+        # )
+
+        # joint = self.rec_params.copy()
+        # base = names.param2filename({'Key': self.parent.response_key}, '')
+        # CIlower = names.param2filename({'Key': self.parent.response_key,
+        #                                 'ConfInt':'lower'}, '')
+        # CIupper = names.param2filename({'Key': self.parent.response_key,
+        #                                 'ConfInt':'upper'}, '')
+        # joint.rename(columns = {
+        #     base :'response',
+        #     CIlower :'response_lower',
+        #     CIupper :'response_upper',
+        # }, inplace=True
+        # )
+        # joint = joint.loc[:, ['resource'] + self.parent.parameter_names + 
+        # ['response', 'response_lower', 'response_upper'] + self.parent.instance_cols] 
+
+        # extrapolate_from = self.parent.interp_results.loc[self.parent.interp_results['train'] == 0].copy()
+        # extrapolate_from.rename(columns = {
+        #     base :'response',
+        #     CIlower :'response_lower',
+        #     CIupper :'response_upper',
+        # }, inplace=True
+        # )
+
+        # def mono(df):
+        #     # res = df_utils.monotone_df(joint, 'resource', 'response', 1,
+        #     # extrapolate_from=extrapolate_from, match_on = self.parent.parameter_names + self.parent.instance_cols)
+        #     res = df_utils.monotone_df(joint, 'resource', 'response', 1)
+        #     return res
+
+        # joint = joint.groupby(self.parent.instance_cols).apply(mono)
+        
+
+        # params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
+        # eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
+        # params_df = params_df.groupby('resource').mean()
+        # params_df.reset_index(inplace=True)
+
+        # eval_df = eval_df.groupby('resource').median()
+        # eval_df.reset_index(inplace=True)
+
+
+
+
         params_df = self.rec_params.loc[:, ['resource'] + self.parent.parameter_names].copy()
         params_df = params_df.groupby('resource').mean()
         params_df.reset_index(inplace=True)
@@ -200,14 +286,110 @@ class ProjectionExperiment:
             Dataframe of responses, renamed to generic columns for compatibility
         """
         params_df, eval_df = self.evaluate()
+    
         joint = params_df.merge(eval_df, on='resource')
+        extrapolate_from=self.parent.testing_stats.copy()
+        base = names.param2filename({'Key': self.parent.response_key,
+                                    'Metric': self.parent.stat_params.stats_measures[0].name}, '')
+        CIlower = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'lower',
+                                        'Metric': self.parent.stat_params.stats_measures[0].name}, '')
+        CIupper = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'upper',
+                                        'Metric': self.parent.stat_params.stats_measures[0].name}, '')
+        extrapolate_from.rename(columns = {
+            base :'response',
+            CIlower :'response_lower',
+            CIupper :'response_upper',
+        },inplace=True
+        )
+
+        # joint = df_utils.monotone_df(joint, 'resource', 'response', 1,
+        #     extrapolate_from=extrapolate_from, match_on = self.parent.parameter_names)
         joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
         params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
         eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
         return params_df, eval_df
-
     
-class RandomSearchExperiment:
+
+class StaticRecommendationExperiment(Experiment):
+    """
+    Holds parameters for fixed recommendation experiments
+    
+    Attributes
+    ----------
+    parent : stochastic_benchmark
+    name : str 
+        name for pretty printing
+    rec_params : pd.DataFrame
+        Recommended parameters for evaluation
+    """
+    
+    def __init__(self, parent, init_from):
+        self.parent = parent
+        self.name = 'FixedRecommendation'
+        
+        if type(init_from) == ProjectionExperiment:
+            self.rec_params = init_from.recipe
+        elif type(init_from) == pd.DataFrame:
+            self.rec_params = init_from
+        else:
+            warn_str = 'init_from type is not supported. No recommended parameters are set.'
+            warnings.warn(warn_str)
+        
+    def list_runs(self):
+        """
+        Returns a list of experiments evaluate.
+        """
+        parameter_names = "resource " + ' '.join(self.parent.parameter_names)
+        Parameter = namedtuple("Parameter", parameter_names)
+        runs = []
+        for _, row in self.rec_params.iterrows():
+            runs.append(Parameter(row['resource'], *[row[k] for k in self.parent.parameter_names]))
+        return runs
+    
+    def attach_runs(self, df):
+        """
+        Attaches reruns of experiment to 
+        """
+        if type(df) == str:
+            df = pd.read_pickle(df)
+        
+        group_on = self.parent.instance_cols + ['resource']
+        self.eval_df = self.parent.evaluate_without_bootstrap(self, df, group_on)
+    
+    def evaluate(self):
+        """
+        Returns
+        -------
+        params_df : pd.DataFrame
+            Dataframe of recommended parameters
+        eval_df : pd.DataFrame
+            Dataframe of responses, renamed to generic columns for compatibility
+        """
+        params_df = self.eval_df.loc[:, ['resource'] + self.parent.parameter_names].copy()
+        params_df = params_df.groupby('resource').mean()
+        params_df.reset_index(inplace=True)
+        
+        base = names.param2filename({'Key': self.parent.response_key}, '')
+        CIlower = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'lower'}, '')
+        CIupper = names.param2filename({'Key': self.parent.response_key,
+                                        'ConfInt':'upper'}, '')
+        eval_df = self.eval_df.copy()
+        eval_df.rename(columns = {
+            base :'response',
+            CIlower :'response_lower',
+            CIupper :'response_upper',
+        }, inplace=True
+        )
+        eval_df = eval_df.loc[:, ['resource','response', 'response_lower', 'response_upper']]
+        eval_df = eval_df.groupby('resource').median()
+        eval_df.reset_index(inplace=True)
+        return params_df, eval_df
+    
+    
+class RandomSearchExperiment(Experiment):
     """
     Holds parameters needed for random search experiment
     
@@ -238,6 +420,7 @@ class RandomSearchExperiment:
         meta_params_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_meta_params.pkl')
         eval_train_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_evalTrain.pkl')
         eval_test_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_evalTest.pkl')
+        
         if os.path.exists(meta_params_path):
             self.meta_params = pd.read_pickle(meta_params_path)
         else:
@@ -290,25 +473,8 @@ class RandomSearchExperiment:
         eval_df.reset_index(inplace=True)
         return params_df, eval_df
     
-    def evaluate_monotone(self):
-        """
-        Monotonizes the response and parameters from evaluate
-        
-        Returns
-        -------
-        params_df : pd.DataFrame
-            Dataframe of recommended parameters
-        eval_df : pd.DataFrame
-            Dataframe of responses, renamed to generic columns for compatibility
-        """
-        params_df, eval_df = self.evaluate()
-        joint = params_df.merge(eval_df, on='resource')
-        joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
-        params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
-        eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
-        return params_df, eval_df
     
-class SequentialSearchExperiment:
+class SequentialSearchExperiment(Experiment):
     """
     Holds parameters needed for sequential search experiment
     
@@ -404,23 +570,6 @@ class SequentialSearchExperiment:
         eval_df.reset_index(inplace=True)
         return params_df, eval_df
     
-    def evaluate_monotone(self):
-        """
-        Monotonizes the response and parameters from evaluate
-        
-        Returns
-        -------
-        params_df : pd.DataFrame
-            Dataframe of recommended parameters
-        eval_df : pd.DataFrame
-            Dataframe of responses, renamed to generic columns for compatibility
-        """
-        params_df, eval_df = self.evaluate()
-        joint = params_df.merge(eval_df, on='resource')
-        joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
-        params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
-        eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
-        return params_df, eval_df
         
 class VirtualBestBaseline:
     """
@@ -487,6 +636,8 @@ class VirtualBestBaseline:
         eval_df = eval_df.groupby('resource').median()
         eval_df.reset_index(inplace=True)
         return params_df, eval_df
+
+        
 
 class Plotting:
     """
@@ -589,17 +740,7 @@ class Plotting:
                 else:
                     p[param] = (p[param].add(so.Line(color=experiment.color, marker='x'),
                                          data=params_df, x='resource', y=param)
-                            .scale(x='log'))     
-                
-#                 if hasattr(experiment, 'recipe'):
-#                     if experiment.project_from == 'TrainingStats':
-#                         color = 'orange'
-#                     else:
-#                         color = 'cyan'
-#                     recipe = experiment.recipe
-#                     p[param] = (p[param].add(so.Line(color=color, marker='x'),
-#                                              data=recipe, x='resource', y=param))
-                
+                            .scale(x='log'))                     
                             
         p = self.apply_shared(p)
             
@@ -797,7 +938,7 @@ class stochastic_benchmark:
             if os.path.exists(self.here.interpolate) and self.recover:
                 self.interp_results = pd.read_pickle(self.here.interpolate)
                 if 'train' not in self.interp_results.columns:
-                    self.interp_results = training.split_train_test(self.interp_results, self.instance_cols, train_test_split)
+                    self.interp_results = training.split_train_test(self.interp_results, self.instance_cols, self.train_test_split)
                     self.interp_results.to_pickle(self.here.interpolate)
 
             elif self.bs_results is not None:
@@ -814,15 +955,43 @@ class stochastic_benchmark:
         """
         if self.bs_results is None:
             if os.path.exists(self.here.bootstrap) and self.recover:
-                print('Reading bs results')
+                print('Reading bootstrapped results')
                 self.bs_results = pd.read_pickle(self.here.bootstrap)
             else:
                 group_on = self.parameter_names + self.instance_cols
                 if not hasattr(self, 'raw_data'):
                     self.raw_data = df_utils.read_exp_raw(self.here.raw_data)
-                print('Running bs results')
-                self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, self.bsParams_iter)
+                print('Running bootstrapped results')
+                progress_dir = os.path.join(self.here.progress, 'bootstrap/')
+                if not os.path.exists(progress_dir):
+                    os.makedirs(progress_dir)
+                self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, self.bsParams_iter, progress_dir)
                 self.bs_results.to_pickle(self.here.bootstrap)
+    
+    def evaluate_without_bootstrap(self, df, group_on):
+        """"
+        Runs same computations evaluations as bootstrap without bootstrapping
+        """
+        bs_params = next(self.bsParams_iter)
+        resource_col = bs_params.shared_args['resource_col']
+        response_col = bs_params.shared_args['response_col'] 
+        def evaluate_single(df_single):
+            bs_params.update_rule(bs_params, df_single)
+            resources = df_single[resource_col].values
+            responses = df_single[response_col].values
+
+            bs_df = pd.DataFrame()
+            for metric_ref in bs_params.success_metrics:
+                metric = metric_ref(bs_params.shared_args,bs_params.metric_args[metric_ref.__name__])
+                metric.evaluate(bs_df, responses, resources)
+            for col in bs_params.keep_cols:
+                if col in df_single.columns:
+                    val = df_single[col].iloc[0]
+                    bs_df[col] = val
+            
+            return bs_df
+        full_eval = df.groupby(group_on).apply(lambda df : evaluate_single(df))
+        return full_eval
             
     def run_baseline(self):
         """

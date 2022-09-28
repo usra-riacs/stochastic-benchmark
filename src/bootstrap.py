@@ -3,6 +3,7 @@ import copy
 from dataclasses import dataclass, field
 from multiprocess import Process, Pool, Manager
 import numpy as np
+import os
 import pandas as pd
 from tqdm import tqdm
 from typing import Callable
@@ -23,7 +24,7 @@ class BootstrapParameters:
     """
     shared_args: dict #'resource_col, response_col, response_dir, best_value, random_value, confidence_level'
     update_rule: Callable[[pd.DataFrame], None]= field()
-    agg: str = field()
+    agg: str = field(default_factory = lambda : None)
     metric_args: defaultdict[dict] = field(
         default_factory=lambda: defaultdict(lambda: None))
     success_metrics: dict = field(default_factory = lambda:[success_metrics.PerfRatio])
@@ -87,7 +88,7 @@ def initBootstrap(df, bs_params):
     times : numpy.ndarray
         Array of times.
     """
-    if hasattr(bs_params, 'agg'):
+    if bs_params.agg is not None:
         p =  list(df[bs_params.agg] / df[bs_params.agg].sum())
         resamples = np.random.choice(len(df), (bs_params.downsample, bs_params.bootstrap_iterations), p)
     else:
@@ -129,7 +130,7 @@ def BootstrapSingle(df, bs_params):
     return bs_df
 
 
-def Bootstrap(df, group_on, bs_params_list):
+def Bootstrap(df, group_on, bs_params_list, progress_dir=None):
     """
     Bootstrap function.
 
@@ -148,15 +149,22 @@ def Bootstrap(df, group_on, bs_params_list):
         DataFrame containing the bootstrap results.
     """       
     def f(bs_params):
+
+        if progress_dir is not None:
+            filename = os.path.join(progress_dir, 'bootstrapped_results_boots={}.pkl'.format(bs_params.downsample))
+            if os.path.exists(filename):
+                temp_df = pd.read_pickle(filename)
+                return temp_df
+
         temp_df = df.groupby(group_on).progress_apply(lambda df : BootstrapSingle(df, bs_params)).reset_index()
         temp_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
         temp_df['boots'] = bs_params.downsample
+        
+        if progress_dir is not None:
+            temp_df.to_pickle(filename)
+
         return temp_df
 
     with Pool() as p:
         df_list = p.map(f, bs_params_list)
     return pd.concat(df_list)
-
-
-
-

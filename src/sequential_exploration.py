@@ -126,7 +126,7 @@ def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSear
     """
     explore_budget = budget * explore_frac
     if explore_budget < tau:
-#         print('Sequential search experiment terminated due to budget')
+        # print('Sequential search experiment terminated due to budget')
         return
     
     df_tau = df_stats[df_stats['resource'] == tau].copy()
@@ -134,7 +134,7 @@ def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSear
     df_tau.dropna(axis=0, how='any', subset=[ssParams.order_cols[experiment], ssParams.key], inplace=True)
     
     if len(df_tau) == 0:
-#         print('Sequential search experiment terminated due to not enough data')
+        # print('Sequential search experiment terminated due to not enough data')
         return
     
     n = int(explore_budget / tau)
@@ -204,15 +204,29 @@ def apply_allocations(df_stats: pd.DataFrame, ssParams: SequentialSearchParamete
     testing dataset)
     """
     final_values = []
-    for _, row in best_agg_alloc.iterrows():
+    print('within apply allocations')
+    print(len(best_agg_alloc))
+    for _, row in tqdm(best_agg_alloc.iterrows()):
         budget = row['TotalBudget']
         explore_budget = row['ExplorationBudget']
         tau = row['tau']
         explore_frac = float(explore_budget) / float(budget)
-        df_experiment = df_utils.applyParallel(df_stats.groupby(group_on),
-                                              lambda df: SequentialExplorationSingle(df, ssParams, budget, explore_frac, tau))
+                
+        # def fcn(df):
+        #     print('calling single')
+        #     res = SequentialExplorationSingle(df, ssParams, 0, budget, explore_frac, tau)
+        #     print(res)
+        #     return res
+        # res_list = []
+        # for name, group in df_stats.groupby(group_on):
+        #     print(name)
+        #     res_list.append(fcn(group))
 
-        final_values.append(df_experiment.iloc[[-1]])
+        df_experiment = df_utils.applyParallel(df_stats.groupby(group_on),
+                                              lambda df: SequentialExplorationSingle(df, ssParams, 0, budget, explore_frac, tau).iloc[[-1]])
+
+        final_values.append(df_experiment)
+    print(len(final_values))
     return pd.concat(final_values, ignore_index=True)
                                 
 def SequentialExploration(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, group_on: list):

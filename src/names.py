@@ -10,8 +10,9 @@ class paths:
         self.raw_data = os.path.join(self.cwd, 'exp_raw')
         self.checkpoints = os.path.join(self.cwd, 'checkpoints')
         self.plots = os.path.join(self.cwd, 'plots')
+        self.progress = os.path.join(self.cwd, 'progress')
 
-        for path in [self.checkpoints, self.plots]:
+        for path in [self.checkpoints, self.plots, self.progress]:
             if not os.path.exists(path):
                 os.makedirs(path)
         self.bootstrap = os.path.join(self.checkpoints, 'bootstrapped_results.pkl')

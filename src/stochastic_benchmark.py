@@ -656,7 +656,7 @@ class Plotting:
     
     def __init__(self, parent):
         self.parent = parent
-        self.colors = ['blue', 'green', 'red', 'purple']
+        self.colors = ['blue', 'green', 'red', 'purple', 'orange']
         self.assign_colors()
         self.xscale='log'
 
@@ -897,6 +897,7 @@ class stochastic_benchmark:
             self.populate_interp_results()
             self.populate_bs_results()
         
+        
     def populate_training_stats(self):
         """
         Tries to recover or computes training stats
@@ -945,7 +946,13 @@ class stochastic_benchmark:
                 print('Interpolating results with parameters: ', self.iParams)
                 self.interp_results = interpolate.Interpolate(self.bs_results,
                                                               self.iParams, self.parameter_names+self.instance_cols)
-                self.interp_results.to_pickle(self.here.interpolate)
+                base = names.param2filename({'Key': self.response_key}, '')
+                CIlower = names.param2filename({'Key': self.response_key,
+                                                'ConfInt':'lower'}, '')
+                CIupper = names.param2filename({'Key': self.response_key,
+                                                'ConfInt':'upper'}, '')
+                self.interp_results.dropna(subset=[base, CIlower, CIupper], inplace=True)
+
                 self.interp_results = training.split_train_test(self.interp_results, self.instance_cols, self.train_test_split)
                 self.interp_results.to_pickle(self.here.interpolate)
     
@@ -968,6 +975,7 @@ class stochastic_benchmark:
                 self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, self.bsParams_iter, progress_dir)
                 self.bs_results.to_pickle(self.here.bootstrap)
     
+ 
     def evaluate_without_bootstrap(self, df, group_on):
         """"
         Runs same computations evaluations as bootstrap without bootstrapping
@@ -1013,6 +1021,11 @@ class stochastic_benchmark:
         Runs sequential search experiments
         """
         self.experiments.append(SequentialSearchExperiment(self, ssParams))
+    def run_StaticRecommendationExperiment(self, init_from):
+        """
+        Runs static recommendation experiments
+        """
+        self.experiments.append(StaticRecommendationExperiment(self, init_from))
     def initPlotting(self):
         """
         Sets up plotting - this should be run after all experiments are run

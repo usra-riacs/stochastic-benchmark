@@ -68,6 +68,27 @@ class BSParams_iter:
         self.bs_params.downsample = 0
         return self
 
+class BSParams_range_iter:
+    """
+    Iterator for bootstrap parameters
+    """
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.bs_params.downsample = next(self.boots_iter)
+        if self.bs_params is not None:
+            return copy.deepcopy(self.bs_params)
+        else:
+            raise StopIteration
+
+    def __call__(self, bs_params, boots_iter):
+        self.boots_iter = iter(boots_iter)
+        self.bs_params = bs_params
+
+        return self
+    
+
 def initBootstrap(df, bs_params):
     """
     Initialize the bootstrap method.

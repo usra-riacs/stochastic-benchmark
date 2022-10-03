@@ -178,6 +178,7 @@ class ProjectionExperiment(Experiment):
         if os.path.exists(rec_path):
             self.rec_params = pd.read_pickle(rec_path)
         else:
+            print('Evaluating recommended parameters on testing results')
             testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
             self.rec_params = training.evaluate(testing_results,\
                                                 self.recipe,\
@@ -432,6 +433,7 @@ class RandomSearchExperiment(Experiment):
         if os.path.exists(eval_test_path):
             self.eval_test = pd.read_pickle(eval_test_path)
         else:
+            print('\t Evaluating random search on test')
             self.eval_test = random_exploration.apply_allocations(self.parent.testing_stats.copy(), self.rsParams, self.meta_params)
             self.eval_test.to_pickle(eval_test_path)
             
@@ -516,6 +518,7 @@ class SequentialSearchExperiment(Experiment):
             self.eval_test = pd.read_pickle(eval_test_path)
         else:
             try:
+                print('\t Evaluating sequential search on test')
                 testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
                 self.eval_test = sequential_exploration.apply_allocations(testing_results,
                                                                           self.ssParams,
@@ -895,7 +898,7 @@ class stochastic_benchmark:
             self.populate_training_stats()
             self.populate_testing_stats()
             self.populate_interp_results()
-            self.populate_bs_results()
+            # self.populate_bs_results()
         
         
     def populate_training_stats(self):
@@ -955,6 +958,9 @@ class stochastic_benchmark:
 
                 self.interp_results = training.split_train_test(self.interp_results, self.instance_cols, self.train_test_split)
                 self.interp_results.to_pickle(self.here.interpolate)
+                self.bs_results = None
+            else:
+                self.populate_bs_results()
     
     def populate_bs_results(self):
         """
@@ -1005,26 +1011,31 @@ class stochastic_benchmark:
         """
         Adds virtual best baseline
         """
+        print('Runnng baeline')
         self.baseline = VirtualBestBaseline(self)
     def run_ProjectionExperiment(self, project_from, postprocess=None, postprocess_name=None):
         """
         Runs projections experiments
         """
+        print("Running projection experiment")
         self.experiments.append(ProjectionExperiment(self, project_from, postprocess, postprocess_name))
     def run_RandomSearchExperiment(self, rsParams):
         """
         Runs random search experiments
         """
+        print('Running random search experiment')
         self.experiments.append(RandomSearchExperiment(self, rsParams))
     def run_SequentialSearchExperiment(self, ssParams):
         """
         Runs sequential search experiments
         """
+        print('Running sequential search experiment')
         self.experiments.append(SequentialSearchExperiment(self, ssParams))
     def run_StaticRecommendationExperiment(self, init_from):
         """
         Runs static recommendation experiments
         """
+        print('Running static recommendation experiment')
         self.experiments.append(StaticRecommendationExperiment(self, init_from))
     def initPlotting(self):
         """

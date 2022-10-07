@@ -144,3 +144,31 @@ def Interpolate(df: pd.DataFrame, interp_params: InterpolationParameters, group_
     df_interp = df.groupby(group_on).progress_apply(dfInterp)
     df_interp.reset_index(inplace=True)
     return df_interp
+
+def Interpolate_reduce_mem(df_list:list, interp_params: InterpolationParameters, group_on):
+    """
+    Complete interpolation function to include preparation, resource columns and actual interpolation.
+
+    Parameters
+    ----------
+    df_list : list[str]
+        list of bootstrapped results to interpolate on
+    interp_params : InterpolationParameters
+        Parameters for interpolation.
+    group_on : str
+        Grouping parameter for the dataframe.
+
+    Returns
+    -------
+    pd.DataFrame
+        Interpolated dataframe.
+    """
+    df_interp_list = []
+    for df_name in df_list:
+        df = pd.read_pickle(df_name)
+        generateResourceColumn(df, interp_params)
+        temp_df_interp = df.groupby(group_on).progress_apply(lambda df: InterpolateSingle(df, interp_params, group_on))
+        temp_df_interp.reset_index(inplace=True)
+        df_interp_list.append(temp_df_interp)
+    df_interp = pd.concat(df_interp_list, ignore_index=True)
+    return df_interp

@@ -1,6 +1,8 @@
 from collections import defaultdict
 import copy
 from dataclasses import dataclass, field
+import df_utils
+from itertools import product
 from multiprocess import Process, Pool, Manager
 import numpy as np
 import os
@@ -159,18 +161,39 @@ def Bootstrap(df, group_on, bs_params_list, progress_dir=None):
     ----------
     df : pandas.DataFrame
         DataFrame containing the data.
-    group_on : str
-        Column name to group on.
+    
+    If Split=False
+        group_on : list[str]
+            Column name to group on.
+    If split=True
+        group_on = list[list[str]]
+            group_on = [upper_group_on, lower_group_on]
+            upper_group_on splits will be written to different files
+            lower_group_on
     bs_params_list: list or iterator of bootstrap parameters
         Number of bootstraps.
 
     Returns
     -------
+    If split=False:
     bs_df : pandas.DataFrame
         DataFrame containing the bootstrap results.
-    """       
-    def f(bs_params):
+    If split=True:
+    df_list : list[str]
+        List of strings pointing to files with portions of bootstrapped_results
+    """
+    if type(df) == list:
+        if type(df)[0] == pd.DataFrame:
+            df = pd.concat(df, ignore_index=True)
+        elif type(df)[0] == str:
+            df = pd.concat([pd.read_pickle(df_str) for df_str in df], ignore_index=True)
+    elif type(df) == str:
+        df = pd.read_pickle(df)
 
+    if type(df) != pd.DataFrame:
+        print('Unsupport type as bootstrap input')
+
+    def f(bs_params):
         if progress_dir is not None:
             filename = os.path.join(progress_dir, 'bootstrapped_results_boots={}.pkl'.format(bs_params.downsample))
             if os.path.exists(filename):
@@ -180,12 +203,107 @@ def Bootstrap(df, group_on, bs_params_list, progress_dir=None):
         temp_df = df.groupby(group_on).progress_apply(lambda df : BootstrapSingle(df, bs_params)).reset_index()
         temp_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
         temp_df['boots'] = bs_params.downsample
-        
-        if progress_dir is not None:
-            temp_df.to_pickle(filename)
-
-        return temp_df
-
+    
     with Pool() as p:
         df_list = p.map(f, bs_params_list)
     return pd.concat(df_list)
+            
+def Bootstrap_reduce_mem(df, group_on, bs_params_list, bootstrap_dir, name_fcn=None):
+    bs_params_list = list(bs_params_list)
+    
+    if (type(df) == pd.DataFrame) or (type(df) == str):
+        if type(df) == str:
+            df = pd.read_pickle(df)
+        lower_group_on = group_on[1]
+        group_on = group_on[0]
+        
+        def upper_f(df_upper_group, bs_params_list):
+            group_name = name_fcn(df_upper_group[0])
+            df_group = df_upper_group[1]
+            filename = os.path.join(bootstrap_dir, 'bootstrapped_results_{}.pkl'.format(group_name)) #TODO fix filename
+            
+            if not os.path.exists(filename):
+                def bs_all_par(par_group):
+                    bs_params = par_group[0]
+                    lower_group_df  = par_group[1]
+                    return BootstrapSingle(lower_group_df[1], bs_params)
+                
+                def bs_params_eval(bs_params):
+                    temp_df = df_group.groupby(group_on).progress_apply(lambda df: BootstrapSingle(df, bs_params)).reset_index()
+                    temp_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
+                    temp_df['boots'] = bs_params.downsample
+                    return temp_df
+                    
+                # par_group = product(bs_params_list, df_group.groupby(group_on))
+                # with Pool() as p:
+                #     df_list = p.imap(bs_all_par, par_group)
+
+                with Pool() as p:
+                    df_list = p.map(bs_params_eval, bs_params_list)
+
+                res = pd.concat(df_list, ignore_index=True)
+                res.to_pickle(filename)
+            return filename
+        
+            
+    elif type(df) == list:
+        if type(df[0]) == str:
+            print('calling list of names method')
+            def upper_f(upper_group_filename, bs_params_list):
+                df_group = pd.read_pickle(upper_group_filename)
+                group_name = name_fcn(upper_group_filename)
+                print('evaluation bs for {}'.format(group_name))
+                filename = os.path.join(bootstrap_dir, 'bootstrapped_results_{}.pkl'.format(group_name)) #TODO fix filename
+                if not os.path.exists(filename):
+                    def bs_all_par(par_group):
+                        bs_params = par_group[0]
+                        lower_group_df  = par_group[1]
+                        return BootstrapSingle(lower_group_df[1], bs_params)
+                    
+                    def bs_params_eval(bs_params):
+                        temp_df = df_group.groupby(group_on).progress_apply(lambda df: BootstrapSingle(df, bs_params)).reset_index()
+                        temp_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
+                        temp_df['boots'] = bs_params.downsample
+                        return temp_df
+                        
+                    # par_group = product(bs_params_list, df_group.groupby(group_on))
+                    # with Pool() as p:
+                    #     df_list = p.imap(bs_all_par, par_group)
+
+                    with Pool() as p:
+                        df_list = p.map(bs_params_eval, bs_params_list)
+
+                    res = pd.concat(df_list, ignore_index=True)
+                    res.to_pickle(filename)
+                return filename
+        
+        elif type(df[0]) == pd.DataFrame:
+            def upper_f(df_group, bs_params_list):
+                group_name = name_fcn(df_group)
+                filename = os.path.join(bootstrap_dir, 'bootstrapped_results_{}.pkl'.format(group_name)) #TODO fix filename
+                if not os.path.exists(filename):
+                    def bs_all_par(par_group):
+                        bs_params = par_group[0]
+                        lower_group_df  = par_group[1]
+                        return BootstrapSingle(lower_group_df[1], bs_params)
+                    
+                    def bs_params_eval(bs_params):
+                        temp_df = df_group.groupby(group_on).progress_apply(lambda df: BootstrapSingle(df, bs_params)).reset_index()
+                        temp_df.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
+                        temp_df['boots'] = bs_params.downsample
+                        return temp_df
+                        
+                    # par_group = product(bs_params_list, df_group.groupby(group_on))
+                    # with Pool() as p:
+                    #     df_list = p.imap(bs_all_par, par_group)
+
+                    with Pool() as p:
+                        df_list = p.map(bs_params_eval, bs_params_list)
+
+                    res = pd.concat(df_list, ignore_index=True)
+                    res.to_pickle(filename)
+                return filename
+        
+    bs_filenames = [upper_f(df_group, bs_params_list) for df_group in df]
+    return bs_filenames
+

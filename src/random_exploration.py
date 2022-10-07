@@ -42,6 +42,7 @@ class RandomSearchParameters:
     optimization_dir: int = 1
     parameter_names: list = field(default_factory=lambda: ['sweep', 'replica'])
     key: str = 'PerfRatio'
+    restrict: str = str()
     stat_measure: stats.StatsMeasure = stats.Mean()
 
 def prepare_search(stats_df: pd.DataFrame, rsParams: RandomSearchParameters):
@@ -127,7 +128,11 @@ def single_experiment(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, 
         return
     if np.isclose(tau, 0.):
         return
-    df_tau = df_stats[df_stats['resource'] == tau].copy()
+    if len(rsParams.restrict) == 0:
+        df_tau = df_stats[df_stats['resource'] == tau].copy()
+    else:
+        df_tau = df_stats[(df_stats['resource'] == tau)
+                        & (df_stats[rsParams.restric] == True)].copy()
     df_tau = df_tau.sample(n = int(explore_budget / tau), replace=True)
     
     if rsParams.optimization_dir == 1:

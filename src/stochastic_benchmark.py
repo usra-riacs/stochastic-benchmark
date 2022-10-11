@@ -1,12 +1,14 @@
 from collections import namedtuple
 import copy
 import glob
+from math import floor
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 import os
 import pandas as pd
+from random import choice
 import seaborn.objects as so
 import seaborn as sns
 import warnings
@@ -362,6 +364,7 @@ class StaticRecommendationExperiment(Experiment):
             self.eval_df = self.parent.evaluate_without_bootstrap(df, group_on)
         else:
             self.eval_df = df
+        self.parent.baseline.recalibrate(self.eval_df)
     
     def evaluate(self):
         """
@@ -496,18 +499,27 @@ class SequentialSearchExperiment(Experiment):
     eval_test : pd.DataFrame
         Resulting parameters of meta_params on testing set    
     """
-    def __init__(self, parent, ssParams):
+    def __init__(self, parent, ssParams, id_name=None):
         self.parent = parent
-        self.name = 'SequentialSearch'
+        if id_name is None:
+            self.name = 'SequentialSearch'
+        else:
+            self.name = 'SequentialSearch: Id = {}'.format(id_name)
         self.ssParams = ssParams
+        self.id_name = id_name
         self.meta_parameter_names = ['ExploreFrac', 'tau']
         self.resource = 'TotalBudget'
         self.populate()
         
     def populate(self):
-        meta_params_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_meta_params.pkl')
-        eval_train_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTrain.pkl')
-        eval_test_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTest.pkl')
+        if self.id_name is None:
+            meta_params_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_meta_params.pkl')
+            eval_train_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTrain.pkl')
+            eval_test_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTest.pkl')
+        else:
+            meta_params_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_meta_params_id={}.pkl'.format(self.id_name))
+            eval_train_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTrain_id={}.pkl'.format(self.id_name))
+            eval_test_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTest_id={}.pkl'.format(self.id_name))    
         if os.path.exists(meta_params_path):
             self.meta_params = pd.read_pickle(meta_params_path)
             self.eval_train = pd.read_pickle(eval_train_path)
@@ -521,16 +533,16 @@ class SequentialSearchExperiment(Experiment):
         if os.path.exists(eval_test_path):
             self.eval_test = pd.read_pickle(eval_test_path)
         else:
-            try:
-                print('\t Evaluating sequential search on test')
-                testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
-                self.eval_test = sequential_exploration.apply_allocations(testing_results,
-                                                                          self.ssParams,
-                                                                          self.meta_params,
-                                                                          self.parent.instance_cols)
-                self.eval_test.to_pickle(eval_test_path)
-            except:
-                print('Not enough test data for sequential search. Evaluating on train.')
+            # try:
+            print('\t Evaluating sequential search on test')
+            testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
+            self.eval_test = sequential_exploration.apply_allocations(testing_results,
+                                                                        self.ssParams,
+                                                                        self.meta_params,
+                                                                        self.parent.instance_cols)
+            self.eval_test.to_pickle(eval_test_path)
+            # except:
+            #     print('Not enough test data for sequential search. Evaluating on train.')
     
     def evaluate(self):
         """
@@ -608,12 +620,36 @@ class VirtualBestBaseline:
             self.rec_params = training.virtual_best(testing_results,\
                                parameter_names=self.parent.parameter_names,\
                                response_col=response_col,\
-                               response_dir=1,\
+                               response_dir=self.parent.response_dir,\
                                groupby = self.parent.instance_cols,\
                                resource_col='resource',\
                                 smooth=self.parent.smooth)
             self.rec_params.to_pickle(self.savename())
                 
+    def recalibrate(self, new_df):
+        """
+        Parameters
+        ----------
+        new_df : pd.DataFrame
+            pandas dataframe with the new data. Should only have columns 
+            ['resource'. *(parameters_names), response, response_lower, response_upper]
+            response cols should match name of results columns
+        Updates params and evaluation to take in new data
+        """
+        base = names.param2filename({'Key': self.parent.response_key}, '')
+        joint_cols = ['resource', base] + self.parent.parameter_names + self.parent.instance_cols
+        new_df = new_df.loc[:, joint_cols]
+        joint = pd.concat([self.rec_params.loc[:, joint_cols], new_df], ignore_index=True)
+        
+        self.rec_params = training.virtual_best(joint,\
+                               parameter_names=self.parent.parameter_names,\
+                               response_col=base,\
+                               response_dir=self.parent.response_dir,\
+                               groupby = self.parent.instance_cols,\
+                               resource_col='resource',\
+                                additional_cols=[],\
+                                smooth=self.parent.smooth)
+
     def evaluate(self):
         """
         Returns
@@ -679,6 +715,7 @@ class stochastic_benchmark:
                  stat_params = stats.StatsParameters(stats_measures=[stats.Median()]),
                  resource_fcn = sweep_boots_resource,
                  response_key = 'PerfRatio',
+                 response_dir = 1,
                  train_test_split = 0.5,
                  recover=True,
                  reduce_mem=True,
@@ -692,6 +729,7 @@ class stochastic_benchmark:
         self.stat_params = stat_params
         self.resource_fcn = resource_fcn
         self.response_key = response_key
+        self.response_dir = response_dir
         self.train_test_split = train_test_split
         self.recover = recover
         self.reduce_mem = reduce_mem
@@ -878,12 +916,12 @@ class stochastic_benchmark:
         """
         print('Running random search experiment')
         self.experiments.append(RandomSearchExperiment(self, rsParams))
-    def run_SequentialSearchExperiment(self, ssParams):
+    def run_SequentialSearchExperiment(self, ssParams, id_name=None):
         """
         Runs sequential search experiments
         """
         print('Running sequential search experiment')
-        self.experiments.append(SequentialSearchExperiment(self, ssParams))
+        self.experiments.append(SequentialSearchExperiment(self, ssParams, id_name))
     def run_StaticRecommendationExperiment(self, init_from):
         """
         Runs static recommendation experiments

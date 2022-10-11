@@ -1,7 +1,11 @@
 import df_utils
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 import seaborn.objects as so
+import training
+
 class Plotting:
     """
     Plotting helpers for coordinating plots
@@ -20,6 +24,7 @@ class Plotting:
     def __init__(self, parent):
         self.parent = parent
         self.colors = ['blue', 'green', 'red', 'purple', 'orange', 'cyan']
+        self.colors = sns.color_palette("tab10", len(self.parent.experiments))
         self.assign_colors()
         self.xscale='log'
 

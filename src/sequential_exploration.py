@@ -127,16 +127,17 @@ def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSear
     explore_budget = budget * explore_frac
     if explore_budget < tau:
         # print('Sequential search experiment terminated due to budget')
-        return
-    
+        return None
+    tau = take_closest(list(df_stats['resource']), tau)
     df_tau = df_stats[df_stats['resource'] == tau].copy()
+    # print(ssParams.order_cols[experiment])
     df_tau.sort_values(by=ssParams.order_cols[experiment], ascending=True, inplace=True, ignore_index=True)
     df_tau.dropna(axis=0, how='any', subset=[ssParams.order_cols[experiment], ssParams.key], inplace=True)
     
     if len(df_tau) == 0:
         # print('Sequential search experiment terminated due to not enough data')
-        return
-    
+        return None
+   
     n = int(explore_budget / tau)
     df_tau = df_tau.iloc[0:min(n, len(df_tau))]
     
@@ -175,7 +176,6 @@ def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSear
     df_experiment['CummResource'] = df_experiment['resource_step'].expanding(min_periods=1).sum()
     df_experiment = df_experiment[df_experiment['CummResource'] <= budget]
     
-    
     return df_experiment
         
 def run_experiments(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters):
@@ -204,29 +204,46 @@ def apply_allocations(df_stats: pd.DataFrame, ssParams: SequentialSearchParamete
     testing dataset)
     """
     final_values = []
-    print('within apply allocations')
     print(len(best_agg_alloc))
     for _, row in tqdm(best_agg_alloc.iterrows()):
+        # print(row)
         budget = row['TotalBudget']
         explore_budget = row['ExplorationBudget']
         tau = row['tau']
+        # print(row['tau'], tau)
+        # print('------')
         explore_frac = float(explore_budget) / float(budget)
-                
-        # def fcn(df):
-        #     print('calling single')
-        #     res = SequentialExplorationSingle(df, ssParams, 0, budget, explore_frac, tau)
-        #     print(res)
-        #     return res
-        # res_list = []
-        # for name, group in df_stats.groupby(group_on):
-        #     print(name)
-        #     res_list.append(fcn(group))
+        for experiment in range(len(ssParams.order_cols)):   
+            def fcn(df):
+                res = SequentialExplorationSingle(df, ssParams, experiment, budget, explore_frac, tau)
+                if res is not None:
+                    return res.iloc[[-1]]
+                else:
+                    return pd.DataFrame()
+            df_experiment = df_utils.applyParallel(df_stats.groupby(group_on), fcn)
+            if len(df_experiment) >= 1:
+                final_values.append(df_experiment)
+            
+            # res_list = []
+            # for name, group in df_stats.groupby(group_on):
+            #     # print(name)
+            #     res = fcn(group)
+            #     if res is not None:
+            #         res_list.append(res.iloc[[-1]])
+            #     # try:
+            #     #     res_list.append(res.iloc[-1])
+            #     # except:
+            #     #     print(name)
+            #     #     print(res)
+            # # print(len(res_list))
+            # if len(res_list) >= 1:
+            #     df_experiment = pd.concat(res_list, ignore_index=True)
+            #     final_values.append(df_experiment)
+            # else:
+            #     print('no res list')
 
-        df_experiment = df_utils.applyParallel(df_stats.groupby(group_on),
-                                              lambda df: SequentialExplorationSingle(df, ssParams, 0, budget, explore_frac, tau).iloc[[-1]])
-
-        final_values.append(df_experiment)
-    print(len(final_values))
+        # df_experiment = df_stats.groupby(group_on).apply(lambda df: SequentialExplorationSingle(df, ssParams, 0, budget, explore_frac, tau).iloc[[-1]])
+    
     return pd.concat(final_values, ignore_index=True)
                                 
 def SequentialExploration(df_stats: pd.DataFrame, ssParams: SequentialSearchParameters, group_on: list):

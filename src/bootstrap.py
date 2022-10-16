@@ -113,7 +113,7 @@ def initBootstrap(df, bs_params):
     """
     if bs_params.agg is not None:
         p =  list(df[bs_params.agg] / df[bs_params.agg].sum())
-        resamples = np.random.choice(len(df), (bs_params.downsample, bs_params.bootstrap_iterations), p)
+        resamples = np.random.choice(len(df), (bs_params.downsample, bs_params.bootstrap_iterations), p=p)
     else:
         resamples = np.random.randint(0, len(df), size=(
             bs_params.downsample, bs_params.bootstrap_iterations), dtype=np.intp)

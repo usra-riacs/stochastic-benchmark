@@ -124,6 +124,7 @@ def single_experiment(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, 
     Dataframe representing entire run of the experiment
     """
     explore_budget = budget * explore_frac
+    tau = take_closest(list(df_stats['resource']), tau)
     if explore_budget < tau:
         return
     if np.isclose(tau, 0.):
@@ -134,6 +135,7 @@ def single_experiment(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, 
         df_tau = df_stats[(df_stats['resource'] == tau)
                         & (df_stats[rsParams.restric] == True)].copy()
     df_tau = df_tau.sample(n = int(explore_budget / tau), replace=True)
+    
     
     if rsParams.optimization_dir == 1:
         best_pars = df_tau.loc[[df_tau[rsParams.key].idxmax()]]
@@ -160,14 +162,13 @@ def single_experiment(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, 
         exploit_df.loc[:, [rsParams.key, CIlower, CIupper]].clip(upper=best_val, inplace=True)
         
     exploit_df['resource_step'] = exploit_df['resource'].diff().fillna(exploit_df['resource'])
-    
+
     df_experiment = pd.concat([df_tau, exploit_df], ignore_index=True)
     df_experiment['tau'] = tau
     df_experiment['TotalBudget'] = budget
     df_experiment['ExplorationBudget'] = explore_budget
     df_experiment['CummResource'] = df_experiment['resource_step'].expanding(min_periods=1).sum()
     df_experiment = df_experiment[df_experiment['CummResource'] <= budget]
-    
     return df_experiment
         
 def run_experiments(df_stats: pd.DataFrame, rsParams: RandomSearchParameters):
@@ -202,6 +203,8 @@ def apply_allocations(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, 
         explore_frac = float(explore_budget) / float(budget)
         for experiment in range(rsParams.Nexperiments):
             df_experiment = single_experiment(df_stats, rsParams, budget, explore_frac, tau)
+            if df_experiment is None:
+                continue
             df_experiment['Experiment'] = experiment
             final_values.append(df_experiment.iloc[[-1]])
     return pd.concat(final_values, ignore_index=True)

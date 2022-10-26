@@ -99,7 +99,11 @@ class Plotting:
                        )
         for experiment in self.parent.experiments:
             metaflag = hasattr(experiment, 'meta_params')
-            params_df, _ = experiment.evaluate_monotone()
+            res = experiment.evaluate_monotone()
+            params_df = res[0]
+            if len(res) == 3:
+                preproc_params = res[2]
+
             for param in self.parent.parameter_names:
                 if metaflag:
                     p[param] = (p[param].add(so.Line(color=experiment.color, linestyle=':'),
@@ -108,7 +112,11 @@ class Plotting:
                 else:
                     p[param] = (p[param].add(so.Line(color=experiment.color, marker='x'),
                                          data=params_df, x='resource', y=param)
-                            .scale(x='log'))                     
+                            .scale(x='log'))
+                if len(res) == 3:
+                   p[param] = (p[param].add(so.Line(color=experiment.color, linestyle=':'),
+                                         data=preproc_params, x='resource', y=param)
+                            .scale(x='log'))                   
                             
         p = self.apply_shared(p)
             
@@ -123,7 +131,7 @@ class Plotting:
         all_params_list = []
         count = 0
         for experiment in self.parent.experiments:
-            params_df, _ = experiment.evaluate_monotone()
+            params_df = experiment.evaluate_monotone()[0]
             params_df['exp_idx'] = count
             all_params_list.append(params_df)
             count += 1
@@ -165,7 +173,8 @@ class Plotting:
         
         for experiment in self.parent.experiments:
             try:
-                _, eval_df = experiment.evaluate_monotone()
+                res = experiment.evaluate_monotone()
+                eval_df = res[1]
                 p = (p.add(so.Line(color=experiment.color, marker="x"), data=eval_df, x='resource', y='response')
                     .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
                         ymin='response_lower', ymax='response_upper')
@@ -188,10 +197,14 @@ class Plotting:
                     exp_plot_dict[param] = (so.Plot(data = experiment.meta_params, x=experiment.resource, y=param)
                          .add(so.Line(color=experiment.color, marker ='x'))
                         )
+                    if hasattr(experiment, 'preproc_meta_params'):
+                       exp_plot_dict[param] = exp_plot_dict[param].add(
+                            so.Line(color=experiment.color, linestyle ='--'),
+                            data=experiment.preproc_meta_params, x=experiment.resource, y=param)
                 baseline_bool = False
                 experiment_bools = [False] * len(self.parent.experiments)
                 experiment_bools[idx] = True
-                expl_plot_dict = self.apply_shared(exp_plot_dict,
+                exp_plot_dict = self.apply_shared(exp_plot_dict,
                                                    baseline_bool=baseline_bool,
                                                    experiment_bools=experiment_bools)
                 plots_dict[experiment.name] = exp_plot_dict

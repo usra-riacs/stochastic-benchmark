@@ -80,12 +80,20 @@ class Experiment:
         eval_df : pd.DataFrame
             Dataframe of responses, renamed to generic columns for compatibility
         """
-        params_df, eval_df = self.evaluate()
+        res = self.evaluate()
+        if len(res) == 2:
+            params_df, eval_df = res
+        elif len(res) == 3:
+            params_df, eval_df, preproc_params = res
         joint = params_df.merge(eval_df, on='resource')
         joint = df_utils.monotone_df(joint, 'resource', 'response', 1)
         params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
         eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
-        return params_df, eval_df
+
+        if len(res) == 2:
+            return params_df, eval_df
+        elif len(res) == 3:
+            return params_df, eval_df, preproc_params
 
 class ProjectionExperiment(Experiment):
     """
@@ -113,7 +121,7 @@ class ProjectionExperiment(Experiment):
         self.postprocess = postprocess
         self.postprocess_name = postprocess_name
         self.populate()
-        self.attached = None
+
         
     def populate(self):
         """
@@ -128,9 +136,8 @@ class ProjectionExperiment(Experiment):
         # Prepare the recipes
         if self.project_from == 'TrainingStats':
             if self.postprocess is not None:
-                br_train_path = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train_postprocess={}.pkl'.format(self.postprocess_name))
-            else:
-                br_train_path = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train.pkl')
+                br_train_path_post = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train_postprocess={}.pkl'.format(self.postprocess_name))
+            br_train_path = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train.pkl')
             
             if os.path.exists(br_train_path):
                 self.recipe = pd.read_pickle(br_train_path)
@@ -144,11 +151,14 @@ class ProjectionExperiment(Experiment):
                                      resource_col='resource',
                                      additional_cols=['boots'],
                                     smooth=self.parent.smooth)
-                if self.postprocess is not None:
-                    self.recipe = self.postprocess(self.recipe)
-                    
+                
                 self.recipe.to_pickle(br_train_path)
 
+            if self.postprocess is not None:
+                self.preproc_recipe = self.recipe.copy()
+                self.recipe = self.postprocess(self.recipe)
+                self.recipe.to_pickle(br_train_path_post)
+                    
         elif self.project_from == 'TrainingResults':
 
             vb_train_path = os.path.join(self.parent.here.checkpoints, 'VirtualBest_train.pkl')
@@ -173,7 +183,8 @@ class ProjectionExperiment(Experiment):
                               additional_cols=['boots']).reset_index()
             
             if self.postprocess is not None:
-                    self.recipe = self.postprocess(self.recipe)
+                self.preproc_recipe = self.recipe.copy()
+                self.recipe = self.postprocess(self.recipe)
                     
         else:
             raise NotImplementedError('Projection from {} has not been implemented'.format(self.project_from))
@@ -336,6 +347,9 @@ class StaticRecommendationExperiment(Experiment):
         
         if type(init_from) == ProjectionExperiment:
             self.rec_params = init_from.recipe
+            if init_from.postprocess is not None:
+                self.preproc_rec_params = init_from.preproc_recipe.copy()
+
         elif type(init_from) == pd.DataFrame:
             self.rec_params = init_from
         else:
@@ -376,6 +390,7 @@ class StaticRecommendationExperiment(Experiment):
             Dataframe of responses, renamed to generic columns for compatibility
         """
         params_df = self.rec_params.loc[:, ['resource'] + self.parent.parameter_names].copy()
+        preproc_params = self.preproc_rec_params.loc[:, ['resource'] + self.parent.parameter_names].copy()
         # params_df = params_df.groupby('resource').mean()
         # params_df.reset_index(inplace=True)
         
@@ -394,7 +409,7 @@ class StaticRecommendationExperiment(Experiment):
         eval_df = eval_df.loc[:, ['resource','response', 'response_lower', 'response_upper']]
         eval_df = eval_df.groupby('resource').mean()
         eval_df.reset_index(inplace=True)
-        return params_df, eval_df
+        return params_df, eval_df, preproc_params
     
     
 class RandomSearchExperiment(Experiment):
@@ -413,12 +428,14 @@ class RandomSearchExperiment(Experiment):
     eval_test : pd.DataFrame
         Resulting parameters of meta_params on testing set    
     """
-    def __init__(self, parent, rsParams):
+    def __init__(self, parent, rsParams, postprocess=None, postprocess_name=None):
         self.parent = parent
         self.name = 'RandomSearch'
         self.rsParams = rsParams
         self.meta_parameter_names = ['ExploreFrac', 'tau']
         self.resource = 'TotalBudget'
+        self.postprocess = postprocess
+        self.postprocess_name = postprocess_name
         self.populate()
         
     def populate(self):
@@ -427,8 +444,13 @@ class RandomSearchExperiment(Experiment):
         """
         meta_params_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_meta_params.pkl')
         eval_train_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_evalTrain.pkl')
-        eval_test_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_evalTest.pkl')
         
+        if self.postprocess is None:
+            eval_test_path = os.path.join(self.parent.here.checkpoints, 'RandomSearch_evalTest.pkl')
+        else:
+            eval_test_path = os.path.join(self.parent.here.checkpoints, 
+                'RandomSearch_evalTest_postprocess={}.pkl'.format(self.postprocess_name)) 
+
         if os.path.exists(meta_params_path):
             self.meta_params = pd.read_pickle(meta_params_path)
         else:
@@ -436,6 +458,10 @@ class RandomSearchExperiment(Experiment):
             self.meta_params.to_pickle(meta_params_path)
             self.eval_train.to_pickle(eval_train_path)
         self.meta_params['ExploreFrac'] = self.meta_params['ExplorationBudget'] / self.meta_params['TotalBudget']
+
+        if self.postprocess is not None:
+            self.preproc_meta_params = self.meta_params.copy()
+            self.meta_params = self.postprocess(self.meta_params)
         
         if os.path.exists(eval_test_path):
             self.eval_test = pd.read_pickle(eval_test_path)
@@ -499,7 +525,7 @@ class SequentialSearchExperiment(Experiment):
     eval_test : pd.DataFrame
         Resulting parameters of meta_params on testing set    
     """
-    def __init__(self, parent, ssParams, id_name=None):
+    def __init__(self, parent, ssParams, id_name=None, postprocess=None, postprocess_name=None):
         self.parent = parent
         if id_name is None:
             self.name = 'SequentialSearch'
@@ -509,17 +535,28 @@ class SequentialSearchExperiment(Experiment):
         self.id_name = id_name
         self.meta_parameter_names = ['ExploreFrac', 'tau']
         self.resource = 'TotalBudget'
+        self.postprocess = postprocess
+        self.postprocess_name = postprocess_name
         self.populate()
         
     def populate(self):
         if self.id_name is None:
             meta_params_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_meta_params.pkl')
             eval_train_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTrain.pkl')
-            eval_test_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTest.pkl')
+            if self.postprocess is None:
+                eval_test_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTest.pkl')
+            else:
+                eval_test_path = os.path.join(self.parent.here.checkpoints, 
+                    'SequentialSearch_evalTest_postprocess={}.pkl'.format(self.postprocess_name)) 
         else:
             meta_params_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_meta_params_id={}.pkl'.format(self.id_name))
             eval_train_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTrain_id={}.pkl'.format(self.id_name))
-            eval_test_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTest_id={}.pkl'.format(self.id_name))    
+            if self.postprocess is None:
+                eval_test_path = os.path.join(self.parent.here.checkpoints, 'SequentialSearch_evalTest_id={}.pkl'.format(self.id_name))    
+            else:
+                eval_test_path = os.path.join(self.parent.here.checkpoints, 
+                    'SequentialSearch_evalTest_id={}_postprocess={}.pkl'.format(self.id_name, self.postprocess_name))
+
         if os.path.exists(meta_params_path):
             self.meta_params = pd.read_pickle(meta_params_path)
             self.eval_train = pd.read_pickle(eval_train_path)
@@ -529,7 +566,9 @@ class SequentialSearchExperiment(Experiment):
             self.meta_params.to_pickle(meta_params_path)
             self.eval_train.to_pickle(eval_train_path)
         self.meta_params['ExploreFrac'] = self.meta_params['ExplorationBudget'] / self.meta_params['TotalBudget']
-        
+        if self.postprocess is not None:
+            self.preproc_meta_params = self.meta_params.copy()
+            self.meta_params = self.postprocess(self.meta_params)
         if os.path.exists(eval_test_path):
             self.eval_test = pd.read_pickle(eval_test_path)
         else:
@@ -910,18 +949,20 @@ class stochastic_benchmark:
         """
         print("Running projection experiment")
         self.experiments.append(ProjectionExperiment(self, project_from, postprocess, postprocess_name))
-    def run_RandomSearchExperiment(self, rsParams):
+    def run_RandomSearchExperiment(self, rsParams, postprocess=None, postprocess_name=None):
         """
         Runs random search experiments
         """
         print('Running random search experiment')
-        self.experiments.append(RandomSearchExperiment(self, rsParams))
-    def run_SequentialSearchExperiment(self, ssParams, id_name=None):
+        self.experiments.append(RandomSearchExperiment(self, rsParams, 
+            postprocess=postprocess, postprocess_name=postprocess_name))
+    def run_SequentialSearchExperiment(self, ssParams, id_name=None, postprocess=None, postprocess_name=None):
         """
         Runs sequential search experiments
         """
         print('Running sequential search experiment')
-        self.experiments.append(SequentialSearchExperiment(self, ssParams, id_name))
+        self.experiments.append(SequentialSearchExperiment(self, ssParams, 
+            id_name, postprocess=postprocess, postprocess_name=postprocess_name))
     def run_StaticRecommendationExperiment(self, init_from):
         """
         Runs static recommendation experiments

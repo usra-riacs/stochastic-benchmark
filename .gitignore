@@ -148,3 +148,4 @@ notebooks/example_data/wishart*
 notebooks/example_data/max_clique*
 notebooks/example_data/sk_pleiades_n=200/*
 notebooks/example_data/sk_pleiades_n=100/checkpoints/*
+examples/*

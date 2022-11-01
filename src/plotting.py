@@ -6,6 +6,8 @@ import seaborn as sns
 import seaborn.objects as so
 import training
 
+monotone = False
+
 class Plotting:
     """
     Plotting helpers for coordinating plots
@@ -99,16 +101,21 @@ class Plotting:
                        )
         for experiment in self.parent.experiments:
             metaflag = hasattr(experiment, 'meta_params')
-            res = experiment.evaluate_monotone()
+            if monotone:
+                res = experiment.evaluate_monotone()
+            else:
+                res = experiment.evaluate()
             params_df = res[0]
             if len(res) == 3:
                 preproc_params = res[2]
 
             for param in self.parent.parameter_names:
                 if metaflag:
-                    p[param] = (p[param].add(so.Line(color=experiment.color, linestyle=':'),
-                                         data=params_df, x='resource', y=param)
-                            .scale(x='log'))
+                    pass
+                    # Commented out because meta_params might be too much information for these plots
+                    # p[param] = (p[param].add(so.Line(color=experiment.color, linestyle=':'),
+                    #                      data=params_df, x='resource', y=param)
+                    #         .scale(x='log'))
                 else:
                     p[param] = (p[param].add(so.Line(color=experiment.color, marker='x'),
                                          data=params_df, x='resource', y=param)
@@ -131,7 +138,10 @@ class Plotting:
         all_params_list = []
         count = 0
         for experiment in self.parent.experiments:
-            params_df = experiment.evaluate_monotone()[0]
+            if monotone:
+                params_df = experiment.evaluate_monotone()[0]
+            else:
+                params_df = experiment.evaluate()[0]
             params_df['exp_idx'] = count
             all_params_list.append(params_df)
             count += 1
@@ -173,7 +183,10 @@ class Plotting:
         
         for experiment in self.parent.experiments:
             try:
-                res = experiment.evaluate_monotone()
+                if monotone:
+                    res = experiment.evaluate_monotone()
+                else:
+                    res = experiment.evaluate()
                 eval_df = res[1]
                 p = (p.add(so.Line(color=experiment.color, marker="x"), data=eval_df, x='resource', y='response')
                     .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',

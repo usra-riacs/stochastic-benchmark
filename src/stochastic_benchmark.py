@@ -26,6 +26,8 @@ import training
 import names
 import utils_ws
 
+median = True
+
 
 
 def default_bootstrap(nboots = 1000, 
@@ -286,7 +288,10 @@ class ProjectionExperiment(Experiment):
         }, inplace=True
         )
         eval_df = eval_df.loc[:, ['resource','response', 'response_lower', 'response_upper']]
-        eval_df = eval_df.groupby('resource').median()
+        if median:
+            eval_df = eval_df.groupby('resource').median()
+        else:
+            eval_df = eval_df.groupby('resource').mean()
         eval_df.reset_index(inplace=True)
         return params_df, eval_df
     
@@ -504,7 +509,10 @@ class RandomSearchExperiment(Experiment):
         )
         
         eval_df = eval_df.loc[:, ['resource','response', 'response_lower', 'response_upper']]
-        eval_df = eval_df.groupby('resource').median()
+        if median:
+            eval_df = eval_df.groupby('resource').median()
+        else:
+            eval_df = eval_df.groupby('resource').mean()
         eval_df.reset_index(inplace=True)
         return params_df, eval_df
     
@@ -530,7 +538,7 @@ class SequentialSearchExperiment(Experiment):
         if id_name is None:
             self.name = 'SequentialSearch'
         else:
-            self.name = 'SequentialSearch: Id = {}'.format(id_name)
+            self.name = 'SequentialSearch_{}'.format(id_name)
         self.ssParams = ssParams
         self.id_name = id_name
         self.meta_parameter_names = ['ExploreFrac', 'tau']
@@ -624,7 +632,10 @@ class SequentialSearchExperiment(Experiment):
         )
         
         eval_df = eval_df.loc[:, ['resource','response', 'response_lower', 'response_upper']]
-        eval_df = eval_df.groupby('resource').median()
+        if median:
+            eval_df = eval_df.groupby('resource').median()
+        else:
+            eval_df = eval_df.groupby('resource').mean()
         eval_df.reset_index(inplace=True)
         return params_df, eval_df
     
@@ -715,7 +726,10 @@ class VirtualBestBaseline:
         )
         
         eval_df = eval_df.loc[:, ['resource', 'response']]
-        eval_df = eval_df.groupby('resource').median()
+        if median:
+            eval_df = eval_df.groupby('resource').median()
+        else:
+            eval_df = eval_df.groupby('resource').mean()
         eval_df.reset_index(inplace=True)
         return params_df, eval_df
 
@@ -842,6 +856,7 @@ class stochastic_benchmark:
                     self.interp_results.to_pickle(self.here.interpolate)
 
             elif self.bs_results is not None:
+                print(self.bs_results)
                 if self.reduce_mem:
                     print('Interpolating results with parameters: ', self.iParams)
                     self.interp_results = interpolate.Interpolate_reduce_mem(self.bs_results,
@@ -879,7 +894,7 @@ class stochastic_benchmark:
                 self.raw_data = glob.glob(os.path.join(self.here.raw_data, '*.pkl'))
                 bs_names = [raw2bs_names(raw_file) for raw_file in self.raw_data]
 
-                if all([os.path.exists(bs_name) for bs_name in bs_names]) and self.recover:
+                if all([os.path.exists(bs_name) for bs_name in bs_names]) and len(bs_names) > 1 and self.recover:
                     print('Reading bootstrapped results')
                     self.bs_results = bs_names
                 else:

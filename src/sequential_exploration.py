@@ -38,8 +38,8 @@ class SequentialSearchParameters:
     """
     budgets: list = field(default_factory=lambda: [i*10**j for i in [1, 1.5, 2, 3, 5, 7]
              for j in [3, 4, 5]] + [1e6] )
-    exploration_fracs: list = field(default_factory=lambda: [0.05, 0.1, 0.2, 0.5, 0.75])
-    taus: list = field(default_factory=lambda: [10, 20, 50, 100, 200, 500, 1000, 10000])
+    exploration_fracs: list = field(default_factory=lambda: [0.05, 0.1, 0.2, 0.3, 0.5, 0.6, 0.75])
+    taus: list = field(default_factory=lambda: [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000])
     order_cols: list = field(default_factory=lambda: ['order'])
     optimization_dir: int = 1
     parameter_names: list = field(default_factory=lambda: ['sweep', 'replica'])

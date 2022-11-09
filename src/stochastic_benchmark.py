@@ -26,7 +26,7 @@ import training
 import names
 import utils_ws
 
-median = True
+median = False
 
 
 

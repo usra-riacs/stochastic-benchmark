@@ -78,7 +78,7 @@ class Plotting:
         p = p.on(fig).plot()
         ax = fig.axes[0]
         self.make_legend(ax, baseline_bool, experiment_bools)
-            
+
         return fig
         
     def assign_colors(self):
@@ -117,11 +117,11 @@ class Plotting:
                     #                      data=params_df, x='resource', y=param)
                     #         .scale(x='log'))
                 else:
-                    p[param] = (p[param].add(so.Line(color=experiment.color, marker='x'),
+                    p[param] = (p[param].add(so.Line(color=experiment.color, marker='o'),
                                          data=params_df, x='resource', y=param)
                             .scale(x='log'))
                 if len(res) == 3:
-                   p[param] = (p[param].add(so.Line(color=experiment.color, linestyle=':'),
+                   p[param] = (p[param].add(so.Line(color=experiment.color, marker='x', linestyle=':'),
                                          data=preproc_params, x='resource', y=param)
                             .scale(x='log'))                   
                             
@@ -161,10 +161,10 @@ class Plotting:
             metaflag = hasattr(experiment, 'meta_params')
             params_df = all_params[all_params['exp_idx'] == idx]
             if metaflag:
-                p = (p.add(so.Line(color=experiment.color, linestyle=':'),
+                p = (p.add(so.Line(color=experiment.color, marker='x', linestyle=':'),
                       data=params_df, x='resource', y='distance_scaled'))
             else:
-                p = (p.add(so.Line(color=experiment.color, marker='x'),
+                p = (p.add(so.Line(color=experiment.color, marker='o'),
                       data=params_df, x='resource', y='distance_scaled'))
 
         p = self.apply_shared(p, baseline_bool=False)
@@ -178,17 +178,17 @@ class Plotting:
         _, eval_df = self.parent.baseline.evaluate()
         eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
         p = (so.Plot(data=eval_df, x='resource', y='response')
-             .add(so.Line(color = self.parent.baseline.color, marker="x"))
+             .add(so.Line(color = self.parent.baseline.color, marker='o'))
             )
         
         for experiment in self.parent.experiments:
             try:
-                if monotone:
+                if monotone and not experiment.name == 'SequentialSearch_cold':
                     res = experiment.evaluate_monotone()
                 else:
                     res = experiment.evaluate()
                 eval_df = res[1]
-                p = (p.add(so.Line(color=experiment.color, marker="x"), data=eval_df, x='resource', y='response')
+                p = (p.add(so.Line(color=experiment.color, marker='o'), data=eval_df, x='resource', y='response', lw=7)
                     .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
                         ymin='response_lower', ymax='response_upper')
                     )
@@ -208,11 +208,11 @@ class Plotting:
             if hasattr(experiment, 'meta_params'):
                 for param in experiment.meta_parameter_names:
                     exp_plot_dict[param] = (so.Plot(data = experiment.meta_params, x=experiment.resource, y=param)
-                         .add(so.Line(color=experiment.color, marker ='x'))
+                         .add(so.Line(color=experiment.color, marker ='o'))
                         )
                     if hasattr(experiment, 'preproc_meta_params'):
                        exp_plot_dict[param] = exp_plot_dict[param].add(
-                            so.Line(color=experiment.color, linestyle ='--'),
+                            so.Line(color=experiment.color, marker='x', linestyle ='--'),
                             data=experiment.preproc_meta_params, x=experiment.resource, y=param)
                 baseline_bool = False
                 experiment_bools = [False] * len(self.parent.experiments)

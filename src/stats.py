@@ -25,6 +25,7 @@ class StatsParameters:
     upper_bounds: defaultdict[dict] = field(
         default_factory=lambda: defaultdict(lambda: None))
     # PyLance cries as follows: Subscript for class "defaultdict" will generate runtime exception; enclose type annotation in quotes
+    # We need to also include the mean computation here
     stats_measures: list = field(default_factory=lambda: [Median()])
 
     def __post_init__(self):

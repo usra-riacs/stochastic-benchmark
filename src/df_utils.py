@@ -151,6 +151,8 @@ def read_exp_raw(exp_raw_dir, name_params=[]):
             for p in name_params:
                 temp_df[p] = params_dict[p]
         df_list.append(temp_df)
+    if len(df_list) == 0:
+        raise Exception('No raw data found at: {}'.format(exp_raw_dir))
     df_all = pd.concat(df_list, ignore_index=True)
     return df_all
 

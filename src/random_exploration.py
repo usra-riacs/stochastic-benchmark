@@ -133,7 +133,7 @@ def single_experiment(df_stats: pd.DataFrame, rsParams: RandomSearchParameters, 
         df_tau = df_stats[df_stats['resource'] == tau].copy()
     else:
         df_tau = df_stats[(df_stats['resource'] == tau)
-                        & (df_stats[rsParams.restric] == True)].copy()
+                        & (df_stats[rsParams.restrict] == True)].copy()
     df_tau = df_tau.sample(n = int(explore_budget / tau), replace=True)
     
     

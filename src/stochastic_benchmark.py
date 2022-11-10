@@ -763,37 +763,22 @@ class stochastic_benchmark:
                  parameter_names,
                  here=os.getcwd(),
                  instance_cols=['instance'],
-                 bsParams_iter = default_bootstrap(),
-                 iParams = None,
-                 stat_params = stats.StatsParameters(stats_measures=[stats.Median()]),
-                 resource_fcn = sweep_boots_resource,
                  response_key = 'PerfRatio',
                  response_dir = 1,
-                 train_test_split = 0.5,
                  recover=True,
                  reduce_mem=True,
-                 group_name_fcn=None,
                 smooth=True):
-        
+        # Needed at initialization (for everything) 
         self.here = names.paths(here)
         self.parameter_names = parameter_names
         self.instance_cols = instance_cols
-        self.bsParams_iter = bsParams_iter
-        self.stat_params = stat_params
-        self.resource_fcn = resource_fcn
-        self.response_key = response_key
-        self.response_dir = response_dir
-        self.train_test_split = train_test_split
+        
         self.recover = recover
         self.reduce_mem = reduce_mem
-        self.group_name_fcn = group_name_fcn
         self.smooth = smooth
-        
-        if iParams is None:
-            self.iParams = interpolate.InterpolationParameters(self.resource_fcn,
-                                                  parameters=self.parameter_names)
-        else:
-            self.iParams = iParams
+
+        self.response_key = response_key
+        self.response_dir = response_dir
         
         ## Dataframes needed for experiments and baselines
         self.bs_results = None
@@ -802,7 +787,32 @@ class stochastic_benchmark:
         self.testing_stats = None
         
         self.experiments = []
-        
+
+    def initAll(self, 
+                bsParams_iter = default_bootstrap(),
+                iParams = None,
+                stat_params = stats.StatsParameters(stats_measures=[stats.Median()]),
+                resource_fcn = sweep_boots_resource,
+                train_test_split = 0.5,
+                group_name_fcn=None):
+
+        # Bootstrapping
+        self.bsParams_iter = bsParams_iter
+        self.group_name_fcn = group_name_fcn #and stats
+
+        #Interpolation
+        self.resource_fcn = resource_fcn
+
+        if iParams is None:
+            self.iParams = interpolate.InterpolationParameters(self.resource_fcn,
+                                                  parameters=self.parameter_names)
+        else:
+            self.iParams = iParams
+
+        # Stats
+        self.stat_params = stat_params
+        self.train_test_split = train_test_split
+
         #Recursive file recovery 
         while any([v is None for v in [self.interp_results, self.training_stats, self.testing_stats]]):
             self.populate_training_stats()
@@ -810,7 +820,140 @@ class stochastic_benchmark:
             self.populate_interp_results()
             # self.populate_bs_results()
         
+    def run_Bootstrap(self, bsParams_iter, group_name_fcn=None):
+        if self.bs_results is not None:
+            print('Bootstrapped results is already populated: doing nothing.')
+            return
         
+        if self.reduce_mem:
+            self.raw_data = glob.glob(os.path.join(self.here.raw_data, '*.pkl'))
+            
+            if len(self.raw_data) == 0:
+                found_bs_results = glob.glob(os.path.join(self.here.checkpoints, 'bootstrapped_results*.pkl'))
+                if len(found_bs_results) >= 1:
+                    print('Found {} bootstrapped results files and no raw data: reading results.'.format(len(found_bs_results)))
+                    self.bs_results = found_bs_results
+                else:
+                    raise Exception('No raw data found at: {} \n No bootstrapped results found at: {}'.format(self.here.raw_data, self.here.checkpoints))
+            else:
+                if group_name_fcn is None:
+                    raise Exception('group_name_fcn should be provided for reduced memory version.')
+                def raw2bs_names(raw_filename):
+                    group_name = group_name_fcn(raw_filename)
+                    bs_filename = os.path.join(self.here.checkpoints, 'bootstrapped_results_{}.pkl'.format(group_name))
+                    return bs_filename
+
+                bs_names = [raw2bs_names(raw_file) for raw_file in self.raw_data]
+                
+                if all([os.path.exists(bs_name) for bs_name in bs_names]) and len(bs_names) > 1 and self.recover:
+                    print('All bootstrapped results are already found in checkpoints: reading results.')
+                    self.bs_results = bs_names
+                    return
+                
+                self.bs_results = bootstrap.Bootstrap_reduce_mem(self.raw_data, group_on, self.bsParams_iter, self.here.checkpoints, group_name_fcn) 
+        else:
+            if os.path.exists(self.here.bootstrap) and self.recover:
+                print('All bootstrapped results are already found in checkpoints: reading results.')
+                self.bs_results = pd.read_pickle(self.here.bootstrap)
+                return
+            
+
+            print('Running bootstrapped results')
+            group_on = self.parameter_names + self.instance_cols
+            if not hasattr(self, 'raw_data'): 
+                self.raw_data = df_utils.read_exp_raw(self.here.raw_data)
+            
+            progress_dir = os.path.join(self.here.progress, 'bootstrap/')
+            if not os.path.exists(progress_dir):
+                os.makedirs(progress_dir)
+            
+            self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, bsParams_iter, progress_dir)
+            self.bs_results.to_pickle(self.here.bootstrap)
+    
+    
+    def set_Bootstrap(self, bs_results):
+        """
+        Sets bootstrap results without doing anything
+        """
+        if type(bs_results) == str:
+            self.bs_results = pd.read_pickle(bs_results)
+        elif type(bs_results) == pd.DataFrame:
+            self.bs_results = bs_results
+        elif type(bs_results) == list:
+            if type(bs_results[0]) == pd.DataFrame:
+                self.bs_results = pd.concat(bs_results, ignore_index = True)
+            elif type(bs_results[0]) == str:
+                self.bs_results = bs_results
+    
+    def run_Interpolate(self, iParams):
+        if self.interp_results is not None:
+            print('Interpolated results is already populated: doing nothing.')
+            return
+        
+        if os.path.exists(self.here.interpolate) and self.recover:
+            print('Interpolated results are found in checkpoints: reading results.')
+            self.interp_results = pd.read_pickle(self.here.interpolate)
+            return
+        
+        if self.bs_results is None:
+            raise Exception('Bootstrapped results needs to be populated before interpolation.')
+
+        if self.reduce_mem:
+            print('Interpolating results with parameters: ', iParams)
+            self.interp_results = interpolate.Interpolate_reduce_mem(self.bs_results,
+                                                            iParams, self.parameter_names+self.instance_cols)
+        else:
+            print('Interpolating results with parameters: ', iParams)
+            self.interp_results = interpolate.Interpolate(self.bs_results,
+                                                        iParams, self.parameter_names+self.instance_cols)
+
+        base = names.param2filename({'Key': self.response_key}, '')
+        CIlower = names.param2filename({'Key': self.response_key,
+                                        'ConfInt':'lower'}, '')
+        CIupper = names.param2filename({'Key': self.response_key,
+                                        'ConfInt':'upper'}, '')
+        self.interp_results.dropna(subset=[base, CIlower, CIupper], inplace=True)
+
+        # self.interp_results = training.split_train_test(self.interp_results, self.instance_cols, self.train_test_split)
+        self.interp_results.to_pickle(self.here.interpolate)
+        self.bs_results = None
+    
+    def run_Stats(self, stat_params, train_test_split=0.5):
+        self.stat_params=stat_params
+        if self.interp_results is None:
+            raise Exception('Interpolated results needs to be populated before computing stats.')
+        
+        if 'train' not in self.interp_results.columns:
+            self.interp_results = training.split_train_test(self.interp_results, self.instance_cols, train_test_split)
+            self.interp_results.to_pickle(self.here.interpolate)
+
+        if self.training_stats is None:
+            if os.path.exists(self.here.training_stats) and self.recover:
+                print('Training stats found in checkpoints: reading results.')
+                self.training_stats = pd.read_pickle(self.here.training_stats)
+            
+            else:
+                training_results = self.interp_results[self.interp_results['train'] == 1]
+                print('Computing training stats')
+                self.training_stats = stats.Stats(training_results, stat_params,
+                                                self.parameter_names + ['boots', 'resource'])
+                self.training_stats.to_pickle(self.here.training_stats)
+
+        if self.testing_stats is None:
+            if os.path.exists(self.here.testing_stats) and self.recover:
+                print('Testing stats found in checkpoints: reading results.')
+                self.testing_stats = pd.read_pickle(self.here.testing_stats)
+                
+            else:
+                testing_results = self.interp_results[self.interp_results['train'] == 0]
+                if len(testing_results) == 0:
+                    raise Exception('No instances assigned to test set. Reassign train/test split')
+
+                else:
+                    self.testing_stats = stats.Stats(testing_results, stat_params,
+                                                 self.parameter_names + ['boots', 'resource'])
+                    self.testing_stats.to_pickle(self.here.testing_stats)
+
     def populate_training_stats(self):
         """
         Tries to recover or computes training stats
@@ -838,7 +981,7 @@ class stochastic_benchmark:
                 print('Computing testing stats')
                 if len(testing_results) ==0:
                     self.testing_stats = pd.DataFrame()
-                    
+
                 else:
                     self.testing_stats = stats.Stats(testing_results, self.stat_params,
                                                  self.parameter_names + ['boots', 'resource'])
@@ -856,7 +999,7 @@ class stochastic_benchmark:
                     self.interp_results.to_pickle(self.here.interpolate)
 
             elif self.bs_results is not None:
-                print(self.bs_results)
+                # print(self.bs_results)
                 if self.reduce_mem:
                     print('Interpolating results with parameters: ', self.iParams)
                     self.interp_results = interpolate.Interpolate_reduce_mem(self.bs_results,
@@ -877,49 +1020,49 @@ class stochastic_benchmark:
                 self.interp_results.to_pickle(self.here.interpolate)
                 self.bs_results = None
             else:
-                self.populate_bs_results(self.group_name_fcn)
+                self.populate_bs_results(self.bsParams_iter, self.group_name_fcn)
     
-    def populate_bs_results(self, group_name_fcn=None):
-        """
-        Tries to recover or computes bootstrapped results
-        """
+    # def populate_bs_results(self, group_name_fcn=None):
+    #     """
+    #     Tries to recover or computes bootstrapped results
+    #     """
 
-        if self.bs_results is None:
-            if self.reduce_mem:
-                def raw2bs_names(raw_filename):
-                    group_name = group_name_fcn(raw_filename)
-                    bs_filename = os.path.join(self.here.checkpoints, 'bootstrapped_results_{}.pkl'.format(group_name))
-                    return bs_filename
+    #     if self.bs_results is None:
+    #         if self.reduce_mem:
+    #             def raw2bs_names(raw_filename):
+    #                 group_name = group_name_fcn(raw_filename)
+    #                 bs_filename = os.path.join(self.here.checkpoints, 'bootstrapped_results_{}.pkl'.format(group_name))
+    #                 return bs_filename
                     
-                self.raw_data = glob.glob(os.path.join(self.here.raw_data, '*.pkl'))
-                bs_names = [raw2bs_names(raw_file) for raw_file in self.raw_data]
+    #             self.raw_data = glob.glob(os.path.join(self.here.raw_data, '*.pkl'))
+    #             bs_names = [raw2bs_names(raw_file) for raw_file in self.raw_data]
 
-                if all([os.path.exists(bs_name) for bs_name in bs_names]) and len(bs_names) > 1 and self.recover:
-                    print('Reading bootstrapped results')
-                    self.bs_results = bs_names
-                else:
-                    group_on = self.parameter_names + self.instance_cols
-                    if not hasattr(self, 'raw_data'):
-                        print('Running bootstrapped results')
-                        self.raw_data = glob.glob(os.path.join(self.here.raw_data, '*.pkl'))
-                    self.bs_results = bootstrap.Bootstrap_reduce_mem(self.raw_data, group_on, self.bsParams_iter, self.here.checkpoints, group_name_fcn)
+    #             if all([os.path.exists(bs_name) for bs_name in bs_names]) and len(bs_names) > 1 and self.recover:
+    #                 print('Reading bootstrapped results')
+    #                 self.bs_results = bs_names
+    #             else:
+    #                 group_on = self.parameter_names + self.instance_cols
+    #                 if not hasattr(self, 'raw_data'):
+    #                     print('Running bootstrapped results')
+    #                     self.raw_data = glob.glob(os.path.join(self.here.raw_data, '*.pkl'))
+    #                 self.bs_results = bootstrap.Bootstrap_reduce_mem(self.raw_data, group_on, self.bsParams_iter, self.here.checkpoints, group_name_fcn)
             
-            else:
-                if os.path.exists(self.here.bootstrap) and self.recover:
-                    print('Reading bootstrapped results')
-                    self.bs_results = pd.read_pickle(self.here.bootstrap)
-                else:
-                    print('Running bootstrapped results')
-                    group_on = self.parameter_names + self.instance_cols
-                    if not hasattr(self, 'raw_data'): 
-                        self.raw_data = df_utils.read_exp_raw(self.here.raw_data)
+    #         else:
+    #             if os.path.exists(self.here.bootstrap) and self.recover:
+    #                 print('Reading bootstrapped results')
+    #                 self.bs_results = pd.read_pickle(self.here.bootstrap)
+    #             else:
+    #                 print('Running bootstrapped results')
+    #                 group_on = self.parameter_names + self.instance_cols
+    #                 if not hasattr(self, 'raw_data'): 
+    #                     self.raw_data = df_utils.read_exp_raw(self.here.raw_data)
                     
-                    progress_dir = os.path.join(self.here.progress, 'bootstrap/')
-                    if not os.path.exists(progress_dir):
-                        os.makedirs(progress_dir)
+    #                 progress_dir = os.path.join(self.here.progress, 'bootstrap/')
+    #                 if not os.path.exists(progress_dir):
+    #                     os.makedirs(progress_dir)
                     
-                    self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, self.bsParams_iter, progress_dir)
-                    self.bs_results.to_pickle(self.here.bootstrap)
+    #                 self.bs_results = bootstrap.Bootstrap(self.raw_data, group_on, self.bsParams_iter, progress_dir)
+    #                 self.bs_results.to_pickle(self.here.bootstrap)
     
  
     def evaluate_without_bootstrap(self, df, group_on):

@@ -183,96 +183,112 @@ def postprocess_random(meta_params):
     return pred_recipe
 
 def stoch_bench_setup():
-    here = os.path.join('/home/bernalde/repos/stochastic-benchmark/examples', 'wishart_n_50_alpha={}/'.format(alpha))
+    # Set up basic information 
+    alpha = '0.5'
+    # path to working directory
+    here = os.path.join('/home/robin/stochastic-benchmark/examples', 'wishart_n_50_alpha_{}/'.format(alpha))
     parameter_names = ['sweeps', 'replicas', 'pcold', 'phot']
+    instance_cols = ['instance'] #indicates how instances should be grouped, default is ['instance']
+
+    ## Response information 
+    response_key = 'PerfRatio' # Column with the response, default is 'PerfRatio'
+    response_dir = 1 # whether we want to maximize (1) or minimize (-1), default is 1
+
+    ## Optimizations informations
+    recover = True #Whether we want to read dataframes when available, default is True
+    reduce_mem = True #Whether we want to segment bootstrapping and interpolation to reduce memory usage, default is True
+    smooth = True #Whether virtual best should be monontonized, default is True
+
+    sb = stochastic_benchmark.stochastic_benchmark(parameter_names, here, instance_cols, response_key, response_dir, recover, reduce_mem, smooth)
+
+    # Set up bootstrapped parameters
+    shared_args = {'response_col':'Energy',\
+                    'resource_col':'MeanTime',\
+                    'response_dir':-1,\
+                    'confidence_level':68,\
+                    'random_value':0.}
+    metric_args = {}
+    metric_args['Response'] = {'opt_sense':-1}
+    metric_args['SuccessProb'] = {'gap':1.0, 'response_dir':-1}
+    metric_args['RTT'] = {'fail_value': np.nan, 'RTT_factor':1.,\
+                            'gap':1.0, 's':0.99}
+
+    def update_rules(self, df):  #These update the bootstrap parameters for each group 
+        GTMinEnergy = df['GTMinEnergy'].iloc[0] 
+        self.shared_args['best_value'] = GTMinEnergy #update best value for each instance
+        self.metric_args['RTT']['RTT_factor'] = df['MeanTime'].iloc[0]
+
+    agg = 'count' #aggregated column
+    #success metric we want to calculate
+    sms = [success_metrics.Response,
+            success_metrics.PerfRatio,
+            success_metrics.InvPerfRatio,
+            success_metrics.SuccessProb,
+            success_metrics.Resource,
+            success_metrics.RTT]
+    boots_range = range(50, 1001, 50) 
+    ssOrderCols = ['warmstart={}_hpo_order={}'.format(h, hpo_trial) for h in [0, 1] for hpo_trial in range(10)]
+    bsParams = bootstrap.BootstrapParameters(shared_args=shared_args,
+                                                update_rule=update_rules,
+                                                agg=agg,
+                                                metric_args=metric_args,
+                                                success_metrics=sms,
+                                                keep_cols=ssOrderCols)
+    bs_iter_class = bootstrap.BSParams_range_iter()
+    bsparams_iter = bs_iter_class(bsParams, boots_range)
+
+    #How names should be parsed from raw filesnames
     def group_name_fcn(raw_filename):
         raw_filename = os.path.basename(raw_filename)
         start_idx = raw_filename.index('inst')
         end_idx = raw_filename.index('.')
         return raw_filename[start_idx: end_idx]
 
+    # Run bootstrap
+    sb.run_Bootstrap(bsparams_iter, group_name_fcn)
+
+    # Interpolate 
     def resource_fcn(df):
         return df['sweeps'] * df['replicas'] * df['boots']
-    
-    # Set up bootstrap
-    shared_args = {'response_col':'Energy',\
-                  'resource_col':'MeanTime',\
-                  'response_dir':-1,\
-                  'confidence_level':68,\
-                  'random_value':0.}
-
-    metric_args = {}
-    metric_args['Response'] = {'opt_sense':-1}
-    metric_args['SuccessProb'] = {'gap':1.0, 'response_dir':-1}
-    metric_args['RTT'] = {'fail_value': np.nan, 'RTT_factor':1.,\
-                          'gap':1.0, 's':0.99}
-    
-    #success metric we want to calculate
-    sms = [success_metrics.Response,
-          success_metrics.PerfRatio,
-          success_metrics.InvPerfRatio,
-          success_metrics.SuccessProb,
-          success_metrics.Resource,
-          success_metrics.RTT]
-    
-    def update_rules(self, df):  #These update the bootstrap parameters for each group 
-        GTMinEnergy = df['GTMinEnergy'].iloc[0] 
-        self.shared_args['best_value'] = GTMinEnergy #update best value for each instance
-        self.metric_args['RTT']['RTT_factor'] = df['MeanTime'].iloc[0]
-#         instance_num = df['instance'].iloc[0] #TODO uncomment this line and the next if you will update the random values. see function above that you would need to fill in
-#         self.shared_args['random_value'] = random_values(instance_num)
-
-    agg = 'count' #aggregated column
-    boots_range = range(50, 1001, 50) # TODO set to the maximum number of boots
-    ssOrderCols = ['warmstart={}_hpo_order={}'.format(h, hpo_trial) for h in [0, 1] for hpo_trial in range(10)]
-    ssOrderCols0 = ['warmstart=0_hpo_order={}'.format(hpo_trial) for hpo_trial in range(10)] 
-    ssOrderCols1 = ['warmstart=1_hpo_order={}'.format(hpo_trial) for hpo_trial in range(10)] 
-    bsParams = bootstrap.BootstrapParameters(shared_args=shared_args,
-                                             update_rule=update_rules,
-                                             agg=agg,
-                                             metric_args=metric_args,
-                                             success_metrics=sms,
-                                             keep_cols=ssOrderCols)
-    bs_iter_class = bootstrap.BSParams_range_iter()
-    bsparams_iter = bs_iter_class(bsParams, boots_range)
-
-    #set up interpolation parameters
     iParams = interpolate.InterpolationParameters(resource_fcn,
-                                                       parameters=parameter_names,
-                                                       ignore_cols = ssOrderCols)
-    # iParams = interpolate.InterpolationParameters(resource_fcn,
-    #                                                    parameters=parameter_names)
-    
-    # set up stats parameters
-    metrics = ['Response', 'RTT', 'PerfRatio', 'SuccProb', 'MeanTime', 'InvPerfRatio']
-    sp = stats.StatsParameters(metrics=metrics, stats_measures=[stats.Median()])
+                                                        parameters=parameter_names,
+                                                        ignore_cols = ssOrderCols)
 
-    sb = stochastic_benchmark.stochastic_benchmark(parameter_names, here,
-                                                   stat_params=sp,
-                                                   bsParams_iter=bsparams_iter,
-                                                   iParams=iParams,
-                                                   train_test_split=0.8,
-                                                   reduce_mem=True,
-                                                   group_name_fcn = group_name_fcn,
-                                                   resource_fcn=resource_fcn)
-    
+    sb.run_Interpolate(iParams)
+
+    # Set up Stats computations
+    train_test_split = 0.8
+    metrics = ['Response', 'RTT', 'PerfRatio', 'SuccProb', 'MeanTime', 'InvPerfRatio']
+    stParams = stats.StatsParameters(metrics=metrics, stats_measures=[stats.Median()])
+
+    sb.run_Stats(stParams, train_test_split)
+    # Run virtual best baseline
     sb.run_baseline()
-    
-    # Make sure search budgets align with the baselines
+    sb.run_ProjectionExperiment('TrainingStats', lambda x : postprocess_linear(x), 'linear')
+    sb.run_ProjectionExperiment('TrainingResults', lambda x : postprocess_linear(x), 'linear')
+    #Set up Random search parameters and sequential search paramters
+
+    # Make sure search budgets align with the baselines - needed for the distance
     recipes,_ = sb.baseline.evaluate()
     recipes.reset_index(inplace=True)
-    
     resource_values = list(recipes['resource'])
     budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7]
-             for j in [3, 4, 5]] + [1e6]
+                for j in [3, 4, 5]] + [1e6]
     budgets = np.unique([take_closest(resource_values, b) for b in budgets])
-    
+
+    # which columns determin the order in sequential search experiments
+    ssOrderCols0 = ['warmstart=0_hpo_order={}'.format(hpo_trial) for hpo_trial in range(10)] 
+    ssOrderCols1 = ['warmstart=1_hpo_order={}'.format(hpo_trial) for hpo_trial in range(10)] 
+
+
+    # Which column you are optimizing. Different from initialization b/c aggregated metrics include the name
     key = names.param2filename({'Key': 'PerfRatio', 'Metric':'median'}, '')
+
     rsParams = random_exploration.RandomSearchParameters(
         budgets=budgets,
         parameter_names=parameter_names,
         key=key)
-    
+        
     ssParams0 = sequential_exploration.SequentialSearchParameters(
         budgets=budgets,
         order_cols=ssOrderCols0,
@@ -285,18 +301,7 @@ def stoch_bench_setup():
         parameter_names=parameter_names,
         key='Key=PerfRatio')
 
-    
-    # TODO decide which post-processing function you want
-    # sb.run_ProjectionExperiment('TrainingStats', lambda x : postprocess_custom(x), 'custom')
-    # sb.run_ProjectionExperiment('TrainingResults', lambda x : postprocess_custom(x), 'custom')
-    sb.run_ProjectionExperiment('TrainingStats', lambda x : postprocess_linear(x), 'linear')
-    sb.run_ProjectionExperiment('TrainingResults', lambda x : postprocess_linear(x), 'linear')
-    # sb.run_ProjectionExperiment('TrainingStats')
-    # sb.run_ProjectionExperiment('TrainingResults')
-
     sb.run_RandomSearchExperiment(rsParams, postprocess=postprocess_random, postprocess_name='custom')
-    # sb.run_RandomSearchExperiment(rsParams)
-
     sb.run_SequentialSearchExperiment(ssParams0, id_name='cold', postprocess=postprocess_random, postprocess_name='custom')
     sb.run_SequentialSearchExperiment(ssParams1, id_name='warm', postprocess=postprocess_random, postprocess_name='custom')
 
@@ -305,21 +310,20 @@ def stoch_bench_setup():
 
     testing_results = sb.interp_results[sb.interp_results['train'] == 0].copy()
     testing_instances = list(np.unique(testing_results['instance']))
-
-    for idx in [5, 6]:
-        parameters_list = sb.experiments[idx].list_runs()
-        if idx == 5:
-            filename = os.path.join(sb.here.checkpoints, 'FixedRecommendation_id=cold.pkl')
-        else:
-            filename = os.path.join(sb.here.checkpoints, 'FixedRecommendation_id=warm.pkl')
-        if os.path.exists(filename):
-            rerun_df = pd.read_pickle(filename)
-        else:
-            results_dict = run_experiments(parameters_list, testing_instances)
-            rerun_df = process_rerun(sb, results_dict)
-            rerun_df.to_pickle(filename)
+    # for idx in [5, 6]:
+    #     parameters_list = sb.experiments[idx].list_runs()
+    #     if idx == 5:
+    #         filename = os.path.join(sb.here.checkpoints, 'FixedRecommendation_id=cold.pkl')
+    #     else:
+    #         filename = os.path.join(sb.here.checkpoints, 'FixedRecommendation_id=warm.pkl')
+    #     if os.path.exists(filename):
+    #         rerun_df = pd.read_pickle(filename)
+    #     else:
+    #         results_dict = run_experiments(parameters_list, testing_instances)
+    #         rerun_df = process_rerun(sb, results_dict)
+    #         rerun_df.to_pickle(filename)
         
-        sb.experiments[idx].attach_runs(rerun_df, process=False)
+    #     sb.experiments[idx].attach_runs(rerun_df, process=False)
 
     return sb
 

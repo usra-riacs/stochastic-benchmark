@@ -112,7 +112,7 @@ def InterpolateSingle(df_single: pd.DataFrame, interp_params: InterpolationParam
             continue
         elif colname in interp_params.ignore_cols:
             df_out[colname] = df_single[colname].iloc[0]
-        elif np.issubdtype(col, int) or np.issubdtype(col, float):
+        elif np.issubdtype(col, np.number): #An alternative: pd.api.types.is_numeric_dtype(col)
             df_out[colname] = np.interp(
                 interpolate_resource, df_single.index, col, left=np.nan)
         else:

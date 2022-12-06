@@ -154,7 +154,7 @@ class ProjectionExperiment(Experiment):
             self.rec_params.to_pickle(self.rec_path)
     
     def get_TrainingResults_recipe(self):
-        """If TrainingStats recipe is already stored in a pkl file, load it. Otherwise, create and store it by obtaining the best parameters from training_stats (and post_processing, if requested)
+        """If TrainingResults recipe is already stored in a pkl file, load it. Otherwise, create and store it by obtaining the best parameters from training_stats (and post_processing, if requested)
         """
         vb_train_path = os.path.join(self.parent.here.checkpoints, 'VirtualBest_train.pkl')
             

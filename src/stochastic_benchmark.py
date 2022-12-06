@@ -123,77 +123,26 @@ class ProjectionExperiment(Experiment):
         self.postprocess = postprocess
         self.postprocess_name = postprocess_name
         self.populate()
-
-        
+ 
     def populate(self):
         """
         Adds recipe depending on source. Currently only projection from the best recommended from the training stats or results are available.
         Any addition recipe specifications should be implemented here
         """
-        if self.postprocess is not None:
-            rec_path = os.path.join(self.parent.here.checkpoints, 'Projection_from={}_postprocess={}.pkl'.format(self.project_from, self.postprocess_name))
-        else:
-            rec_path = os.path.join(self.parent.here.checkpoints, 'Projection_from={}.pkl'.format(self.project_from))
+        #Set rec_path, i.e. the path where the recipe is/will be stored
+        self.set_rec_path()
         
         # Prepare the recipes
         if self.project_from == 'TrainingStats':
-            if self.postprocess is not None:
-                br_train_path_post = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train_postprocess={}.pkl'.format(self.postprocess_name))
-            br_train_path = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train.pkl')
-            
-            if os.path.exists(br_train_path):
-                self.recipe = pd.read_pickle(br_train_path)
-            else:
-                response_col = names.param2filename(
-            {'Key': self.parent.response_key, 'Metric': self.parent.stat_params.stats_measures[0].name}, '')
-                self.recipe = training.best_parameters(self.parent.training_stats.copy(),
-                                     parameter_names=self.parent.parameter_names,
-                                     response_col=response_col,
-                                     response_dir=1,
-                                     resource_col='resource',
-                                     additional_cols=['boots'],
-                                    smooth=self.parent.smooth)
-                
-                self.recipe.to_pickle(br_train_path)
-
-            if self.postprocess is not None:
-                self.preproc_recipe = self.recipe.copy()
-                self.recipe = self.postprocess(self.recipe)
-                self.recipe.to_pickle(br_train_path_post)
-                    
+            self.get_TrainingStats_recipe()
         elif self.project_from == 'TrainingResults':
-
-            vb_train_path = os.path.join(self.parent.here.checkpoints, 'VirtualBest_train.pkl')
-            
-            if os.path.exists(vb_train_path):
-                self.vb_train = pd.read_pickle(vb_train_path)
-            else:
-                response_col = names.param2filename({'Key': self.parent.response_key}, '')
-                training_results = self.parent.interp_results[self.parent.interp_results['train'] == 1].copy()
-                self.vb_train = training.virtual_best(training_results,\
-                                   parameter_names=self.parent.parameter_names,\
-                                   response_col=response_col,\
-                                   response_dir=1,\
-                                   groupby = self.parent.instance_cols,\
-                                   resource_col='resource',\
-                                    smooth=self.parent.smooth)
-                self.vb_train.to_pickle(vb_train_path)
-
-            self.recipe = training.best_recommended(self.vb_train.copy(),
-                              parameter_names=self.parent.parameter_names,
-                              resource_col='resource',
-                              additional_cols=['boots']).reset_index()
-            
-            if self.postprocess is not None:
-                self.preproc_recipe = self.recipe.copy()
-                self.recipe = self.postprocess(self.recipe)
-                    
+            self.get_TrainingResults_recipe()                    
         else:
             raise NotImplementedError('Projection from {} has not been implemented'.format(self.project_from))
         
         # Run the projections
-        if os.path.exists(rec_path):
-            self.rec_params = pd.read_pickle(rec_path)
+        if os.path.exists(self.rec_path):
+            self.rec_params = pd.read_pickle(self.rec_path)
         else:
             print('Evaluating recommended parameters on testing results')
             testing_results = self.parent.interp_results[self.parent.interp_results['train'] == 0].copy()
@@ -202,8 +151,70 @@ class ProjectionExperiment(Experiment):
                                                 training.scaled_distance,\
                                                 parameter_names=self.parent.parameter_names,\
                                                 group_on = self.parent.instance_cols)
-            self.rec_params.to_pickle(rec_path)
+            self.rec_params.to_pickle(self.rec_path)
+    
+    def get_TrainingResults_recipe(self):
+        """If TrainingStats recipe is already stored in a pkl file, load it. Otherwise, create and store it by obtaining the best parameters from training_stats (and post_processing, if requested)
+        """
+        vb_train_path = os.path.join(self.parent.here.checkpoints, 'VirtualBest_train.pkl')
+            
+        if os.path.exists(vb_train_path):
+            self.vb_train = pd.read_pickle(vb_train_path)
+        else:
+            response_col = names.param2filename({'Key': self.parent.response_key}, '')
+            training_results = self.parent.interp_results[self.parent.interp_results['train'] == 1].copy()
+            self.vb_train = training.virtual_best(training_results,\
+                                parameter_names=self.parent.parameter_names,\
+                                response_col=response_col,\
+                                response_dir=1,\
+                                groupby = self.parent.instance_cols,\
+                                resource_col='resource',\
+                                smooth=self.parent.smooth)
+            self.vb_train.to_pickle(vb_train_path)
+
+        self.recipe = training.best_recommended(self.vb_train.copy(),
+                            parameter_names=self.parent.parameter_names,
+                            resource_col='resource',
+                            additional_cols=['boots']).reset_index()
         
+        if self.postprocess is not None:
+            self.preproc_recipe = self.recipe.copy()
+            self.recipe = self.postprocess(self.recipe)
+        
+    def get_TrainingStats_recipe(self):
+        """If TrainingStats recipe is already stored in a pkl file, load it. Otherwise, create and store it by obtaining the best parameters from training_stats (and post_processing, if requested)
+        """
+        
+        best_rec_train_path = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train.pkl')
+        if os.path.exists(best_rec_train_path):
+            # If the recipe was already stored in a pkl file, simply load it
+            self.recipe = pd.read_pickle(best_rec_train_path)
+        else:
+            # If not, create the recipe dataframe, and store it in a pkl file
+            # Get the name of the response column
+            response_col = names.param2filename(
+        {'Key': self.parent.response_key, 'Metric': self.parent.stat_params.stats_measures[0].name}, '')
+            
+            # Obtain the recipe, before the postprocessing step
+            self.recipe = training.best_parameters(self.parent.training_stats.copy(),
+                                    parameter_names=self.parent.parameter_names,
+                                    response_col=response_col,
+                                    response_dir=1,
+                                    resource_col='resource',
+                                    additional_cols=['boots'],
+                                smooth=self.parent.smooth)
+            
+            self.recipe.to_pickle(best_rec_train_path)
+            
+            if self.postprocess is not None:
+                best_rec_train_path_post = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train_postprocess={}.pkl'.format(self.postprocess_name))
+                # Copy the recipe to preproc_recipe before postprocessing 
+                self.preproc_recipe = self.recipe.copy()
+                # Implement post-processing
+                self.recipe = self.postprocess(self.recipe)
+                self.recipe.to_pickle(best_rec_train_path_post)
+
+
     def evaluate(self, monotone=False):
         """
         Returns
@@ -331,6 +342,14 @@ class ProjectionExperiment(Experiment):
         params_df = joint.loc[:, ['resource'] + self.parent.parameter_names]
         eval_df = joint.loc[:, ['resource','response', 'response_lower', 'response_upper']]
         return params_df, eval_df
+    
+    def set_rec_path(self):
+        """Define the path where the recipe is to be stored
+        """
+        if self.postprocess is not None:
+            self.rec_path = os.path.join(self.parent.here.checkpoints, 'Projection_from={}_postprocess={}.pkl'.format(self.project_from, self.postprocess_name))
+        else:
+            self.rec_path = os.path.join(self.parent.here.checkpoints, 'Projection_from={}.pkl'.format(self.project_from))
     
 
 class StaticRecommendationExperiment(Experiment):

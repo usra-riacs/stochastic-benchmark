@@ -5,6 +5,7 @@ import pandas as pd
 import seaborn as sns
 import seaborn.objects as so
 import training
+import os
 
 monotone = False
 
@@ -93,7 +94,15 @@ class Plotting:
         """
         Plots the recommnded parameters for each experiment
         """
+        # For each resource value, obtain the best parameter value from VirtualBestBaseline
         params_df,_ = self.parent.baseline.evaluate()
+        
+        # Store params_df to a csv file
+        save_loc = os.path.join(self.parent.here.checkpoints, 'params_plotting')
+        if not os.path.exists(save_loc) : os.makedirs(save_loc)
+        save_file = os.path.join(save_loc, 'baseline.csv')
+        params_df.to_csv(save_file)
+        
         p = {}
         for param in self.parent.parameter_names:
             p[param] = (so.Plot(data=params_df, x='resource', y=param)
@@ -106,6 +115,10 @@ class Plotting:
             else:
                 res = experiment.evaluate()
             params_df = res[0]
+            
+            save_file = os.path.join(save_loc, experiment.name+'.csv')
+            params_df.to_csv(save_file)
+            
             if len(res) == 3:
                 preproc_params = res[2]
 
@@ -177,9 +190,17 @@ class Plotting:
         """
         _, eval_df = self.parent.baseline.evaluate()
         eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
+        # Store eval_df to a csv file
+        save_loc = os.path.join(self.parent.here.checkpoints, 'performance_plotting')
+        if not os.path.exists(save_loc) : os.makedirs(save_loc)
+        save_file = os.path.join(save_loc, 'baseline.csv')
+        eval_df.to_csv(save_file)
+        
+        
         p = (so.Plot(data=eval_df, x='resource', y='response')
              .add(so.Line(color = self.parent.baseline.color, marker='o'))
             )
+        
         
         for experiment in self.parent.experiments:
             try:
@@ -188,6 +209,11 @@ class Plotting:
                 else:
                     res = experiment.evaluate()
                 eval_df = res[1]
+                # Store eval_df to a csv file
+                save_file = os.path.join(save_loc, experiment.name+'.csv')
+                eval_df.to_csv(save_file)
+                
+                
                 p = (p.add(so.Line(color=experiment.color, marker='o'), data=eval_df, x='resource', y='response', lw=7)
                     .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
                         ymin='response_lower', ymax='response_upper')

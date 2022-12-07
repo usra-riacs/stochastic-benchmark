@@ -293,7 +293,7 @@ class Plotting:
     
     def plot_performance(self):
         """
-        Plots the monotonized performance for each experiment
+        Plots the monotonized performance for each experiment (with the baseline)
         """
         _, eval_df = self.parent.baseline.evaluate()
         eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
@@ -304,10 +304,8 @@ class Plotting:
         eval_df.to_csv(save_file)
         
         
-        p = (so.Plot(data=eval_df, x='resource', y='response')
-             .add(so.Line(color = self.parent.baseline.color, marker='o'))
-            )
-        
+        fig, axs = plt.subplots(1, 1)
+        _ = axs.plot(eval_df['resource'], eval_df['response'], 'o-', ms=5, lw=1, color=self.parent.baseline.color, label=self.parent.baseline.name)
         
         for experiment in self.parent.experiments:
             try:
@@ -320,16 +318,20 @@ class Plotting:
                 save_file = os.path.join(save_loc, experiment.name+'.csv')
                 eval_df.to_csv(save_file)
                 
-                
-                p = (p.add(so.Line(color=experiment.color, marker='o'), data=eval_df, x='resource', y='response', lw=7)
-                    .add(so.Band(alpha=0.2, color=experiment.color), data=eval_df, x='resource',
-                        ymin='response_lower', ymax='response_upper')
-                    )
+                # Add confidence intervals
+                axs.fill_between(eval_df['resource'], eval_df["response_lower"], eval_df["response_upper"],alpha=0.25, color=experiment.color, lw=0)#, label="CI Mean"+legend_str) # color='b',
+                # Add mean/median line
+                _ = axs.plot(eval_df['resource'], eval_df['response'], 'o-', ms=5, lw=1, color=experiment.color, label=experiment.name)
             except:
                 continue
-        
-        p = self.apply_shared(p)
-        return p
+            
+        axs.grid(axis="y")
+        axs.set_ylabel(self.parent.response_key)
+        axs.set_xscale(self.xscale)
+        axs.set_xlabel("Resource")
+        axs.legend(loc="lower right")
+        fig.tight_layout()
+        return fig, axs
 
     def plot_meta_parameters(self):
         """

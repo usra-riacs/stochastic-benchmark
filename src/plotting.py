@@ -248,62 +248,6 @@ class Plotting:
             figs[param].tight_layout()
         
         return figs, axes
-        
-        
-            
-    
-    def plot_parameters_prior(self):
-        """
-        This one is obsolete, and will be deleted soon.
-        Plots the recommnded parameters for each experiment
-        """
-        # For each resource value, obtain the best parameter value from VirtualBestBaseline
-        params_df,_ = self.parent.baseline.evaluate()
-        
-        # Store params_df to a csv file
-        save_loc = os.path.join(self.parent.here.checkpoints, 'params_plotting')
-        if not os.path.exists(save_loc) : os.makedirs(save_loc)
-        save_file = os.path.join(save_loc, 'baseline.csv')
-        params_df.to_csv(save_file)
-        
-        p = {}
-        for param in self.parent.parameter_names:
-            p[param] = (so.Plot(data=params_df, x='resource', y=param)
-                        .add(so.Line(color = self.parent.baseline.color, linestyle='--'))
-                       )
-        for experiment in self.parent.experiments:
-            metaflag = hasattr(experiment, 'meta_params')
-            if monotone:
-                res = experiment.evaluate_monotone()
-            else:
-                res = experiment.evaluate()
-            params_df = res[0]
-            
-            save_file = os.path.join(save_loc, experiment.name+'.csv')
-            params_df.to_csv(save_file)
-            
-            if len(res) == 3:
-                preproc_params = res[2]
-
-            for param in self.parent.parameter_names:
-                if metaflag:
-                    pass
-                    # Commented out because meta_params might be too much information for these plots
-                    # p[param] = (p[param].add(so.Line(color=experiment.color, linestyle=':'),
-                    #                      data=params_df, x='resource', y=param)
-                    #         .scale(x='log'))
-                else:
-                    p[param] = (p[param].add(so.Line(color=experiment.color, marker='o'),
-                                         data=params_df, x='resource', y=param)
-                            .scale(x='log'))
-                if len(res) == 3:
-                   p[param] = (p[param].add(so.Line(color=experiment.color, marker='x', linestyle=':'),
-                                         data=preproc_params, x='resource', y=param)
-                            .scale(x='log'))                   
-                            
-        p = self.apply_shared(p)
-            
-        return p
     
     def plot_parameters_distance(self):
         """

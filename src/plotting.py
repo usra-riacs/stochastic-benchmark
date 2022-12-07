@@ -249,6 +249,7 @@ class Plotting:
         
         return figs, axes
     
+    
     def plot_parameters_distance(self):
         """
         Plots the scaled distance between the recommended parameters and virtual best
@@ -276,20 +277,25 @@ class Plotting:
             dist_params_list.append(temp_df_eval)
         all_params = pd.concat(dist_params_list, ignore_index=True)
         
-        p = so.Plot(data=all_params, x='resource', y='distance_scaled')
+        fig, axs = plt.subplots(1, 1)
+        axs.plot(all_params['resource'], all_params['distance_scaled'])
+        
         for idx, experiment in enumerate(self.parent.experiments):
             metaflag = hasattr(experiment, 'meta_params')
             params_df = all_params[all_params['exp_idx'] == idx]
             if metaflag:
-                p = (p.add(so.Line(color=experiment.color, marker='x', linestyle=':'),
-                      data=params_df, x='resource', y='distance_scaled'))
+                axs.plot(params_df['resource'], params_df['distance_scaled'], marker="x", linestyle=":", color=experiment.color, label=experiment.name)
             else:
-                p = (p.add(so.Line(color=experiment.color, marker='o'),
-                      data=params_df, x='resource', y='distance_scaled'))
-
-        p = self.apply_shared(p, baseline_bool=False)
+                axs.plot(params_df['resource'], params_df['distance_scaled'], marker="o", color=experiment.color, label=experiment.name)
         
-        return p
+        axs.grid(axis="y")
+        axs.set_ylabel("distance_scaled")
+        axs.set_xscale(self.xscale)
+        axs.set_xlabel("Resource")
+        axs.legend(loc="best")
+        fig.tight_layout()
+        
+        return fig, axs
     
     def plot_performance(self):
         """

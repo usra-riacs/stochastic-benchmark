@@ -206,13 +206,13 @@ class ProjectionExperiment(Experiment):
             
             self.recipe.to_pickle(best_rec_train_path)
             
-            if self.postprocess is not None:
-                best_rec_train_path_post = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train_postprocess={}.pkl'.format(self.postprocess_name))
-                # Copy the recipe to preproc_recipe before postprocessing 
-                self.preproc_recipe = self.recipe.copy()
-                # Implement post-processing
-                self.recipe = self.postprocess(self.recipe)
-                self.recipe.to_pickle(best_rec_train_path_post)
+        if self.postprocess is not None:
+            best_rec_train_path_post = os.path.join(self.parent.here.checkpoints, 'BestRecommended_train_postprocess={}.pkl'.format(self.postprocess_name))
+            # Copy the recipe to preproc_recipe before postprocessing 
+            self.preproc_recipe = self.recipe.copy()
+            # Implement post-processing
+            self.recipe = self.postprocess(self.recipe)
+            self.recipe.to_pickle(best_rec_train_path_post)
 
 
     def evaluate(self, monotone=False):

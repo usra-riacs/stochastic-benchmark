@@ -14,6 +14,7 @@ dir_path = os.path.dirname(os.path.realpath(__file__))
 ws_style = os.path.join(dir_path,'ws.mplstyle')
 
 plt.style.use(ws_style)
+
 class Plotting:
     """
     Plotting helpers for coordinating plots
@@ -164,6 +165,7 @@ class Plotting:
             axes[param].set_ylabel(param)
             axes[param].set_xscale(self.xscale)
             axes[param].set_xlabel("Resource")
+            axes[param].set_xlim(self.xlims)
             # axes[param].legend()
         handles, labels = axes_list[0].get_legend_handles_labels()
         fig.legend(handles, labels, bbox_to_anchor=[0.5,0],loc='upper center')
@@ -272,6 +274,7 @@ class Plotting:
             axes[param].set_ylabel(param)
             axes[param].set_xscale(self.xscale)
             axes[param].set_xlabel("Resource")
+            axes[param].set_xlim(self.xlims)
             axes[param].legend()
             figs[param].tight_layout()
         
@@ -363,6 +366,7 @@ class Plotting:
         axs.set_ylabel(self.parent.response_key)
         axs.set_xscale(self.xscale)
         axs.set_xlabel("Resource")
+        axs.set_xlim(self.xlims)
         axs.legend(loc="lower right")
         fig.tight_layout()
         return fig, axs

@@ -338,29 +338,42 @@ class Plotting:
         axs.legend(loc="lower right")
         fig.tight_layout()
         return fig, axs
-
+    
     def plot_meta_parameters(self):
         """
         Plots meta parameters for experiments that have them (random search and sequential search)
         """
-        plots_dict = {}
+        figs = dict()
+        axes = dict()
         for idx, experiment in enumerate(self.parent.experiments):
-            exp_plot_dict ={}
+            exp_figs = dict()
+            exp_axes = dict()
             if hasattr(experiment, 'meta_params'):
                 for param in experiment.meta_parameter_names:
-                    exp_plot_dict[param] = (so.Plot(data = experiment.meta_params, x=experiment.resource, y=param)
-                         .add(so.Line(color=experiment.color, marker ='o'))
-                        )
+                    # Create a figure for each parameter and each experiment
+                    fig, axs = plt.subplots(1, 1)
+                    experiment.meta_params.sort_values(by=experiment.resource, inplace=True)
+                    axs.plot(experiment.meta_params[experiment.resource], experiment.meta_params[param], color=experiment.color, marker ='o',
+                                         label = experiment.name)
                     if hasattr(experiment, 'preproc_meta_params'):
-                       exp_plot_dict[param] = exp_plot_dict[param].add(
-                            so.Line(color=experiment.color, marker='x', linestyle ='--'),
-                            data=experiment.preproc_meta_params, x=experiment.resource, y=param)
+                        experiment.preproc_meta_params.sort_values(by=experiment.resource, inplace=True)
+                        axs.plot(experiment.preproc_meta_params[experiment.resource], experiment.preproc_meta_params[param],
+                                             color=experiment.color, marker ='x', linestyle = '--')
+                    axs.grid(axis="y")
+                    axs.set_ylabel(param)
+                    axs.set_xscale(self.xscale)
+                    axs.set_xlabel(experiment.resource)
+                    axs.legend(loc="best")
+                    fig.tight_layout()
+                    exp_figs[param] = fig
+                    exp_axes[param] = axs
                 baseline_bool = False
                 experiment_bools = [False] * len(self.parent.experiments)
                 experiment_bools[idx] = True
-                exp_plot_dict = self.apply_shared(exp_plot_dict,
-                                                   baseline_bool=baseline_bool,
-                                                   experiment_bools=experiment_bools)
-                plots_dict[experiment.name] = exp_plot_dict
-                    
-        return plots_dict
+                # exp_plot_dict = self.apply_shared(exp_plot_dict,
+                #                                    baseline_bool=baseline_bool,
+                #                                    experiment_bools=experiment_bools)
+                # plots_dict[experiment.name] = exp_plot_dict
+            figs[experiment.name] = exp_figs
+            axes[experiment.name] = exp_axes
+        return figs, axes

@@ -6,9 +6,14 @@ import seaborn as sns
 import seaborn.objects as so
 import training
 import os
+import numpy as np
+from matplotlib.collections import LineCollection
 
 monotone = False
+dir_path = os.path.dirname(os.path.realpath(__file__))
+ws_style = os.path.join(dir_path,'ws.mplstyle')
 
+plt.style.use(ws_style)
 class Plotting:
     """
     Plotting helpers for coordinating plots
@@ -89,9 +94,82 @@ class Plotting:
         self.parent.baseline.color = 'black'
         for idx, experiment in enumerate(self.parent.experiments):
             experiment.color = self.colors[idx]
-    
-    def plot_parameters(self):
+            
+    def plot_parameters_separate(self):
+        """Plot the parameters (Virtual Best and projection experiments)
+        Create a separate figure for each parameter
+
+        Returns:
+            figs: Dictionary of figure handles. The keys are the parameter names
+            axes: Dictionary of axis handles. The keys are the parameter names
         """
+        # For each resource value, obtain the best parameter value from VirtualBestBaseline
+                       
+        figs = dict()
+        axes = dict()
+        
+        for param in self.parent.parameter_names:
+            # Create one figure for each parameter 
+            figs[param], axes[param] = plt.subplots(1, 1)
+            
+        # Get the best parameters from the Virtual Baseline
+        params_df, eval_df = self.parent.baseline.evaluate()
+        eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
+            
+        # plot the virtual baseline paramters
+        for param in self.parent.parameter_names:
+            points = np.array([params_df.index.values, params_df[param].values]).T.reshape(-1, 1, 2)
+            segments = np.concatenate([points[:-1], points[1:]], axis=1)
+            norm = plt.Normalize(eval_df['response'].min(), eval_df['response'].max())
+            lc = LineCollection(segments, cmap='Spectral', norm=norm)
+            # Set the values used for colormapping
+            lc.set_array(eval_df['response'])
+            lc.set_label(self.parent.baseline.name)
+            lc.set_linewidth(8)
+            lc.set_alpha(0.75)
+            line = axes[param].add_collection(lc)
+            cbar = figs[param].colorbar(line, ax=axes[param])
+            cbar.ax.tick_params()
+            cbar.set_label(self.parent.response_key)  
+        
+            _ = axes[param].plot(params_df.index, params_df[param], 'o', ms=2, mec='k', alpha=0.25)
+            
+        # Plot parameters from experiments
+        for experiment in self.parent.experiments:
+            # Choose whether to monotomize experiment parameters
+            if monotone:
+                res = experiment.evaluate_monotone()
+            else:
+                res = experiment.evaluate()
+            params_df = res[0]
+            eval_df = res[1]
+            
+            for param in self.parent.parameter_names:
+                if not hasattr(experiment, 'meta_params'):
+                    # Plot only if experiment does not have meta_parameters
+                    _ = axes[param].plot(params_df['resource'], params_df[param], 'o-', ms=2, lw=1.5, color=experiment.color, label=experiment.name)
+                if len(res) == 3:
+                    # Len=3 only if postprocessing was used. In that case also plot the recipe before the postprocessing was done
+                    preproc_params = res[2]
+                    axes[param].plot(preproc_params['resource'], preproc_params[param], color=experiment.color, marker='x', linestyle=':', ms=2, lw=1.5)
+        
+        # Finally, add more properties such as labels, legend, etc.
+        for param in self.parent.parameter_names:
+            axes[param].grid(axis="y")
+            axes[param].set_ylabel(param)
+            axes[param].set_xscale(self.xscale)
+            axes[param].set_xlabel("Resource")
+            axes[param].legend()
+            figs[param].tight_layout()
+        
+        return figs, axes
+        
+        
+            
+    
+    def plot_parameters_prior(self):
+        """
+        This one is obsolete, and will be deleted soon.
         Plots the recommnded parameters for each experiment
         """
         # For each resource value, obtain the best parameter value from VirtualBestBaseline

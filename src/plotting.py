@@ -94,7 +94,86 @@ class Plotting:
         self.parent.baseline.color = 'black'
         for idx, experiment in enumerate(self.parent.experiments):
             experiment.color = self.colors[idx]
+        
+    def plot_parameters_together(self):
+        """Plot the parameters (Virtual Best and projection experiments)
+        Create a single figure with a subfigure corresponding to each parameter
+
+        Returns:
+            fig: Figure handle
+            axes: Dictionary of axis handles. The keys are the parameter names
+        """
+        
+        fig, axes_list = plt.subplots(len(self.parent.parameter_names), 1)
+        
+        # Convert axes_list to a dictionary
+        axes = dict()
+        for ind, param in enumerate(self.parent.parameter_names):
+            axes[param] = axes_list[ind]
             
+        # Get the best parameters from the Virtual Baseline
+        params_df, eval_df = self.parent.baseline.evaluate()
+        eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
+        
+        # Before plotting, store params_df to a csv file
+        save_loc = os.path.join(self.parent.here.checkpoints, 'params_plotting')
+        if not os.path.exists(save_loc) : os.makedirs(save_loc)
+        save_file = os.path.join(save_loc, 'baseline.csv')
+        params_df.to_csv(save_file)
+            
+        # plot the virtual baseline paramters
+        for param in self.parent.parameter_names:
+            points = np.array([params_df.index.values, params_df[param].values]).T.reshape(-1, 1, 2)
+            segments = np.concatenate([points[:-1], points[1:]], axis=1)
+            norm = plt.Normalize(eval_df['response'].min(), eval_df['response'].max())
+            lc = LineCollection(segments, cmap='Spectral', norm=norm)
+            # Set the values used for colormapping
+            lc.set_array(eval_df['response'])
+            lc.set_label(self.parent.baseline.name)
+            lc.set_linewidth(8)
+            lc.set_alpha(0.75)
+            line = axes[param].add_collection(lc)
+            _ = axes[param].plot(params_df.index, params_df[param], 'o', ms=2, mec='k', alpha=0.25)
+        
+        cbar = fig.colorbar(line, ax=axes_list.ravel().tolist())
+        cbar.ax.tick_params()
+        cbar.set_label(self.parent.response_key) 
+        
+        # Plot parameters from experiments
+        for experiment in self.parent.experiments:
+            # Choose whether to monotomize experiment parameters
+            if monotone:
+                res = experiment.evaluate_monotone()
+            else:
+                res = experiment.evaluate()
+            params_df = res[0]
+            eval_df = res[1]
+            
+            for param in self.parent.parameter_names:
+                if not hasattr(experiment, 'meta_params'):
+                    # Plot only if experiment does not have meta_parameters
+                    _ = axes[param].plot(params_df['resource'], params_df[param], 'o-', ms=2, lw=1.5, color=experiment.color, label=experiment.name)
+                if len(res) == 3:
+                    # Len=3 only if postprocessing was used. In that case also plot the recipe before the postprocessing was done
+                    preproc_params = res[2]
+                    axes[param].plot(preproc_params['resource'], preproc_params[param], color=experiment.color, marker='x', linestyle=':', ms=2, lw=1.5)
+        
+        # Finally, add more properties such as labels, legend, etc.
+        for param in self.parent.parameter_names:
+            axes[param].grid(axis="y")
+            axes[param].set_ylabel(param)
+            axes[param].set_xscale(self.xscale)
+            axes[param].set_xlabel("Resource")
+            # axes[param].legend()
+        handles, labels = axes_list[0].get_legend_handles_labels()
+        fig.legend(handles, labels, bbox_to_anchor=[0.5,0],loc='upper center')
+        # plt.legend()
+        # fig.tight_layout()
+        
+        return fig, axes
+        
+        
+        
     def plot_parameters_separate(self):
         """Plot the parameters (Virtual Best and projection experiments)
         Create a separate figure for each parameter
@@ -115,6 +194,12 @@ class Plotting:
         # Get the best parameters from the Virtual Baseline
         params_df, eval_df = self.parent.baseline.evaluate()
         eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
+        
+        # Before plotting, store params_df to a csv file
+        save_loc = os.path.join(self.parent.here.checkpoints, 'params_plotting')
+        if not os.path.exists(save_loc) : os.makedirs(save_loc)
+        save_file = os.path.join(save_loc, 'baseline.csv')
+        params_df.to_csv(save_file)
             
         # plot the virtual baseline paramters
         for param in self.parent.parameter_names:

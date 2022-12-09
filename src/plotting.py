@@ -195,7 +195,7 @@ class Plotting:
             res (list): list with 2 or 3 items. res[0] is params_df (i.e. final params from expt), while res[2] (if it exists) contains parameters before post-processing.
         """
         save_loc = os.path.join(self.parent.here.checkpoints, 'params_plotting')
-        save_file = os.path.join(save_loc, experiment_name+'params.csv')
+        save_file = os.path.join(save_loc, experiment_name+'.csv')
         params_df = res[0]
         params_df.to_csv(save_file)
         if len(res) == 3:

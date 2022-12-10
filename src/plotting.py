@@ -74,7 +74,7 @@ class Plotting:
         if hasattr(self, 'xlims'):
             p = p.limit(x=self.xlims)
         
-        fig = plt.figure()
+        fig = plt.figure(figsize=(6, 4), dpi=300)
         p = p.on(fig).plot()
         ax = fig.axes[0]
         self.make_legend(ax, baseline_bool, experiment_bools)

@@ -133,6 +133,7 @@ dmypy.json
 src/workspace.code-workspace
 
 # Extra data files
+.DS_Store
 data/sk/*/df_progress_total*.pkl
 data/sk/*/pickles/*
 data/sk/*/pickles_bak/*
@@ -147,4 +148,4 @@ data/wishart/*
 notebooks/example_data/wishart*
 notebooks/example_data/max_clique*
 notebooks/example_data/sk_pleiades_n=200/*
-notebooks/example_data/sk_pleiades_n=100/checkpoints/*
+notebooks/example_data/sk_pleiades_n=100/checkpoints/*.DS_Store

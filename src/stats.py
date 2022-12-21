@@ -2,6 +2,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
+import scipy.stats
 import os
 from tqdm import tqdm
 from typing import List, Tuple, Union
@@ -184,6 +185,119 @@ class Percentile(StatsMeasure):
         (CIlower, CIupper) = pd.Series(boot_dist).quantile(p)
         return cent, CIlower, CIupper
 
+    
+class Quantile(StatsMeasure):
+    """
+    Percentile stat measure modified with proper confidence intervals
+    and options of different intervals w/o need to boostrap for standard error
+    """
+    
+    def __init__(self, q, nboots, confidence_level: float = 95, style="MJ"):
+        self.q = q
+        self.name = '{}Quantile'.format(q)
+        self.nboots = int(nboots)
+        self.confidence_level = confidence_level
+        self.style = style
+        self.alpha = 1-(confidence_level/100.)
+
+    def __call__(self, base: pd.DataFrame):
+        return base.quantile(self.q / 100.)
+    
+    def center(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
+        return base.quantile(self.q / 100.)
+
+    def ConfInts(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
+        import scipy.stats        
+        cent = base.quantile(self.q / 100.)
+
+        qt = self.q/100.
+        n = len(base)
+        
+        df = np.array(sorted(base.values))
+
+        if self.style == "MJ":
+            a = qt * (n+1)
+            b = (1-qt) * (n+1)
+            cdfs = scipy.stats.beta.cdf(np.array([i/n for i in range(n+1)]), a, b)
+            
+            W = cdfs[1:] - cdfs[:-1]
+            c1 = np.sum(W * df)
+            c2 = np.sum(W * (df ** 2))
+            se = np.sqrt(c2 - (c1 ** 2))
+            est = c1
+            margin = se * scipy.stats.t.ppf(q=(1-self.alpha/2), df=n-1)
+            ub = est + margin
+            lb = est - margin
+
+            return cent, lb, ub
+
+        elif self.style == "HD":
+            h = scipy.stats.mstats.hdquantiles(df, prob=qt, var=True)
+            est = h.data[0][0]
+            se = np.sqrt(h.data[1][0])
+            distval = scipy.stats.t.ppf(q=(1-self.alpha/2), df=n-1)        
+            margin = distval * se
+
+            ub = est + margin
+            lb = est - margin
+
+            return cent, lb, ub
+
+        elif self.style == "kernel":                
+            q25 = np.quantile(df, 0.25)        
+            q75 = np.quantile(df, 0.75)
+            q_int = np.quantile(df, qt)
+            h = 1.2 * (q75-q25)/(n ** .2)
+            nint = len(df[(df > (q_int-h)) & (df < (q_int+h))])
+            fhat = nint/(2*h)
+            se = 1/(2 * np.sqrt(n) * fhat)
+            distval = scipy.stats.norm.ppf(1 - self.alpha/2)
+
+            ub = q_int + distval * se
+            lb = q_int - distval * se
+            
+            return cent, lb, ub
+
+        elif self.style == "binomial":
+            search=2
+            u = scipy.stats.binom.ppf(q=1-self.alpha/2, n=n, p=qt) + np.arange(-search, search+1, 1) + 1
+            l = scipy.stats.binom.ppf(q=self.alpha/2, n=n, p=qt) + np.arange(-search, search+1, 1)    
+            u[u>n] = np.inf
+            l[l<0] = -np.inf
+
+            a = scipy.stats.binom.cdf(u-1,n,qt) 
+            b = scipy.stats.binom.cdf(l-1,n,qt)
+
+            coverage = (a[:,None] - b).T
+
+            if np.max(coverage) < 1-self.alpha:
+                i = np.unravel_index(coverage.argmax(), coverage.shape)
+            else:
+                minval = min(coverage[coverage >= 1-self.alpha])
+                i = np.argwhere(coverage==minval)[-1][0]    
+                j = len(search_range)*i
+                u = int(np.repeat(u, len(search_range))[j])
+                l = int(np.repeat(l, len(search_range))[j])
+
+            ub, lb =  df[u], df[l]
+            return cent, lb[0], ub[0]
+            
+
+            
+        elif self.style == "normal_binomial":              
+            distval = scipy.stats.norm.ppf(1 - self.alpha/2)
+            l = qt - distval * np.sqrt( (qt * (1-qt))/n )    
+            u = qt + distval * np.sqrt( (qt * (1-qt))/n )    
+            ub = np.quantile(df, u)
+            lb = np.quantile(df, l)
+
+            return cent, lb, ub
+            
+            
+        else:
+            return ("Type of interval not found!")
+            
+            
 
 def StatsSingle(df_single: pd.DataFrame, stat_params: StatsParameters):
     """

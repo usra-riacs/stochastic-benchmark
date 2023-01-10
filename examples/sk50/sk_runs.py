@@ -19,8 +19,10 @@ alpha = '0.50'
 n_reads = 1001 #TODO change this if you want
 float_type = 'float32'
 penalty = 1e6
-datapath = '/home/bernalde/repos/stochastic-benchmark/examples/wishart_N=50_alpha={}/data'.format(alpha) #TODO change the directory where you want this
-rerun_datapath = '/home/bernalde/repos/stochastic-benchmark/examples/wishart_N=50_alpha={}/rerun_data'.format(alpha) #TODO change the directory where you want this
+datapath = '/home/bernalde/repos/stochastic-benchmark/examples/sk50/data' #TODO change the directory where you want this
+rerun_datapath = '/home/bernalde/repos/stochastic-benchmark/examples/sk50/rerun_data' #TODO change the directory where you want this
+# datapath = '/home/bernalde/repos/stochastic-benchmark/examples/wishart_N=50_alpha={}/data'.format(alpha) #TODO change the directory where you want this
+# rerun_datapath = '/home/bernalde/repos/stochastic-benchmark/examples/wishart_N=50_alpha={}/rerun_data'.format(alpha) #TODO change the directory where you want this
 
 class seen_result:
     def __init__(self):
@@ -61,8 +63,9 @@ def obj_fcn(norm_score, mean_time, replicas, s):
 
 def load_instance(instance_num):
     #TODO fill in your correct path here
-    base_dir = '/home/bernalde/repos/stochastic-benchmark-backup/data/wishart/instance_generation/wishart_planting_N_50_alpha_{}'.format(alpha)
-    inst_name = 'wishart_planting_N_50_alpha_{}_inst_{}.txt'.format(alpha, instance_num)
+    # base_dir = '/home/bernalde/repos/stochastic-benchmark-backup/data/wishart/instance_generation/wishart_planting_N_50_alpha_{}'.format(alpha)
+    base_dir = '/home/bernalde/repos/stochastic-benchmark/examples/sk50/instances'
+    inst_name = 'sk_model_N_50_inst_{}.txt'.format(instance_num)
     filename = os.path.join(base_dir, inst_name)
     
     rows = []
@@ -75,7 +78,7 @@ def load_instance(instance_num):
             line = line.strip().split('\t')
             rows.append(int(line[0]))
             cols.append(int(line[1]))
-            vals.append(int(line[2]))
+            vals.append(float(line[2]))
             line = f.readline()
 
     qubo = csr_matrix((vals, (rows, cols)), shape = (N, N))
@@ -95,7 +98,7 @@ def run_pysa(args, instance_num, pbar=None):
     sweeps = int(args['sweeps'])
     replicas = int(args['replicas'])
     pcold = np.round(float(args['pcold']), decimals=2)
-    phot = np.max(0.1, np.round(float(args['phot']), decimals=1))
+    phot = np.maximum(0.1, np.round(float(args['phot']), decimals=1))
 
     qubo, gs_energy = load_instance(instance_num)
 
@@ -165,6 +168,9 @@ def run_pysa(args, instance_num, pbar=None):
     obj = obj_fcn(norm_score, mean_time, replicas, 0.99)
     if pbar is not None:
         pbar.update()
+    print(obj)
+    print(norm_score)
+    print('')
     return obj
 
 def rerun_pysa(params, instance_num):
@@ -248,25 +254,24 @@ def run_hyperopt(h, hpo_trial, instance_num):
                 'replicas': hp.quniform('replicas', 1, 16, 1),
                 'pcold': hp.lognormal('pcold', 0, 0.25),
                 'phot': hp.uniform('phot', 0., 100.)}
-    
+    hyperopt_iters = 100
     # TODO set grid params
     if h == 1:
         grid_params = []
-        replicas_list = [32,24,16,12,8,6,4,2,1]
+        replicas_list = [32,16,8,6,4,2,1]
         sweeps_list = [1,2,5,7,10,15,20,30,50,70,100,150,200,300,500]
-        # sweeps_list = [1]
         phot_list = [10,30,50,70,90]
         for replica in replicas_list:
             for sweep in sweeps_list:
                 for phot in phot_list:
                     grid_params.append({'sweeps':sweep, 'replicas':replica, 'pcold':1, 'phot':phot})
-        # grid_params = [{'sweeps':10, 'replicas':1, 'pcold':1, 'phot':50}]
+        # grid_params = [{'sweeps':100, 'replicas':10, 'pcold':1, 'phot':50}]
         trials = generate_trials_to_calculate(grid_params)
-        total = len(grid_params) + 100
+        total = len(grid_params) + hyperopt_iters
         
     else:
         trials = generate_trials_to_calculate([])
-        total = 100
+        total = hyperopt_iters
     
     # Call hyperopt
     # TODO check max_evals
@@ -275,7 +280,7 @@ def run_hyperopt(h, hpo_trial, instance_num):
     best = fmin(fn = objective,
                 space=spaceVar,
                 algo=tpe.suggest,
-                max_evals = 100,
+                max_evals = hyperopt_iters,
                 trials=trials)
 
     hpo_trials_name = os.path.join(datapath, 'hpoTrials_warmstart={}_trial={}_inst={}.pkl'.format(h, hpo_trial, instance_num))
@@ -292,16 +297,25 @@ def rerun_outer(instance_num):
             rerun_pysa(params, instance_num)
 
 if __name__ == '__main__':
-    instance_num = int(os.getenv('PBS_ARRAY_INDEX'))
-    rerun_outer(instance_num)
+    # instance_num = int(os.getenv('PBS_ARRAY_INDEX'))
+    # rerun_outer(instance_num)
 
-    # #base_num = 500
-    # n_insts = 50
+    # base_num = 500
+    # n_insts = 1
     # n_hpo = 10
     # h = math.floor(base_num / (n_hpo * n_insts))
     # remainder = base_num % (n_hpo * n_insts)
     # hpo_trial = math.floor(remainder / n_insts)
     # instance_num = (remainder % n_insts) + 1
+
+    h = 1
+    hpo_trial = 0
+    instances = [2,3,4,5]
+    for instance_num in instances:
+        run_hyperopt(h, hpo_trial, instance_num)
+
+    #instance_num = 2
+    #run_hyperopt(h, hpo_trial, instance_num)
 
     # #instance_num = int(os.getenv('PBS_ARRAY_INDEX'))
     # run_hyperopt(h, hpo_trial, instance_num)

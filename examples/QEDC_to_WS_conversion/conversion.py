@@ -3,31 +3,10 @@
 
 import pickle
 import pandas as pd
-# from scipy.interpolate import interp1d
-# from scipy.special import erfinv
-# import matplotlib.pyplot as plt
 import numpy as np
-# import matplotlib.cm as cm
 import os
-# import sys
-# import json
-# import re
-# import datetime
 import glob
 import maxcut_benchmark
-# sys.path[1:1] = ["_common", "_common/qiskit", "maxcut/_common"]
-# sys.path[1:1] = ["../../_common",
-#                  "../../_common/qiskit", "../../maxcut/_common/"]
-
-# import metrics
-# import execute as ex
-
-
-
-# maxcut_style = os.path.join('..', '..', '_common', 'maxcut.mplstyle')
-
-
-
 
 times_list = ["elapsed_time", "exec_time", "opt_exec_time", "create_time"]
 cumul_time_list = ["cumul_"+ttype for ttype in times_list]
@@ -131,7 +110,7 @@ def json_to_pkl(folder, load_from_json = False, target_folder = None, target_fil
     return df, gen_prop
 
 def do_bootstrap(df, downsample, bootstrap_iterations, metric, confidence_level = 64):
-    """_summary_
+    """To simulate smaller number of restarts, do bootstrapping.
 
     Args:
         df (dataframe): indices are cobyla iterations and columns are restarts
@@ -142,7 +121,7 @@ def do_bootstrap(df, downsample, bootstrap_iterations, metric, confidence_level 
     return new_df
 
 def pkl_to_sb_pkl_bootstrapped(pkl_folder, bs_restarts_list, bootstrap_iterations, instance_number, confidence_level, sb_target_folder = "checkpoints", sb_target_file = ""):
-    """_summary_
+    """Convert raw data from pkl format to bootstrapped data (also to be stored in pkl format)
 
     Args:
         pkl_folder (_type_): _description_
@@ -158,10 +137,6 @@ def pkl_to_sb_pkl_bootstrapped(pkl_folder, bs_restarts_list, bootstrap_iteration
     """
     # Read all files from the pkl_folder
     raw_data = glob.glob(os.path.join(pkl_folder, '*.pkl'))
-    # for each folder, load data
-    # Note: The objective function for each file in the folder must be the same
-    # rounds_list = [1,2,5] # 3 values
-    # num_shots_list = [100, 200, 500, 1000, 2000, 5000] # 6 values
     
     # Check if pkl file and folder already exists
     if not os.path.exists(sb_target_folder): os.makedirs(sb_target_folder)

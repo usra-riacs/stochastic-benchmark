@@ -110,12 +110,14 @@ def json_to_pkl(folder, load_from_json = False, target_folder = None, target_fil
         
     return df, gen_prop
 
-def row_func(row, downsample, bootstrap_iterations, metric, confidence_level = 64):
+def row_func(row, downsample, bootstrap_iterations, metric, confidence_level = 68):
     """Takes in a series (a row from a dataframe), and does bootstrapping, to obtain mean and confidence intervals. 
     Args:
         row (pd.Series): one row of dataframe (containing values for each instance)
         downsample (int): number of observations in each bootstrap sample
         bootstrap_iterations (int): number of bootstrap iters
+        metric (str): result quality metric name
+        confidence_level (int/float) : in %
     Returns:
         pd.Series: with indices Mean, CI_l, CI_u
     """

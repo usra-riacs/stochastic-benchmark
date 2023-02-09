@@ -7,6 +7,7 @@ import numpy as np
 import os
 import glob
 import maxcut_benchmark
+from scipy.special import erfinv
 
 times_list = ["elapsed_time", "exec_time", "opt_exec_time", "create_time"]
 cumul_time_list = ["cumul_"+ttype for ttype in times_list]

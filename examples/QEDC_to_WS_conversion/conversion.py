@@ -109,6 +109,29 @@ def json_to_pkl(folder, load_from_json = False, target_folder = None, target_fil
         
     return df, gen_prop
 
+def row_func(row, downsample, bootstrap_iterations, metric, confidence_level = 64):
+    """Takes in a series (a row from a dataframe), and does bootstrapping, to obtain mean and confidence intervals. 
+    Args:
+        row (pd.Series): one row of dataframe (containing values for each instance)
+        downsample (int): number of observations in each bootstrap sample
+        bootstrap_iterations (int): number of bootstrap iters
+    Returns:
+        pd.Series: with indices Mean, CI_l, CI_u
+    """
+    fact = erfinv(confidence_level / 100.) * np.sqrt(2.)
+
+
+    resamples = np.random.choice(len(row), size=(downsample, bootstrap_iterations))
+    resamples = row.values[resamples]
+    resamples = np.max(resamples, axis=0)
+    std = np.std(resamples)
+    mean = np.mean(resamples)
+    CI_l = mean - fact * std
+    CI_u = mean + fact * std
+    key = "Key=" + metric
+    return pd.Series([mean, CI_l, CI_u], index=[key, "ConfInt=lower_" + key, "ConfInt=upper_"+key])
+
+
 def do_bootstrap(df, downsample, bootstrap_iterations, metric, confidence_level = 64):
     """To simulate smaller number of restarts, do bootstrapping.
 

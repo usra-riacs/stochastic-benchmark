@@ -7,6 +7,7 @@ import numpy as np
 import os
 import glob
 import maxcut_benchmark
+from scipy.special import erfinv
 
 times_list = ["elapsed_time", "exec_time", "opt_exec_time", "create_time"]
 cumul_time_list = ["cumul_"+ttype for ttype in times_list]
@@ -108,6 +109,31 @@ def json_to_pkl(folder, load_from_json = False, target_folder = None, target_fil
             pickle.dump(gen_prop, f)
         
     return df, gen_prop
+
+def row_func(row, downsample, bootstrap_iterations, metric, confidence_level = 68):
+    """Takes in a series (a row from a dataframe), and does bootstrapping, to obtain mean and confidence intervals. 
+    Args:
+        row (pd.Series): one row of dataframe (containing values for each instance)
+        downsample (int): number of observations in each bootstrap sample
+        bootstrap_iterations (int): number of bootstrap iters
+        metric (str): result quality metric name
+        confidence_level (int/float) : in %
+    Returns:
+        pd.Series: with indices Mean, CI_l, CI_u
+    """
+    fact = erfinv(confidence_level / 100.) * np.sqrt(2.)
+
+
+    resamples = np.random.choice(len(row), size=(downsample, bootstrap_iterations))
+    resamples = row.values[resamples]
+    resamples = np.max(resamples, axis=0)
+    std = np.std(resamples)
+    mean = np.mean(resamples)
+    CI_l = mean - fact * std
+    CI_u = mean + fact * std
+    key = "Key=" + metric
+    return pd.Series([mean, CI_l, CI_u], index=[key, "ConfInt=lower_" + key, "ConfInt=upper_"+key])
+
 
 def do_bootstrap(df, downsample, bootstrap_iterations, metric, confidence_level = 64):
     """To simulate smaller number of restarts, do bootstrapping.

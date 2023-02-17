@@ -692,7 +692,8 @@ class VirtualBestBaseline:
                                response_dir=self.parent.response_dir,\
                                groupby = self.parent.instance_cols,\
                                resource_col='resource',\
-                                smooth=self.parent.smooth)
+                                smooth=self.parent.smooth,
+                                additional_cols=['ConfInt=lower_'+response_col, 'ConfInt=upper_'+response_col])
             self.rec_params.to_pickle(self.savename())
                 
     def recalibrate(self, new_df):
@@ -744,11 +745,69 @@ class VirtualBestBaseline:
         },inplace=True
         )
         
-        eval_df = eval_df.loc[:, ['resource', 'response']]
+        eval_df = eval_df.loc[:, ['resource', 'response', 'response_lower', 'response_upper']]
+        
+        def StatsSingle(df_single: pd.DataFrame, stat_params: stats.StatsParameters):
+            """Function for computing the stat (such as mean) and confidence intervals of the response
+
+            Args:
+                df_single (pd.DataFrame): obtained from groupby
+                stat_params (stats.StatsParameters): Only one stats_measure will be used.
+
+            Returns:
+                pd.Dataframe  
+            """
+            df_dict = {}
+            sm = stat_params.stats_measures[0] #Ignore the rest if they exist
+            base, CIlower, CIupper = sm.ConfInts(
+                df_single["response"], df_single["response_lower"], df_single["response_upper"])
+
+            df_dict["response"] = [base]
+            df_dict["response_lower"] = [CIlower]
+            df_dict["response_upper"] = [CIupper]
+            df_dict['count'] = len(df_single["response"])
+
+            df_stats_single = pd.DataFrame.from_dict(df_dict)
+            return df_stats_single
+
+
+        def applyBounds(df: pd.DataFrame, stat_params: stats.StatsParameters):
+            """Trim the response values obtained from statsSingle to be between 0 and 1
+
+            Args:
+                df (pd.DataFrame)
+                stat_params (stats.StatsParameters)
+            """
+            df_copy = df.loc[:, ("response_lower")].copy()
+            df_copy.clip(lower=0.0, inplace=True)
+            df.loc[:, ("response_lower")] = df_copy
+            
+            df_copy = df.loc[:, ("response_upper")].copy()
+            df_copy.clip(upper=1.0, inplace=True)
+            df.loc[:, ("response_upper")] = df_copy
+            return
+
+        def Stats(df: pd.DataFrame, stats_params: stats.StatsParameters, group_on = ['resource']):
+            """Compute a stat(eg. mean) of the response along with CIs for it, for each value of resource for the virtual best
+
+            Args:
+                df (pd.DataFrame): with columns 'resource', 'response', 'response_lower' and 'response_upper'
+                stats_params (stats.StatsParameters): only one statsMeasure to be used
+                group_on (list of strings): Confidence interval propagation will be done for all rows of dataframe having the same values for groupon
+            """
+            def dfSS(df): return StatsSingle(df, stats_params)
+            df_stats = df.groupby(group_on).progress_apply(dfSS).reset_index()
+            df_stats.drop('level_{}'.format(len(group_on)), axis=1, inplace=True)
+            applyBounds(df_stats, stats_params)
+            
+            return df_stats
+
         if median:
-            eval_df = eval_df.groupby('resource').median()
+            stParams = stats.StatsParameters(metrics=['response'], stats_measures=[stats.Median()])
+            eval_df = Stats(eval_df, stParams, ['resource'])
         else:
-            eval_df = eval_df.groupby('resource').mean()
+            stParams = stats.StatsParameters(metrics=['response'], stats_measures=[stats.Mean()])
+            eval_df = Stats(eval_df, stParams, ['resource'])
         eval_df.reset_index(inplace=True)
         return params_df, eval_df
 

@@ -10,6 +10,7 @@ import numpy as np
 from matplotlib.collections import LineCollection
 
 monotone = False
+plot_vb_CI = True
 dir_path = os.path.dirname(os.path.realpath(__file__))
 ws_style = os.path.join(dir_path,'ws.mplstyle')
 
@@ -334,28 +335,39 @@ class Plotting:
         """
         Plots the monotonized performance for each experiment (with the baseline)
         """
-        _, eval_df = self.parent.baseline.evaluate()
-        eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
-        # Store eval_df to a csv file
+        # If saved data for virtual best exists, simply load it. Otherwise, compute the curve from baseline.
         save_loc = os.path.join(self.parent.here.checkpoints, 'performance_plotting')
         if not os.path.exists(save_loc) : os.makedirs(save_loc)
         save_file = os.path.join(save_loc, 'baseline.csv')
-        eval_df.to_csv(save_file)
+        if os.path.exists(save_file):
+            eval_df = pd.read_csv(save_file)
+        else:            
+            _, eval_df = self.parent.baseline.evaluate()
+            eval_df = df_utils.monotone_df(eval_df, 'resource', 'response', 1)
+            # Store eval_df to a csv file
+            eval_df.to_csv(save_file)
         
         
         fig, axs = plt.subplots(1, 1)
+        if plot_vb_CI:
+            axs.fill_between(eval_df['resource'], eval_df["response_lower"], \
+                eval_df["response_upper"],alpha=0.25, color='k', lw=0)
         _ = axs.plot(eval_df['resource'], eval_df['response'], 'o-', ms=5, lw=1, color=self.parent.baseline.color, label=self.parent.baseline.name)
+        
         
         for experiment in self.parent.experiments:
             try:
-                if monotone and not experiment.name == 'SequentialSearch_cold':
-                    res = experiment.evaluate_monotone()
-                else:
-                    res = experiment.evaluate()
-                eval_df = res[1]
-                # Store eval_df to a csv file
                 save_file = os.path.join(save_loc, experiment.name+'.csv')
-                eval_df.to_csv(save_file)
+                if os.path.exists(save_file):
+                    eval_df = pd.read_csv(save_file)
+                else:
+                    if monotone and not experiment.name == 'SequentialSearch_cold':
+                        res = experiment.evaluate_monotone()
+                    else:
+                        res = experiment.evaluate()
+                    eval_df = res[1]
+                    # Store eval_df to a csv file
+                    eval_df.to_csv(save_file)
                 
                 # Add confidence intervals
                 axs.fill_between(eval_df['resource'], eval_df["response_lower"], eval_df["response_upper"],alpha=0.25, color=experiment.color, lw=0)#, label="CI Mean"+legend_str) # color='b',

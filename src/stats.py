@@ -14,6 +14,8 @@ EPSILON = 1e-10
 
 tqdm.pandas()
 
+mean_median_method = 'simple_average' # or 'inverse_variance_weighing'
+
 @dataclass
 class StatsParameters:
     """
@@ -69,35 +71,41 @@ class Mean(StatsMeasure):
     Mean stat measure
     """
     def __init__(self):
-        self.name = 'mean'
+        self.name = 'mean'        
     
     def __call__(self, base: pd.DataFrame):
         return base.mean()
     
-    def center(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
-        return base.mean()
+    def compute_weights(self, upper, lower):
+        if mean_median_method == "simple_average":
+            self.weights = np.array([1 for i in range(len(upper))])
+        elif mean_median_method == "inverse_variance_weighing":
+            self.weights = np.array( 4 / (upper - lower) ** 2 )
+        else:
+            raise ValueError("mean_method can only be 'simple_average' or 'inverse_variance_weighing'")
 
-    def ConfIntlower(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
-        mean_deviation = np.sqrt(
-            sum((upper-lower)*(upper-lower))/(4*len(base)))
-        CIlower = self.center(base, lower, upper) - mean_deviation
-        return CIlower
+    def center(self, base: pd.Series, lower: pd.Series, upper: pd.Series):
+        if not hasattr(self, 'weights'):
+            self.compute_weights(upper, lower)
+        
+        return sum(self.weights * base ) / sum(self.weights)
 
-    def ConfIntupper(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
-        mean_deviation = np.sqrt(
-            sum((upper-lower)*(upper-lower))/(4*len(base)))
-        CIupper = self.center(base, lower, upper) + mean_deviation
-        return CIupper
-
-    def ConfInts(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
+    def ConfInts(self, base: pd.Series, lower: pd.Series, upper: pd.Series):
+        """Compute confidence intervals
+        If mean_median_method=="inverse_variance_weighing", then use inverse variance weighing to propagate mean and variance 
+        Else, if mean_median_method=="simple_average", do the former, but with weights set to 1.
+        See the Context Section of https://en.wikipedia.org/wiki/Inverse-variance_weighting
+        """
+        self.compute_weights(upper, lower)
         cent = self.center(base, lower, upper)
-        mean_deviation = np.sqrt(
-            sum((upper-lower)*(upper-lower))/(4*len(base)))
-        CIlower = cent - mean_deviation
-        CIupper = cent + mean_deviation
-
+        
+        deviations = (upper - lower)/2 # Series object with values of σ * factor. For example, for 68% CIs, this will just be a series object with values of σ for different instances
+        combined_deviation = np.sqrt(
+            sum(self.weights ** 2 * deviations ** 2) / sum(self.weights) ** 2
+        )
+        CIlower = cent - combined_deviation
+        CIupper = cent + combined_deviation
         return cent, CIlower, CIupper
-
 
 class Median(StatsMeasure):
     """
@@ -107,37 +115,26 @@ class Median(StatsMeasure):
         self.name = 'median'
     
     def __call__(self, base: pd.DataFrame):
-        return base.median()
+        return base.mean()
     
-    def center(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
-        return base.median()
 
-    def ConfIntlower(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
-        mean_deviation = np.sqrt(
-            sum((upper-lower)*(upper-lower))/(4*len(base)))
-        median_deviation = mean_deviation * \
-            np.sqrt(np.pi*len(base)/(2*len(base)-1))
-        CIlower = self.center(base, lower, upper) - median_deviation
-        return CIlower
-
-    def ConfIntupper(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
-        mean_deviation = np.sqrt(
-            sum((upper-lower)*(upper-lower))/(4*len(base)))
-        median_deviation = mean_deviation * \
-            np.sqrt(np.pi*len(base)/(2.*len(base)-1))
-        CIupper = self.center(base, lower, upper) + median_deviation
-        return CIupper
-
-    def ConfInts(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
-        cent = self.center(base, lower, upper)
-        mean_deviation = np.sqrt(sum((upper-lower)*(upper-lower))/(4*len(base)))
-        if len(base) == 2:
-            median_deviation = mean_deviation * np.sqrt(np.pi*len(base)/(4*(3./ 2.- 1.)))
-        else:
-            median_deviation = mean_deviation * np.sqrt(np.pi*len(base)/(4*(len(base)/ 2.- 1.)))
-        CIlower = cent - median_deviation
-        CIupper = cent + median_deviation
-
+    def ConfInts(self, base: pd.Series, lower: pd.Series, upper: pd.Series):
+        """
+        The center value and confidence intervals for the median are obtained by modifying the corresponding values obtained from methods in the Mean class.
+        Specifically:
+            Center for Median = Center for Mean
+            deviation for Median = √(π/2) deviation for Mean
+        Reference: https://mathworld.wolfram.com/StatisticalMedian.html
+        """
+        mean_sm = Mean()
+        cent_mean, _, CIupper_mean = mean_sm.ConfInts(base, lower, upper)
+        deviation_for_mean = CIupper_mean - cent_mean
+        deviation_for_median = deviation_for_mean * np.sqrt(np.pi / 2)
+        
+        cent = cent_mean
+        CIlower = cent_mean - deviation_for_median
+        CIupper = cent_mean + deviation_for_median
+        
         return cent, CIlower, CIupper
 
 

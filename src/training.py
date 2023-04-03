@@ -8,6 +8,8 @@ import warnings
 
 import df_utils
 
+check_split_validity = True # While splitting instances into test and train sets, ensure that each set is non-empty
+
 
 def best_parameters(df: pd.DataFrame,
                      parameter_names: List[str],
@@ -100,7 +102,20 @@ def split_train_test(df: pd.DataFrame, split_on: List[str], ptrain: float):
     ptrain : float
         Fraction of instances should be a training instance
     """
-    df = df.groupby(split_on).apply(lambda df : pd.DataFrame.from_dict({'train': [np.random.binomial(1, ptrain)]})).merge(df, on=split_on)
+    if not check_split_validity:
+        df = df.groupby(split_on).apply(lambda df : pd.DataFrame.from_dict({'train': [np.random.binomial(1, ptrain)]})).merge(df, on=split_on)
+    else:
+        valid_split = False
+        while not valid_split:
+            df = df.groupby(split_on).apply(lambda df : pd.DataFrame.from_dict({'train': [np.random.binomial(1, ptrain)]})).merge(df, on=split_on)
+            train_col = df['train'].unique()
+            if 1 not in train_col or 0 not in train_col:
+                # delete train column, and redo
+                del df['train']
+                raise Warning("Testing and training sets are not both non-empty. Redoing split. To remove this warning, set training.check_split_validity=False")
+            else:
+                # The split is valid, so exit while, and return df
+                valid_split = True
     return df
 
 def best_recommended(vb: pd.DataFrame,

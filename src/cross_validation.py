@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy.special import erfinv
 import os
-
+import stats
 
 parameters_dict = dict()
 performance_dict = dict()
@@ -21,6 +21,16 @@ def baseline_evaluate(rec_params, parameter_names, response_col):
     return params_df, eval_df
 
 def all_ci(df_single, colname, confidence_level=68):
+    """
+    Averaging of parameter values
+    Args:
+        df_single (pd.dataframe): with two columns: resource, and parameter name
+        colname (str): parameter name
+        confidence_level (int, optional): Defaults to 68.
+
+    Returns:
+        pd.Dataframe: _description_
+    """
     fact = erfinv(confidence_level / 100.) * np.sqrt(2.)
     data = df_single[colname]
     mean = np.nanmean(data)
@@ -32,8 +42,10 @@ def all_ci(df_single, colname, confidence_level=68):
     # ddict['resource'] = [mean - fact * std]
     return pd.DataFrame.from_dict(ddict)
 
-def propagate_ci(df, propagate_option, confidence_level=68):
-    """Input is a dataframe with columns 'response', 'response_lower' and 'response_upper'
+def propagate_ci(df, stats_measure):
+    """
+    Propagate CIs for resource vs performance
+    Input is a dataframe with columns 'response', 'response_lower' and 'response_upper'
     Each row corresponds to data from a different split.
     These are assumed to the median and +- 68% CI.
     It is assumed that the distribution is Gaussian, so that 'response' is the mean
@@ -44,38 +56,24 @@ def propagate_ci(df, propagate_option, confidence_level=68):
             If 1, do inverse variance weighing
             If 2, mean=average of medians
     """
+    if stats_measure == "mean":
+        sm = stats.Mean()
+    elif stats_measure == "median":
+        sm = stats.Median()
+    else: 
+        raise ValueError("The value of stats_measure can only be mean or median")
     
-    fact = erfinv(confidence_level / 100.) * np.sqrt(2.)
-    def get_standard_deviation(row):
-        std_up = row['response_upper'] - row['response']
-        std_down = row['response'] - row['response_lower']
-        std = (std_up + std_down) / 2
-        if std + row['response'] >= 1:
-            return std_down
-        else:
-            return std
-    df['standard_deviation'] = df.apply(get_standard_deviation, axis = 1)
-    if propagate_option == 1:
-        # Use Inverse variance weighing
-        df['weight'] = 1 / df['standard_deviation'] ** 2
-    elif propagate_option == 2:
-        # mean is mean of means
-        df['weight'] = 1
-    else:
-        raise ValueError("propagate_option can only be 1 or 0.")
-        
+    cent, CIlower, CIupper = sm.ConfInts(base=df["response"], lower=df["response_lower"], upper=df["response_upper"])
     
-    mean = sum(df['weight'] * df['response']) / sum(df['weight'])
-    var = sum(df['weight'] ** 2 * df['standard_deviation'] ** 2) / sum(df['weight']) ** 2
-    std = np.sqrt(var)
     ddict = dict()
-    ddict['mean'] = [mean]
-    ddict['CI_l'] = [mean - fact * std]
-    ddict['CI_u'] = [mean + fact * std]
+    ddict['mean'] = [cent]
+    ddict['CI_l'] = [CIlower]
+    ddict['CI_u'] = [CIupper]
     return pd.DataFrame.from_dict(ddict)
 
 def load_parameters(folders, list_of_expts):
-    """For each split folder (in folders), parameters data is stored in a csv file corresponding to each experiment (in list_of_expts)
+    """
+    For each split folder (in folders), parameters data is stored in a csv file corresponding to each experiment (in list_of_expts)
     For each experiment, load data from all splits, and concatenate into a dataframe. Store it in parameters_dict.
 
     Args:
@@ -118,18 +116,18 @@ def process_params_across_splits(parameter_names, confidence_level=68):
             expt_dict[param] = expt_param_df
         parameters_summarized_dict[expt] = expt_dict
 
-def process_performance_across_splits(parameter_names, propagate_option = 1):
-    """Obtain the mean and CI's of the response, extracted from each experiment
-    To do this, for each experiment, load the data stored in performance_dict[experiment]
-    Next, for each value of resource, obtain the mean and CI's of the performance (across various splits)
+def process_performance_across_splits(stats_measure = "mean", mean_median_method = "simple_average"):
+    """
+    For any given value of resource and experiment type, each split contains a center and a confidence interval value for the performance
+    Propagate these CIs to obtain a single center value and CI for each resource value
     Store processed data in performance_summarized_dict
 
     Args:
-        parameter_names (list of strings): List of parameters
-        propagate_option (int): 1 or 2.
-            If 1, do inverse variance weighing
-            If 2, mean=average of medians
+        stats_measure (str): can be "mean" or "median"
+        mean_median_method (str): can be "simple_average" or "inverse_variance_weighing"
     """
+    stats.mean_median_method = mean_median_method
+    
     performance_summarized_dict.clear()
     for expt, curr_perf_df in performance_dict.items():
         if expt == 'baseline':
@@ -142,12 +140,12 @@ def process_performance_across_splits(parameter_names, propagate_option = 1):
         else:
             # Need to propagate the CI's
             
-            perf_df = curr_perf_df.groupby('resource').apply(lambda df: propagate_ci(df, propagate_option)).reset_index()
+            perf_df = curr_perf_df.groupby('resource').apply(lambda df: propagate_ci(df, stats_measure)).reset_index()
             perf_df.drop('level_1', axis=1, inplace=True)
             perf_df.sort_values(by='resource', inplace=True)
             
         performance_summarized_dict[expt] = perf_df
-    
+
         
 def load_performance(folders, list_of_expts):
     list_of_expts = ['baseline'] + list_of_expts

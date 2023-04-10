@@ -928,7 +928,8 @@ class stochastic_benchmark:
                     self.bs_results = bs_names
                     return
                 
-                self.bs_results = bootstrap.Bootstrap_reduce_mem(self.raw_data, group_on, self.bsParams_iter, self.here.checkpoints, group_name_fcn) 
+                group_on = self.parameter_names + self.instance_cols
+                self.bs_results = bootstrap.Bootstrap_reduce_mem(self.raw_data, group_on, bsParams_iter, self.here.checkpoints, group_name_fcn) 
         else:
             if os.path.exists(self.here.bootstrap) and self.recover:
                 print('All bootstrapped results are already found in checkpoints: reading results.')

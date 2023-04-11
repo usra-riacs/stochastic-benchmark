@@ -419,7 +419,7 @@ class Plotting:
                     if os.path.exists(save_file):
                         metaparams_preproc_df = pd.read_csv(save_file)
                     else:            
-                        metaparams_preproc_df = experiment.meta_params
+                        metaparams_preproc_df = experiment.preproc_meta_params
                         metaparams_preproc_df.sort_values(by=experiment.resource, inplace=True)
                         metaparams_preproc_df.to_csv(save_file)
                     

@@ -392,24 +392,49 @@ class Plotting:
         """
         figs = dict()
         axes = dict()
+        
+        # Location where meta parameter csv files are saved or are to be saved
+        save_loc = os.path.join(self.parent.here.checkpoints, 'meta_params_plotting')
+        if not os.path.exists(save_loc) : os.makedirs(save_loc)
+        
+        
         for idx, experiment in enumerate(self.parent.experiments):
             exp_figs = dict()
             exp_axes = dict()
             if hasattr(experiment, 'meta_params'):
+                
+                # LOAD metaparameter data for this experiment
+                # Check if metaparameter csv files exist. If yes, load them into memory. Otherwise, get from the experiment, load into memory, and store to scv
+                save_file = os.path.join(save_loc, experiment.name+'.csv')
+                if os.path.exists(save_file):
+                    metaparams_df = pd.read_csv(save_file)
+                else:            
+                    metaparams_df = experiment.meta_params
+                    metaparams_df.sort_values(by="TotalBudget", inplace=True)
+                    metaparams_df.to_csv(save_file)
+                
+                metaparams_preproc_df = None
+                if hasattr(experiment, 'preproc_meta_params'):
+                    save_file = os.path.join(save_loc, experiment.name+'_preproc.csv')
+                    if os.path.exists(save_file):
+                        metaparams_preproc_df = pd.read_csv(save_file)
+                    else:            
+                        metaparams_preproc_df = experiment.meta_params
+                        metaparams_preproc_df.sort_values(by=experiment.resource, inplace=True)
+                        metaparams_preproc_df.to_csv(save_file)
+                    
                 for param in experiment.meta_parameter_names:
                     # Create a figure for each parameter and each experiment
                     fig, axs = plt.subplots(1, 1)
-                    experiment.meta_params.sort_values(by=experiment.resource, inplace=True)
-                    axs.plot(experiment.meta_params[experiment.resource], experiment.meta_params[param], color=experiment.color, marker ='o',
+                    axs.plot(metaparams_df["TotalBudget"], metaparams_df[param], color=experiment.color, marker ='o',
                                          label = experiment.name)
-                    if hasattr(experiment, 'preproc_meta_params'):
-                        experiment.preproc_meta_params.sort_values(by=experiment.resource, inplace=True)
-                        axs.plot(experiment.preproc_meta_params[experiment.resource], experiment.preproc_meta_params[param],
+                    if metaparams_preproc_df is not None: #hasattr(experiment, 'preproc_meta_params'):
+                        axs.plot(metaparams_preproc_df["TotalBudget"], metaparams_preproc_df[param],
                                              color=experiment.color, marker ='x', linestyle = '--')
                     axs.grid(axis="y")
                     axs.set_ylabel(param)
                     axs.set_xscale(self.xscale)
-                    axs.set_xlabel(experiment.resource)
+                    axs.set_xlabel("TotalBudget")#experiment.resource)
                     axs.legend(loc="best")
                     fig.tight_layout()
                     exp_figs[param] = fig

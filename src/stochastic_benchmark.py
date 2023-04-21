@@ -1026,7 +1026,6 @@ class stochastic_benchmark:
             else:
                 testing_results = self.interp_results[self.interp_results['train'] == 0]
                 if len(testing_results) == 0:
-                    import warnings
                     warnings.warn("There are no testing sets")
                     # raise Exception('No instances assigned to test set. Reassign train/test split')
 

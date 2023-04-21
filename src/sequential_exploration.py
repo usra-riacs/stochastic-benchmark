@@ -135,18 +135,23 @@ def SequentialExplorationSingle(df_stats: pd.DataFrame, ssParams: SequentialSear
     df_tau.dropna(axis=0, how='any', subset=[ssParams.order_cols[experiment], ssParams.key], inplace=True)
     
     if len(df_tau) == 0:
-        # print('Sequential search experiment terminated due to not enough data')
+        print('Sequential search experiment terminated due to insufficient data')
         return None
    
     n = int(explore_budget / tau)
     df_tau = df_tau.iloc[0:min(n, len(df_tau))]
     
-    if ssParams.optimization_dir == 1:
-        best_pars = df_tau.loc[[df_tau[ssParams.key].idxmax()]]
-        best_val = df_tau[ssParams.key].max()
-    elif ssParams.optimization_dir == -1:
-        best_pars = df_tau.loc[[df_tau[ssParams.key].idxmin()]]
-        best_val = df_tau[ssParams.key].min()
+    if df_tau.size:
+        if ssParams.optimization_dir == 1:
+            best_pars = df_tau.loc[[df_tau[ssParams.key].idxmax()]]
+            best_val = df_tau[ssParams.key].max()
+        elif ssParams.optimization_dir == -1:
+            best_pars = df_tau.loc[[df_tau[ssParams.key].idxmin()]]
+            best_val = df_tau[ssParams.key].min()
+    else:
+        print('Sequential search experiment data is empty')
+        print('Budget', budget,' expl_frac', explore_frac, 'tau', tau)
+        return None
     
     df_tau['exploit'] = 0
     df_tau['resource_step'] = df_tau['resource'].copy()

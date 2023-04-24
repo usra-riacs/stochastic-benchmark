@@ -142,6 +142,7 @@ class Plotting:
         # Plot parameters from experiments
         for experiment in self.parent.experiments:
             # Choose whether to monotomize experiment parameters
+            print('Plotting experiment', experiment)
             if monotone:
                 res = experiment.evaluate_monotone()
             else:

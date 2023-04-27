@@ -3,6 +3,8 @@ import numpy as np
 from scipy.special import erfinv
 import os
 import stats
+import interpolate
+import utils_ws
 
 parameters_dict = dict()
 performance_dict = dict()
@@ -146,22 +148,60 @@ def process_performance_across_splits(stats_measure = "mean", mean_median_method
             
         performance_summarized_dict[expt] = perf_df
 
+
+def interpolate_raw_performance(df_many_splits_performance_raw, group_on = ['split_ind']):
+    """Given performance data for various test-train splits, choose a grid of values of resource, and obtain interpolated values of response and response confidence intervals at those values for each grid value
+
+    Args:
+        df_many_splits_performance_raw (dataframes): Combined raw data loaded from csv files corresponding to all test-train splits. Contains columns for resource, response, response CIs and split index (split_ind). 
         
-def load_performance(folders, list_of_expts):
+    Returns:
+        pd.dataframe: dataframe with 
+    """
+    # The resource grid for different instances can be different. 
+    # First, choose a grid
+    min_res, max_res = df_many_splits_performance_raw['resource'].min(), df_many_splits_performance_raw['resource'].max()
+    interp_grid_for_resources = utils_ws.gen_log_space(
+            min_res, max_res, interpolate.default_ninterp)
+    
+    iParams = interpolate.InterpolationParameters(resource_fcn=lambda x:None, 
+                                                  parameters = [],
+                                                  ignore_cols = ['count', 'index'],
+                                                  resource_values= interp_grid_for_resources)
+    
+    # For each split_ind, do interpolation separately over the resource grid
+    temp_df_interp = df_many_splits_performance_raw.groupby(group_on).\
+        progress_apply(lambda df: interpolate.InterpolateSingle(df, iParams, group_on))
+    temp_df_interp.reset_index(inplace=True)
+    return temp_df_interp
+        
+def load_performance(folders, list_of_expts, split_ind_cols = ['split_ind'], interpolate_flag = True):
+    """Load performance data for baseline and experiments for all test-train splits into memory.
+
+    Args:
+        folders (list of str): Directories of checkpoints folders corresponding to the different splits
+        list_of_expts (list of str)
+        split_ind_cols (list of str, optional): Columns that distinguish different test-train splits. Defaults to ['split_ind'].
+        interpolate_flag (bool, optional): Whether to interpolate the response to a fixed grid for all splits. Defaults to True.
+    """
     list_of_expts = ['baseline'] + list_of_expts
     # Create a dictionary for baseline, and each experiment
     for expt in list_of_expts:
         # concatenate all folders 
         df_list = []
         for split_ind, folder in enumerate(folders):
-            # Load dataframe
+            # Load data from csv files
             file_name = os.path.join(folder, 'performance_plotting', expt + '.csv')
             df = pd.read_csv(file_name)
             df['split_ind'] = split_ind
             df_list.append(df)
+        
         df_concat_this_expt = pd.concat(df_list, axis=0, ignore_index=True)
         if 'Unnamed: 0' in df_concat_this_expt.columns:
             df_concat_this_expt.drop(columns='Unnamed: 0', inplace=True)
+            
+        if interpolate_flag:
+            df_concat_this_expt = interpolate_raw_performance(df_concat_this_expt, group_on = split_ind_cols)
         performance_dict[expt] = df_concat_this_expt
 
     

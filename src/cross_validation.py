@@ -5,6 +5,7 @@ import os
 import stats
 import interpolate
 import utils_ws
+import warnings
 
 parameters_dict = dict()
 performance_dict = dict()
@@ -90,13 +91,17 @@ def load_parameters(folders, list_of_expts):
         for split_ind, folder in enumerate(folders):
             # Load dataframe
             file_name = os.path.join(folder, 'params_plotting', expt + '.csv')
+            if not os.path.exists(file_name):
+                warnings.warn( expt +".csv not found for parameter plotting. Skipping experiment", stacklevel=2)
+                continue
             df = pd.read_csv(file_name)
             df['split_ind'] = split_ind
             df_list.append(df)
-        df_concat_this_expt = pd.concat(df_list, axis=0, ignore_index=True)
-        if 'Unnamed: 0' in df_concat_this_expt.columns:
-            df_concat_this_expt.drop(columns='Unnamed: 0', inplace=True)
-        parameters_dict[expt] = df_concat_this_expt
+        if len(df_list) != 0:
+            df_concat_this_expt = pd.concat(df_list, axis=0, ignore_index=True)
+            if 'Unnamed: 0' in df_concat_this_expt.columns:
+                df_concat_this_expt.drop(columns='Unnamed: 0', inplace=True)
+            parameters_dict[expt] = df_concat_this_expt
         
 def process_params_across_splits(parameter_names, confidence_level=68):
     """

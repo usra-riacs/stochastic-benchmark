@@ -154,20 +154,27 @@ def process_performance_across_splits(stats_measure = "mean", mean_median_method
         performance_summarized_dict[expt] = perf_df
 
 
-def interpolate_raw_performance(df_many_splits_performance_raw, group_on = ['split_ind']):
+def interpolate_raw_performance(df_many_splits_performance_raw, group_on = ['split_ind'], interp_grid_type = "first_split"):
     """Given performance data for various test-train splits, choose a grid of values of resource, and obtain interpolated values of response and response confidence intervals at those values for each grid value
 
     Args:
         df_many_splits_performance_raw (dataframes): Combined raw data loaded from csv files corresponding to all test-train splits. Contains columns for resource, response, response CIs and split index (split_ind). 
+        interp_grid_type (string, optional): If interpolating response to a fixed grid, choose the grid type
+            if "first_split", then interpolate onto the same grid as the one in the first split
+            if "logspace", then choose the grid to have uniformly distributed logspace points between the smallest and largest resource values in the data
         
     Returns:
         pd.dataframe: dataframe with 
     """
     # The resource grid for different instances can be different. 
     # First, choose a grid
-    min_res, max_res = df_many_splits_performance_raw['resource'].min(), df_many_splits_performance_raw['resource'].max()
-    interp_grid_for_resources = utils_ws.gen_log_space(
-            min_res, max_res, interpolate.default_ninterp)
+    if interp_grid_type == "logspace":
+        min_res, max_res = df_many_splits_performance_raw['resource'].min(), df_many_splits_performance_raw['resource'].max()
+        interp_grid_for_resources = utils_ws.gen_log_space(
+                min_res, max_res, interpolate.default_ninterp)
+    elif interp_grid_type == "first_split":
+        min_split_ind = df_many_splits_performance_raw["split_ind"].min()
+        interp_grid_for_resources = df_many_splits_performance_raw[df_many_splits_performance_raw["split_ind"] == min_split_ind]["resource"].values
     
     iParams = interpolate.InterpolationParameters(resource_fcn=lambda x:None, 
                                                   parameters = [],
@@ -180,7 +187,7 @@ def interpolate_raw_performance(df_many_splits_performance_raw, group_on = ['spl
     temp_df_interp.reset_index(inplace=True)
     return temp_df_interp
         
-def load_performance(folders, list_of_expts, split_ind_cols = ['split_ind'], interpolate_flag = True):
+def load_performance(folders, list_of_expts, split_ind_cols = ['split_ind'], interpolate_flag = True, interp_grid_type = "first_split"):
     """Load performance data for baseline and experiments for all test-train splits into memory.
 
     Args:
@@ -188,6 +195,9 @@ def load_performance(folders, list_of_expts, split_ind_cols = ['split_ind'], int
         list_of_expts (list of str)
         split_ind_cols (list of str, optional): Columns that distinguish different test-train splits. Defaults to ['split_ind'].
         interpolate_flag (bool, optional): Whether to interpolate the response to a fixed grid for all splits. Defaults to True.
+        interp_grid_type (string, optional): If interpolating response to a fixed grid, choose the grid type
+            if "first_split", then interpolate onto the same grid as the one in the first split
+            if "logspace", then choose the grid to have uniformly distributed logspace points between the smallest and largest resource values in the data
     """
     list_of_expts = ['baseline'] + list_of_expts
     # Create a dictionary for baseline, and each experiment
@@ -206,7 +216,7 @@ def load_performance(folders, list_of_expts, split_ind_cols = ['split_ind'], int
             df_concat_this_expt.drop(columns='Unnamed: 0', inplace=True)
             
         if interpolate_flag:
-            df_concat_this_expt = interpolate_raw_performance(df_concat_this_expt, group_on = split_ind_cols)
+            df_concat_this_expt = interpolate_raw_performance(df_concat_this_expt, group_on = split_ind_cols, interp_grid_type = interp_grid_type)
         performance_dict[expt] = df_concat_this_expt
 
     

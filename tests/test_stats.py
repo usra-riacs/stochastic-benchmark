@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 import numpy as np
-from src.stats import StatsParameters, Mean, Median, StatsSingle, applyBounds, Stats
+from stats import StatsParameters, Mean, Median, StatsSingle, applyBounds, Stats
 
 
 def test_StatsSingle():

@@ -243,9 +243,44 @@ class Percentile(StatsMeasure):
         return base.quantile(self.q / 100.0)
 
     def center(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
+        """
+        Find the center of the percentile by taking the mean of the upper and lower bounds
+
+        Parameters
+        ----------
+        base: pd.DataFrame
+            Dataframe with the metric to be analyzed
+        lower: pd.DataFrame
+            Dataframe with the lower bounds of the metric
+        upper: pd.DataFrame
+            Dataframe with the upper bounds of the metric
+
+        Returns
+        -------
+        pd.DataFrame
+            Dataframe with the center of the percentile
+        """
         return base.quantile(self.q / 100.0)
 
     def ConfInts(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
+        """
+        Find the confidence intervals of the percentile by bootstrapping
+
+        Parameters
+        ----------
+        base: pd.DataFrame
+            Dataframe with the metric to be analyzed
+        lower: pd.DataFrame
+            Dataframe with the lower bounds of the metric
+        upper: pd.DataFrame
+            Dataframe with the upper bounds of the metric
+
+        Returns
+        -------
+        pd.DataFrame
+            Dataframe with the confidence intervals of the percentile
+        
+        """
         cent = base.quantile(self.q / 100.0)
         boot_dist = []
         for i in range(self.nboots):

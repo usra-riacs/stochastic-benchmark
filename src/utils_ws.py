@@ -25,7 +25,8 @@ def gen_log_space(
     """
     Function to generate logarithmically spaced integers without repeats.
 
-    Parameters:
+    Parameters
+    ----------
     lower : int
         lower bound of the range
     upper : int
@@ -69,12 +70,17 @@ def interp(
     Return a new DataFrame with all columns values interpolated
     to the new_index values.
 
-    Args:
-        df (pd.DataFrame): DataFrame to interpolate
-        new_index (list): list of new index values
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame to interpolate
+    new_index : list
+        list of new index values
 
-    Returns:
-        df_out (pd.DataFrame): new DataFrame with interpolated values
+    Returns
+    -------
+    df_out : pd.DataFrame
+        new DataFrame with interpolated values
     """
     df_out = pd.DataFrame(index=new_index)
     df_out.index.name = df.index.name
@@ -103,13 +109,16 @@ def take_closest(
     Assumes myList is sorted. Returns closest value to myNumber.
     If two numbers are equally close, return the smallest number.
 
-    Args:
-        myList (list): list of values
-        myNumber: value to find closest to
+    Parameters
+    ----------
+    myList : list
+        list of values
+    myNumber : int
+        value to find closest to
 
-    Returns:
-        closest value in myList to myNumber
-
+    Returns
+    -------
+    closest value in myList to myNumber
     """
     pos = bisect_left(myList, myNumber)
     if pos == 0:
@@ -146,35 +155,39 @@ def interpolate_df(
     """
     Function to interpolate dataframes across a resource column.
 
-    Args:
-        dataframe (pd.DataFrame): DataFrame to interpolate
-        resource_column (str): column to interpolate across
-        prefix (str): prefix to add to the interpolated dataframe names
-        parameters_dict (dict): dictionary of parameters to interpolate across
-        default_boots (int): number of bootstrap iterations to use if no
-            bootstrap iterations are specified in the dataframe
-        minimum_boots (int): minimum number of bootstrap iterations to use
-            if no bootstrap iterations are specified in the dataframe
-        resource_proportional_parameters (list): list of parameters to
-            interpolate across the resource_column if resource_proportional_parameters
-            is not None. Otherwise, the resource_column will be interpolated
-            across the resource_column.
-        idx (pd.IndexSlice): index to use for the interpolated dataframe
-        results_path (str): path to save the interpolated dataframes to
-        save_pickle (bool): if True, the interpolated dataframes will be saved
-            to the results_path.
-        overwrite_pickles (bool): if True, the interpolated dataframes will be
-            saved to the results_path. If False, the interpolated dataframes
-            will be saved to the results_path with a timestamp.
-        all_datapoints (bool): if True, all datapoints will be used to
-            interpolate. If False, only the datapoints with the lowest
-            resource value will be used.
-        resource_values (list): list of resource values to interpolate across.
-            If None, the resource_column will be interpolated across the
-            resource_column.
+    Parameters
+    ----------
+    dataframe : pd.DataFrame
+        DataFrame to interpolate
+    resource_column : str
+        column to interpolate across
+    prefix : str
+        prefix to add to the interpolated dataframe names
+    parameters_dict : dict
+        dictionary of parameters to interpolate across
+    default_boots : int
+        number of bootstrap iterations to use if no bootstrap iterations are specified in the dataframe
+    minimum_boots : int
+        minimum number of bootstrap iterations to use if no bootstrap iterations are specified in the dataframe
+    resource_proportional_parameters : list
+        list of parameters to interpolate across the resource_column if resource_proportional_parameters is not None. Otherwise, the resource_column will be interpolated across the resource_column.
+    idx : pd.IndexSlice
+        index to use for the interpolated dataframe
+    results_path : str
+        path to save the interpolated dataframes to
+    save_pickle : bool
+        if True, the interpolated dataframes will be saved to the results_path.
+    overwrite_pickles : bool
+        if True, the interpolated dataframes will be saved to the results_path. If False, the interpolated dataframes will be saved to the results_path with a timestamp.
+    all_datapoints : bool
+        if True, all datapoints will be used to interpolate. If False, only the datapoints with the lowest resource value will be used.
+    resource_values : list
+        list of resource values to interpolate across. If None, the resource_column will be interpolated across the resource_column.
 
-    Returns:
-        df_out (pd.DataFrame): interpolated dataframe
+    Returns
+    -------
+    df_out : pd.DataFrame
+        interpolated dataframe
     """
 
     if dataframe is None:
@@ -328,6 +341,9 @@ def interpolate_df(
 
 
 def percentile(n):
+    """
+    Function to perform percentile aggregation
+    """
     def percentile_(x):
         return np.nanpercentile(x, n)
 
@@ -352,18 +368,32 @@ def process_df_progress(
     """
     Function to process progress dataframes, computing statistics across experiments and reporting best behavior for each budget.
 
-    Args:
-        df_progress: Dataframe containing progress data
-        compute_metrics: List of metrics to compute
-        stat_measures: List of statistics to compute
-        maximizing: Boolean indicating whether to maximize or minimize the metric
+    Parameters
+    ----------
+    df_progress : pd.DataFrame
+        Dataframe containing progress data
+    compute_metrics : list
+        List of metrics to compute
+    stat_measures : list
+        List of statistics to compute
+    maximizing : bool
+        Boolean indicating whether to maximize or minimize the metric
+    df_progress_name : str
+        Name of the progress dataframe
+    results_path : str
+        Path to save the processed dataframes to
+    use_raw_dataframes : bool
+        Boolean indicating whether to use raw dataframes
+    save_pickle : bool
+        Boolean indicating whether to save the processed dataframes
 
-    Returns:
-        Tuple of dictionaries of which there are
-            df_progress_processed: Processed dataframe
-            df_progress_end: Processed dataframe
-
-
+    Returns
+    -------
+    Tuple of dictionaries of which there are
+        df_progress_processed : pd.DataFrame
+            Processed dataframe
+        df_progress_end : pd.DataFrame
+            Dataframe containing the final values for each experiment
     """
 
     for stat_measure in stat_measures:

@@ -230,14 +230,18 @@ def interpolate_raw_performance(
 ):
     """Given performance data for various test-train splits, choose a grid of values of resource, and obtain interpolated values of response and response confidence intervals at those values for each grid value
 
-    Args:
-        df_many_splits_performance_raw (dataframes): Combined raw data loaded from csv files corresponding to all test-train splits. Contains columns for resource, response, response CIs and split index (split_ind).
-        interp_grid_type (string, optional): If interpolating response to a fixed grid, choose the grid type
-            if "first_split", then interpolate onto the same grid as the one in the first split
-            if "logspace", then choose the grid to have uniformly distributed logspace points between the smallest and largest resource values in the data
+    Parameters
+    ----------
+    df_many_splits_performance_raw : pd.dataframe
+        Dataframe with raw performance data for various test-train splits
+    group_on : list[str], optional
+        Columns that distinguish different test-train splits. Defaults to ['split_ind'].
+    interp_grid_type : str, optional
+        If interpolating response to a fixed grid, choose the grid type
 
-    Returns:
-        pd.dataframe: dataframe with
+    Returns
+    -------
+    pd.dataframe: Dataframe with interpolated performance data for various test-train splits
     """
     # The resource grid for different instances can be different.
     # First, choose a grid
@@ -323,6 +327,15 @@ def proj_expt_evaluate(rec_params, parameter_names, response_col):
     """
     Given the parameters of the response function for each test-train split, compute the mean of the parameters and the mean of the response and response CIs for each resource value
 
+    Parameters
+    ----------
+    rec_params : pd.DataFrame
+        Dataframe containing the parameters and responses for each test-train split
+    parameter_names : list of str
+        Names of the parameters
+    response_col : str
+        Name of the response column
+        
     Returns
     -------
     params_df : pd.DataFrame

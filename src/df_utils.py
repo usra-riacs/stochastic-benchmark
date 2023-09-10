@@ -44,10 +44,16 @@ def monotone_df(
     df : pandas.DataFrame
         dataframe to monotonize
     resource_col : str
+        column considered the resource
     response_col : str
+        column with the response metric
     opt_sense : int
         Indicates whether response should be increasing (1) or decreasing (-1) as a function of resou
-
+    extrapolate_from : pandas.DataFrame
+        DataFrame to extrapolate from if the response is not monotonic against the resource.
+    match_on : list[str]
+        Columns to match on when extrapolating
+        
     Returns
     -------
     df : pandas.DataFrame
@@ -111,7 +117,7 @@ def eval_cumm(df, group_on, resource_col, response_col, opt_sense):
         Columns to group on
     resource_col : str
         Column considered the resource
-    response_col
+    response_col : str
         Column with the response metric
 
     Returns

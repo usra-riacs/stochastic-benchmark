@@ -143,7 +143,7 @@ class Mean(StatsMeasure):
 
     def compute_weights(self, upper, lower):
         if mean_median_method == "simple_average":
-            self.weights = np.array([1 for i in range(len(upper))])
+            self.weights = np.array([1 for _ in range(len(upper))])
         elif mean_median_method == "inverse_variance_weighing":
             self.weights = np.array(4 / (upper - lower) ** 2)
         else:
@@ -195,13 +195,15 @@ class Median(StatsMeasure):
         self.name = "median"
 
     def __call__(self, base: pd.DataFrame):
-        return base.mean()
+        return base.median()
+    
+    def center(self, base: pd.Series):
+        return base.median()
 
     def ConfInts(self, base: pd.Series, lower: pd.Series, upper: pd.Series):
         """
         The center value and confidence intervals for the median are obtained by modifying the corresponding values obtained from methods in the Mean class.
         Specifically:
-            Center for Median = Center for Mean
             deviation for Median = √(π/2) deviation for Mean
         Reference: https://mathworld.wolfram.com/StatisticalMedian.html
         """
@@ -209,11 +211,9 @@ class Median(StatsMeasure):
         cent_mean, _, CIupper_mean = mean_sm.ConfInts(base, lower, upper)
         deviation_for_mean = CIupper_mean - cent_mean
         deviation_for_median = deviation_for_mean * np.sqrt(np.pi / 2)
-
-        cent = cent_mean
-        CIlower = cent_mean - deviation_for_median
-        CIupper = cent_mean + deviation_for_median
-
+        cent = self.center(base)
+        CIlower = cent - deviation_for_median
+        CIupper = cent + deviation_for_median
         return cent, CIlower, CIupper
 
 
@@ -243,9 +243,44 @@ class Percentile(StatsMeasure):
         return base.quantile(self.q / 100.0)
 
     def center(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
+        """
+        Find the center of the percentile by taking the mean of the upper and lower bounds
+
+        Parameters
+        ----------
+        base: pd.DataFrame
+            Dataframe with the metric to be analyzed
+        lower: pd.DataFrame
+            Dataframe with the lower bounds of the metric
+        upper: pd.DataFrame
+            Dataframe with the upper bounds of the metric
+
+        Returns
+        -------
+        pd.DataFrame
+            Dataframe with the center of the percentile
+        """
         return base.quantile(self.q / 100.0)
 
     def ConfInts(self, base: pd.DataFrame, lower: pd.DataFrame, upper: pd.DataFrame):
+        """
+        Find the confidence intervals of the percentile by bootstrapping
+
+        Parameters
+        ----------
+        base: pd.DataFrame
+            Dataframe with the metric to be analyzed
+        lower: pd.DataFrame
+            Dataframe with the lower bounds of the metric
+        upper: pd.DataFrame
+            Dataframe with the upper bounds of the metric
+
+        Returns
+        -------
+        pd.DataFrame
+            Dataframe with the confidence intervals of the percentile
+        
+        """
         cent = base.quantile(self.q / 100.0)
         boot_dist = []
         for i in range(self.nboots):
@@ -259,16 +294,6 @@ class Percentile(StatsMeasure):
             sample_ci_lower = lower.values.take(resampler, axis=0)
             sample_std = (sample_ci_upper - sample_ci_lower) / 2.0
             sample_error = np.random.normal(0, sample_std, len(sample))
-            # Check the following: previously q=stat_measure/100 but percentile is defined on range 0 - 100
-            # print(sample)
-            # print(sample_ci_upper)
-            # print(sample_ci_lower)
-            # print(sample_std)
-            # print(sample_error)
-            # print(sample + sample_error)
-            # print(np.percentile(sample + sample_error, q=self.q))
-            # print(np.max(sample + sample_error))
-            # print('------')
             boot_dist.append(pd.Series(sample + sample_error).quantile(self.q / 100.0))
         p = 0.50 - self.confidence_level / (2 * 100.0), 0.50 + self.confidence_level / (
             2.0 * 100.0
@@ -452,7 +477,8 @@ def StatsSingle(df_single: pd.DataFrame, stat_params: StatsParameters):
 
 def applyBounds(df: pd.DataFrame, stat_params: StatsParameters):
     """
-    Apply the bounds to the dataframe
+    Apply the bounds to the dataframe.
+    The bounds are applied to the corresponding confidence intervals to be clipped.
 
     Parameters
     ----------
@@ -468,6 +494,13 @@ def applyBounds(df: pd.DataFrame, stat_params: StatsParameters):
     """
     for sm in stat_params.stats_measures:
         for key, value in stat_params.lower_bounds.items():
+            center_name = names.param2filename(
+                {"Key": key, "Metric": sm.name}, ""
+            )
+            if center_name in df.columns:
+                df_copy = df.loc[:, (center_name)].copy()
+                df_copy.clip(lower=value, inplace=True)
+                df.loc[:, (center_name)] = df_copy
             lower_name = names.param2filename(
                 {"Key": key, "Metric": sm.name, "ConfInt": "lower"}, ""
             )
@@ -477,6 +510,13 @@ def applyBounds(df: pd.DataFrame, stat_params: StatsParameters):
                 df.loc[:, (lower_name)] = df_copy
 
         for key, value in stat_params.upper_bounds.items():
+            center_name = names.param2filename(
+                {"Key": key, "Metric": sm.name}, ""
+            )
+            if center_name in df.columns:
+                df_copy = df.loc[:, (center_name)].copy()
+                df_copy.clip(upper=value, inplace=True)
+                df.loc[:, (center_name)] = df_copy
             upper_name = names.param2filename(
                 {"Key": key, "Metric": sm.name, "ConfInt": "upper"}, ""
             )
@@ -508,7 +548,6 @@ def Stats(df: pd.DataFrame, stats_params: StatsParameters, group_on):
 
     def dfSS(df):
         return StatsSingle(df, stats_params)
-
     df_stats = df.groupby(group_on).progress_apply(dfSS).reset_index()
     df_stats.drop("level_{}".format(len(group_on)), axis=1, inplace=True)
     applyBounds(df_stats, stats_params)

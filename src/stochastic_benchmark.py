@@ -553,7 +553,7 @@ class StaticRecommendationExperiment(Experiment):
         Returns
         -------
         runs : list
-            List of namedtuples of parameters
+            List of named tuples of parameters
         """
         parameter_names = "resource " + " ".join(self.parent.parameter_names)
         Parameter = namedtuple("Parameter", parameter_names)
@@ -1647,6 +1647,18 @@ class stochastic_benchmark:
     def evaluate_without_bootstrap(self, df, group_on):
         """ "
         Runs same computations evaluations as bootstrap without bootstrapping
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Dataframe of results
+        group_on : list[str]
+            Columns to group on
+
+        Returns
+        -------
+        pd.DataFrame
+            Dataframe of results
         """
         bs_params = next(self.bsParams_iter)
         resource_col = bs_params.shared_args["resource_col"]
@@ -1691,6 +1703,20 @@ class stochastic_benchmark:
     ):
         """
         Runs projections experiments
+
+        Parameters
+        ----------
+        project_from : str
+            Name of experiment to project from
+        postprocess : callable(pd.DataFrame)
+            Function to postprocess results
+        postprocess_name : str
+            Name of postprocess
+
+        Returns
+        -------
+        ProjectionExperiment
+            Experiment object
         """
         print("Running projection experiment")
         self.experiments.append(
@@ -1718,6 +1744,22 @@ class stochastic_benchmark:
     ):
         """
         Runs sequential search experiments
+
+        Parameters
+        ----------
+        ssParams : SequentialSearchParameters
+            Parameters for sequential search
+        id_name : str
+            Name of experiment
+        postprocess : callable(pd.DataFrame)
+            Function to postprocess results
+        postprocess_name : str
+            Name of postprocess
+
+        Returns
+        -------
+        SequentialSearchExperiment
+            Experiment object
         """
         print("Running sequential search experiment")
         self.experiments.append(
@@ -1733,6 +1775,16 @@ class stochastic_benchmark:
     def run_StaticRecommendationExperiment(self, init_from):
         """
         Runs static recommendation experiments
+
+        Parameters
+        ----------
+        init_from : str
+            Name of experiment to initialize from
+
+        Returns
+        -------
+        StaticRecommendationExperiment
+            Experiment object
         """
         print("Running static recommendation experiment")
         self.experiments.append(StaticRecommendationExperiment(self, init_from))

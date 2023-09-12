@@ -1,7 +1,7 @@
 cloudpickle==2.2.0
 dill==0.3.5.1
 fonttools==4.25.0
-future==0.18.2
+future==0.18.3
 hyperopt==0.2.7
 mkl-service==2.4.0
 multiprocess==0.70.13

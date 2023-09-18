@@ -1,6 +1,8 @@
 # Stochastic Benchmark - Windows Sticker
 
-Repository for Stochastic Optimization Solvers Benchmark code
+Repository for Stochastic Optimization Solvers Benchmark code.
+
+Details of the implementation and an illustrative example for Wishart instances found [here](examples/wishart_n_50_alpha_0.5/wishart_n_50_alpha_0.50.ipynb) are given in this [document](Window_Sticker_Paper_Clean_Copy.pdf).
 
 This code has been created in order to produce a set of plots that inform the performance of parameterized stochastic optimization solvers when addressing a well-established family of optimization problems.
 These plots are produced based on experimental data from the execution of such solvers in seen instances of the problem family and evaluated further in an unseen subset of problems.

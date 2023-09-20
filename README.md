@@ -23,3 +23,8 @@ The current package implements the following functionality:
 <!-- the following `pip` command can install this package -->
 
 <!-- ``pip install -i https://test.pypi.org/simple/ stochastic-benchmark==0.0.1`` -->
+
+
+# Acknowledgements
+
+This code was developed under the NSF Expeditions Program NSF award CCF-1918549 on [Coherent Ising Machines](https://cohesing.org)

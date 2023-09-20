@@ -2,8 +2,19 @@
 
 Repository for Stochastic Optimization Solvers Benchmark implementation of the Window Sticker framework.
 
-Details of the implementation and an illustrative example for Wishart instances found [here](examples/wishart_n_50_alpha_0.5/wishart_n_50_alpha_0.50.ipynb) are given in this [document](Window_Sticker_Paper_Clean_Copy.pdf).
+Details of the implementation and an illustrative example for Wishart instances found [here](examples/wishart_n_50_alpha_0.5/wishart_n_50_alpha_0.50.ipynb) are given in this [document](stochastic-benchmarking-notes.pdf).
 
+## Table of Contents
+
+- [Background](#background)
+- [Installation](#installation)
+- [Examples](#examples)
+- [Contributors](#contributors)
+- [Acknowledgements](#acknowledgements)
+- [License](#license)
+
+
+## Background
 This code has been created in order to produce a set of plots that inform the performance of parameterized stochastic optimization solvers when addressing a well-established family of optimization problems.
 These plots are produced based on experimental data from the execution of such solvers in seen instances of the problem family and evaluated further in an unseen subset of problems.
 More details of the methodology have been presented in the [APS March meeting](https://meetings.aps.org/Meeting/MAR22/Session/F38.5) and [INFORMS Annual meeting](https://www.abstractsonline.com/pp8/#!/10693/presentation/8455) conferences.
@@ -20,11 +31,64 @@ The current package implements the following functionality:
 - Plot the Window sticker, comparing the performance curves corresponding to the virtual best, recommended parameters, and exploration-exploitation parameter setting strategies.
 - Plots the values of the parameters and their best values with respect to the resource considered, a plot we call the Strategy plot. These plots can show the actual solver parameter values or the meta-parameters associated with parameter-setting strategies.
 
+## Installation
+
+### Method 1: Cloning the Repository
+
+1. **Clone the Repository**:
+    ```bash
+    git clone https://github.com/usra-riacs/stochastic-benchmarking.git
+    cd stochastic-benchmarking
+    ```
+
+2. **Set up a Virtual Environment (Recommended)**:
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate  # On Windows use `.\venv\Scripts\activate`
+    ```
+
+3. **Install Dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+### Method 2: Downloading as a Zip Archive
+
+1. **Download the Repository**:
+    - Navigate to the [stochastic-benchmarking GitHub page](https://github.com/usra-riacs/stochastic-benchmarking).
+    - Click on the `Code` button.
+    - Choose `Download ZIP`.
+    - Once downloaded, extract the ZIP archive and navigate to the extracted folder in your terminal or command prompt.
+
+2. **Set up a Virtual Environment (Recommended)**:
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate  # On Windows use `.\venv\Scripts\activate`
+    ```
+
+3. **Install Dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
 <!-- the following `pip` command can install this package -->
 
 <!-- ``pip install -i https://test.pypi.org/simple/ stochastic-benchmark==0.0.1`` -->
 
+## Examples
 
-# Acknowledgements
+For a full demonstration of the stochastic-benchmarking analysis in action, refer to the example notebooks located in the `examples` folder of this repository.
+
+## Contributors
+- [@robinabrown](https://github.com/robinabrown) Robin Brown
+- [@PratikSathe](https://github.com/PratikSathe) Pratik Sathe
+- [@bernalde](https://github.com/bernalde) David Bernal Neira
+
+## Acknowledgements
 
 This code was developed under the NSF Expeditions Program NSF award CCF-1918549 on [Coherent Ising Machines](https://cohesing.org)
+
+
+## License
+
+[MIT](LICENSE)

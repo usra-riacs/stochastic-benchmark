@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+title: 'Stochastic Benchmark: toolkit for performance evaluation and parameter tuning of stochastic parameterized stochastic optimization solvers'
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: David
+    name-particle: 'E. '
+    family-names: Bernal Neira
+    email: dbernalneira@usra.edu
+    affiliation: Universities Space Research Association (USRA), Research Institute of Advanced Computer Science
+    orcid: 'https://orcid.org/0000-0002-8308-5016'
+  - given-names: Robin
+    family-names: Brown
+    orcid: 'https://orcid.org/0000-0002-5317-1669'
+    affiliation: Stanford University, Autonomous Systems Laboratory
+    email: rabrown1@stanford.edu
+  - given-names: Pratik
+    family-names: Sathe
+    email: psathe@ucla.edu
+    affiliation: University of California at Los Angeles (UCLA), Department of Physics and Astronomy
+    orcid: 'https://orcid.org/0000-0002-9978-8955'
+  - given-names: Davide
+    family-names: Venturelli
+    email: dventurelli@usra.edu
+    affiliation: Universities Space Research Association (USRA), Research Institute of Advanced Computer Science
+    orcid: 'https://orcid.org/0000-0003-0452-7603'
+repository-code: 'https://github.com/usra-riacs/stochastic-benchmark'
+version: 0.1.0
+date-released: '2023-09-18'

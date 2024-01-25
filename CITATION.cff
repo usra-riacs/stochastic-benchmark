@@ -5,8 +5,7 @@ message: >-
   metadata from this file.
 type: software
 authors:
-  - given-names: David
-    name-particle: 'E. '
+  - given-names: David E.
     family-names: Bernal Neira
     email: dbernalneira@usra.edu
     affiliation: Universities Space Research Association (USRA), Research Institute of Advanced Computer Science

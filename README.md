@@ -91,4 +91,4 @@ This code was developed under the NSF Expeditions Program NSF award CCF-1918549 
 
 ## License
 
-[MIT](LICENSE)
+[Apache 2.0](LICENSE)

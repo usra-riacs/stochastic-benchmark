@@ -2,6 +2,8 @@
 
 Repository for Stochastic Optimization Solvers Benchmark implementation of the Window Sticker framework.
 
+The benchmarking approach is described in this [preprint](https://arxiv.org/abs/2402.10255) titled: *Benchmarking the Operation of Quantum Heuristics and Ising Machines: Scoring Parameter Setting Strategies on Optimization Applications*.
+
 Details of the implementation and an illustrative example for Wishart instances found [here](examples/wishart_n_50_alpha_0.5/wishart_n_50_alpha_0.50.ipynb) are given in this [document](stochastic-benchmarking-notes.pdf).
 
 ## Table of Contents

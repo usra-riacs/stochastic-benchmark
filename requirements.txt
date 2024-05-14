@@ -10,4 +10,4 @@ networkx==2.8.6
 numpy==1.22.0
 pandas==1.4.3
 seaborn==0.12.0rc0
-tqdm==4.64.0
+tqdm==4.66.3

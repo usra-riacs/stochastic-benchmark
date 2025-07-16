@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, '3.10', '3.11', '3.12']
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-dev
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov pytest-xdist
+        pip install pandas numpy scipy matplotlib seaborn
+        pip install networkx tqdm multiprocess
+        # Install optional dependencies for extended functionality
+        pip install hyperopt || echo "hyperopt installation failed, continuing..."
+        pip install cloudpickle dill || echo "pickle dependencies failed, continuing..."
+        
+        # Install package in development mode
+        pip install -e .
+    
+    - name: Lint with flake8 (optional)
+      run: |
+        pip install flake8
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 src --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings. Increase line-length for compatibility
+        flake8 src --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+      continue-on-error: true
+    
+    - name: Run tests with pytest
+      run: |
+        # Set PYTHONPATH to include src directory
+        export PYTHONPATH="${PYTHONPATH}:${PWD}/src"
+        
+        # Run tests with coverage
+        pytest tests/ -v --cov=src --cov-report=xml --cov-report=html --cov-report=term
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas numpy scipy matplotlib seaborn
+        pip install networkx tqdm multiprocess
+        pip install pytest
+        pip install -e .
+    
+    - name: Run integration tests
+      run: |
+        export PYTHONPATH="${PYTHONPATH}:${PWD}/src"
+        # Run any integration tests (if they exist)
+        if [ -d "tests/integration" ]; then
+          pytest tests/integration/ -v
+        else
+          echo "No integration tests found"
+        fi
+    
+    - name: Test examples (smoke tests)
+      run: |
+        export PYTHONPATH="${PYTHONPATH}:${PWD}/src"
+        # Basic smoke tests to ensure examples don't crash
+        python -c "
+        import sys
+        sys.path.insert(0, 'src')
+        try:
+            import stochastic_benchmark
+            import bootstrap
+            import plotting
+            import stats
+            import names
+            print('All main modules import successfully')
+        except ImportError as e:
+            print(f'Import error: {e}')
+            sys.exit(1)
+        "

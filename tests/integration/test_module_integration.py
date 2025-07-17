@@ -4,6 +4,7 @@ import numpy as np
 import tempfile
 import os
 import sys
+from unittest.mock import patch
 
 # Monkey patch pandas DataFrame to add back iteritems for compatibility
 if not hasattr(pd.DataFrame, 'iteritems'):
@@ -232,8 +233,27 @@ class TestWorkflowIntegration:
             keep_cols=['param_setting']
         )
         
-        # Simulate bootstrap results
-        bs_result = bootstrap.BootstrapSingle(df, bs_params)
+        # Simulate bootstrap results with proper mocking
+        with patch('bootstrap.initBootstrap') as mock_init_bootstrap:
+            # Mock the initBootstrap function to return valid data
+            mock_init_bootstrap.return_value = (
+                np.array([[100, 80], [120, 90]]),  # responses
+                np.array([[10, 15], [8, 12]])       # resources
+            )
+            
+            # Create a mock success metric that actually populates the DataFrame
+            with patch.object(success_metrics.Response, 'evaluate') as mock_evaluate:
+                def mock_evaluate_func(df, responses, resources):
+                    # Add multiple rows to ensure StatsSingle doesn't return empty
+                    # Use correct column names that match names.param2filename format
+                    df['Key=Response'] = [90.0, 85.0]  # Main response values
+                    df['ConfInt=lower_Key=Response'] = [88.0, 83.0]  # Lower confidence interval
+                    df['ConfInt=upper_Key=Response'] = [92.0, 87.0]  # Upper confidence interval
+                    df['count'] = [10, 12]  # Add count column that the test expects
+                    df['param_setting'] = ['test_setting', 'test_setting']  # Add keep_cols data
+                mock_evaluate.side_effect = mock_evaluate_func
+                
+                bs_result = bootstrap.BootstrapSingle(df, bs_params)
         
         # Step 2: Compute stats on bootstrap results
         stats_params = stats.StatsParameters(

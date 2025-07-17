@@ -422,6 +422,11 @@ class TestBootstrapSingle:
         mock_metric_class.return_value = mock_metric_instance
         mock_metric_class.__name__ = 'MockMetric'
         
+        # Make the mock evaluate method actually modify the DataFrame
+        def mock_evaluate(df, responses, resources):
+            df['MockMetric'] = [1.0]  # Add some test data
+        mock_metric_instance.evaluate.side_effect = mock_evaluate
+        
         params = BootstrapParameters(
             shared_args=shared_args,
             update_rule=dummy_update_rule,
@@ -510,10 +515,8 @@ class TestBootstrap:
         shared_args = {'response_col': 'energy', 'resource_col': 'time'}
         params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule, downsample=1)
         
-        with patch('multiprocess.Pool') as mock_pool:
-            mock_pool_instance = MagicMock()
-            mock_pool.__enter__.return_value = mock_pool_instance
-            mock_pool_instance.map.return_value = [mock_result]
+        with patch('bootstrap.Pool') as mock_pool:
+            mock_pool.return_value.__enter__.return_value.map.return_value = [mock_result]
             
             result = Bootstrap(df, ['group'], [params])
         
@@ -539,10 +542,8 @@ class TestBootstrap:
                 mock_result = pd.DataFrame({'result': [1], 'group': ['A'], 'boots': [1]})
                 mock_bootstrap_single.return_value = mock_result
                 
-                with patch('multiprocess.Pool') as mock_pool:
-                    mock_pool_instance = MagicMock()
-                    mock_pool.__enter__.return_value = mock_pool_instance
-                    mock_pool_instance.map.return_value = [mock_result]
+                with patch('bootstrap.Pool') as mock_pool:
+                    mock_pool.return_value.__enter__.return_value.map.return_value = [mock_result]
                     
                     result = Bootstrap(tmp_file.name, ['group'], [params])
             
@@ -572,10 +573,8 @@ class TestBootstrap:
             mock_result = pd.DataFrame({'result': [1, 2], 'group': ['A', 'B'], 'boots': [1, 1]})
             mock_bootstrap_single.return_value = mock_result
             
-            with patch('multiprocess.Pool') as mock_pool:
-                mock_pool_instance = MagicMock()
-                mock_pool.__enter__.return_value = mock_pool_instance
-                mock_pool_instance.map.return_value = [mock_result]
+            with patch('bootstrap.Pool') as mock_pool:
+                mock_pool.return_value.__enter__.return_value.map.return_value = [mock_result]
                 
                 result = Bootstrap([df1, df2], ['group'], [params])
         
@@ -598,10 +597,8 @@ class TestBootstrap:
             existing_result = pd.DataFrame({'loaded': [True], 'group': ['A'], 'boots': [1]})
             existing_result.to_pickle(progress_file)
             
-            with patch('multiprocess.Pool') as mock_pool:
-                mock_pool_instance = MagicMock()
-                mock_pool.__enter__.return_value = mock_pool_instance
-                mock_pool_instance.map.return_value = [existing_result]
+            with patch('bootstrap.Pool') as mock_pool:
+                mock_pool.return_value.__enter__.return_value.map.return_value = [existing_result]
                 
                 result = Bootstrap(df, ['group'], [params], progress_dir=temp_dir)
             
@@ -634,13 +631,16 @@ class TestBootstrapReduceMem:
                     mock_result = pd.DataFrame({'result': [1], 'boots': [1]})
                     mock_bootstrap_single.return_value = mock_result
                     
-                    result = Bootstrap_reduce_mem(
-                        tmp_file.name,
-                        [['upper_group'], ['lower_group']],
-                        [params],
-                        bootstrap_dir,
-                        name_function
-                    )
+                    with patch('bootstrap.Pool') as mock_pool:
+                        mock_pool.return_value.__enter__.return_value.map.return_value = [mock_result]
+                        
+                        result = Bootstrap_reduce_mem(
+                            tmp_file.name,
+                            [['upper_group'], ['lower_group']],
+                            [params],
+                            bootstrap_dir,
+                            name_function
+                        )
             
             # Clean up
             os.unlink(tmp_file.name)

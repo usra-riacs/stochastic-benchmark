@@ -1,5 +1,12 @@
 # Window Sticker - Stochastic Benchmark
 
+[![CI](https://github.com/bernalde/stochastic-benchmark/actions/workflows/ci.yml/badge.svg)](https://github.com/bernalde/stochastic-benchmark/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/bernalde/stochastic-benchmark/branch/main/graph/badge.svg)](https://codecov.io/gh/bernalde/stochastic-benchmark)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/release/python-390/)
+[![License](https://img.shields.io/github/license/bernalde/stochastic-benchmark)](LICENSE)
+
+Repository for Stochastic Optimization Solvers Benchmark code
+=======
 Repository for Stochastic Optimization Solvers Benchmark implementation of the Window Sticker framework.
 
 The benchmarking approach is described in this [preprint](https://arxiv.org/abs/2402.10255) titled: *Benchmarking the Operation of Quantum Heuristics and Ising Machines: Scoring Parameter Setting Strategies on Optimization Applications*.

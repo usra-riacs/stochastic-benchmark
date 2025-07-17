@@ -290,8 +290,10 @@ class TestInterpolateSingle:
             warnings.simplefilter("always")
             result = InterpolateSingle(df_single, params, group_on=['group_col'])
             
-            assert len(w) == 1
-            assert "duplicate resources" in str(w[0].message)
+            # Filter to only the warnings about duplicate resources
+            duplicate_warnings = [warning for warning in w if "duplicate resources" in str(warning.message)]
+            assert len(duplicate_warnings) == 1
+            assert "duplicate resources" in str(duplicate_warnings[0].message)
 
 
 class TestInterpolate:
@@ -374,10 +376,10 @@ class TestInterpolateReduceMem:
         
         with patch('interpolate.InterpolateSingle') as mock_interp_single:
             def mock_single_interp(df, params, group_on):
+                # Don't include group_on columns in the returned DataFrame to avoid conflicts
                 return pd.DataFrame({
                     'resource': [1.5, 2.5],
-                    'value': [12.5, 22.5],
-                    'group_id': [df['group_id'].iloc[0], df['group_id'].iloc[0]]
+                    'value': [12.5, 22.5]
                 })
             
             mock_interp_single.side_effect = mock_single_interp

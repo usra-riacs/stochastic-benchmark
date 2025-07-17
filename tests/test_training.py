@@ -227,7 +227,9 @@ class TestVirtualBest:
         })
         
         with patch('training.best_parameters') as mock_best_params:
-            mock_best_params.return_value = df.copy()
+            # Return a DataFrame without the groupby column to avoid conflicts during reset_index()
+            mock_return_df = df.copy().drop(columns=['instance'])
+            mock_best_params.return_value = mock_return_df
             
             result = virtual_best(
                 df,
@@ -240,7 +242,13 @@ class TestVirtualBest:
             # Should call best_parameters with smooth=True
             mock_best_params.assert_called()
             call_args = mock_best_params.call_args
-            assert call_args[1]['smooth'] == True
+            # The smooth parameter is the 7th positional argument (index 6) or a keyword argument
+            if len(call_args[0]) > 6:
+                # Called with positional arguments
+                assert call_args[0][6] == True
+            else:
+                # Called with keyword arguments
+                assert call_args[1].get('smooth', False) == True
 
 
 class TestSplitTrainTest:

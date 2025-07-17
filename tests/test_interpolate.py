@@ -4,6 +4,10 @@ import numpy as np
 import warnings
 from unittest.mock import patch, MagicMock
 
+# Monkey patch pandas DataFrame to add back iteritems for compatibility
+if not hasattr(pd.DataFrame, 'iteritems'):
+    pd.DataFrame.iteritems = pd.DataFrame.items
+
 # Import the module to test
 import sys
 sys.path.insert(0, '/home/runner/work/stochastic-benchmark/stochastic-benchmark/src')
@@ -71,8 +75,10 @@ class TestInterpolationParameters:
                 resource_value_type="invalid_type"
             )
             
-            assert len(w) == 1
+            # Expect 2 warnings: one for invalid type, one for removing values when switching to log
+            assert len(w) == 2
             assert "Unsupported resource value type" in str(w[0].message)
+            assert "does not support passing in values" in str(w[1].message)
             assert params.resource_value_type == "log"
     
     def test_manual_type_without_values_warning(self):
@@ -342,13 +348,13 @@ class TestInterpolateReduceMem:
         df1 = pd.DataFrame({
             'time': [1.0, 2.0, 3.0],
             'value': [10.0, 20.0, 30.0],
-            'instance': ['A', 'A', 'A']
+            'group_id': ['A', 'A', 'A']
         })
         
         df2 = pd.DataFrame({
             'time': [1.0, 2.0, 3.0],
             'value': [15.0, 25.0, 35.0],
-            'instance': ['B', 'B', 'B']
+            'group_id': ['B', 'B', 'B']
         })
         
         mock_read_pickle.side_effect = [df1, df2]
@@ -371,7 +377,7 @@ class TestInterpolateReduceMem:
                 return pd.DataFrame({
                     'resource': [1.5, 2.5],
                     'value': [12.5, 22.5],
-                    'instance': [df['instance'].iloc[0], df['instance'].iloc[0]]
+                    'group_id': [df['group_id'].iloc[0], df['group_id'].iloc[0]]
                 })
             
             mock_interp_single.side_effect = mock_single_interp
@@ -379,7 +385,7 @@ class TestInterpolateReduceMem:
             result = Interpolate_reduce_mem(
                 ['file1.pkl', 'file2.pkl'], 
                 params, 
-                group_on=['instance']
+                group_on=['group_id']  # Changed from 'instance' to 'group_id'
             )
             
             assert isinstance(result, pd.DataFrame)

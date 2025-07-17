@@ -1,6 +1,11 @@
 import pytest
+import pandas as pd
 import sys
 import os
+
+# Monkey patch pandas DataFrame to add back iteritems for compatibility
+if not hasattr(pd.DataFrame, 'iteritems'):
+    pd.DataFrame.iteritems = pd.DataFrame.items
 
 # Add src directory to path
 sys.path.insert(0, '/home/runner/work/stochastic-benchmark/stochastic-benchmark/src')

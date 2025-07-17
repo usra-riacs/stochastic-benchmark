@@ -75,7 +75,7 @@ class TestResponse:
             [12, 18, 10]   # Bootstrap sample 3
         ])
         
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         response.evaluate(bs_df, responses, np.array([]))
         
@@ -108,7 +108,7 @@ class TestResponse:
             [12, 18, 10]   # Bootstrap sample 3
         ])
         
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         response.evaluate(bs_df, responses, np.array([]))
         
@@ -133,7 +133,7 @@ class TestResponse:
             [100, 100, 100]
         ])
         
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         response.evaluate(bs_df, responses, np.array([]))
         
@@ -318,7 +318,7 @@ class TestSuccessProb:
             [95, 105, 115]    # Sample 3: 2/3 success
         ])
         
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         success_prob.evaluate(bs_df, responses, np.array([]))
         
@@ -353,7 +353,7 @@ class TestSuccessProb:
             [170, 180, 165]   # Sample 3
         ])
         
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         success_prob.evaluate(bs_df, responses, np.array([]))
         
@@ -381,7 +381,7 @@ class TestSuccessProb:
             [30, 55, 65]
         ])
         
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         success_prob.evaluate(bs_df, responses, np.array([]))
         
         expected_base = names.param2filename({"Key": "SuccProb"}, "")
@@ -417,7 +417,7 @@ class TestResource:
             [12, 18, 10]   # Sample 3
         ])
         
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         resource.evaluate(bs_df, np.array([]), resources)
         
@@ -525,7 +525,7 @@ class TestRTT:
             [95, 105, 115]
         ])
         
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         rtt.evaluate(bs_df, responses, np.array([]))
         
@@ -567,7 +567,7 @@ class TestRTT:
             [310, 370, 360]
         ])
         
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         rtt.evaluate(bs_df, responses, np.array([]))
         
@@ -603,7 +603,7 @@ class TestEdgeCases:
         response = Response(shared_args, metric_args)
         
         empty_responses = np.array([]).reshape(0, 0)
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         # Should handle empty arrays gracefully
         try:
@@ -623,7 +623,7 @@ class TestEdgeCases:
         response = Response(shared_args, metric_args)
         
         single_responses = np.array([[42]])
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         response.evaluate(bs_df, single_responses, np.array([]))
         
@@ -645,7 +645,7 @@ class TestEdgeCases:
             [np.nan, 18, 10]
         ])
         
-        bs_df = pd.DataFrame()
+        bs_df = pd.DataFrame(index=[0])  # Create DataFrame with one row
         
         # Should handle NaN values appropriately
         response.evaluate(bs_df, responses_with_nan, np.array([]))

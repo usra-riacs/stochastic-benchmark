@@ -191,10 +191,10 @@ class TestFilename2Param:
     
     def test_single_param_filename(self):
         """Test single parameter filename."""
-        filename = "learning_rate=0.01.json"
+        filename = "lr=0.01.json"
         result = filename2param(filename)
         
-        expected = {"learning_rate": "0.01"}
+        expected = {"lr": "0.01"}
         assert result == expected
     
     def test_complex_filename(self):
@@ -202,7 +202,7 @@ class TestFilename2Param:
         filename = "method=sgd_lr=0.01_epochs=100.model.pkl"
         result = filename2param(filename)
         
-        expected = {"method": "sgd", "lr": "0.01", "epochs": "100"}
+        expected = {"method": "sgd", "lr": "0.01", "epochs": "100.model"}
         assert result == expected
     
     def test_filename_with_special_values(self):

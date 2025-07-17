@@ -26,11 +26,6 @@ from bootstrap import (
 import success_metrics
 
 
-def dummy_update_rule(df):
-    """Default dummy update rule for testing."""
-    pass
-
-
 class TestBootstrapParameters:
     """Test class for BootstrapParameters dataclass."""
     
@@ -118,16 +113,8 @@ class TestBootstrapParameters:
         
         def dummy_update_rule(df):
             pass
-        
-        # Provide metric_args with RTT structure
-        metric_args = defaultdict(lambda: None)
-        metric_args['RTT'] = {}
             
-        params = BootstrapParameters(
-            shared_args=shared_args, 
-            update_rule=dummy_update_rule,
-            metric_args=metric_args
-        )
+        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
         
         # Create test dataframe
         df = pd.DataFrame({
@@ -154,16 +141,8 @@ class TestBootstrapParameters:
         
         def dummy_update_rule(df):
             pass
-        
-        # Provide metric_args with RTT structure
-        metric_args = defaultdict(lambda: None)
-        metric_args['RTT'] = {}
             
-        params = BootstrapParameters(
-            shared_args=shared_args, 
-            update_rule=dummy_update_rule,
-            metric_args=metric_args
-        )
+        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
         
         # Create test dataframe
         df = pd.DataFrame({
@@ -183,7 +162,7 @@ class TestBSParamsIter:
     def test_bs_params_iter_basic(self):
         """Test basic iteration of BSParams_iter."""
         shared_args = {'response_col': 'energy'}
-        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
+        params = BootstrapParameters(shared_args=shared_args)
         
         iterator = BSParams_iter()
         iteration = iterator(params, nboots=5)
@@ -202,7 +181,7 @@ class TestBSParamsIter:
     def test_bs_params_iter_empty(self):
         """Test BSParams_iter with zero iterations."""
         shared_args = {'response_col': 'energy'}
-        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
+        params = BootstrapParameters(shared_args=shared_args)
         
         iterator = BSParams_iter()
         iteration = iterator(params, nboots=0)
@@ -213,7 +192,7 @@ class TestBSParamsIter:
     def test_bs_params_iter_single(self):
         """Test BSParams_iter with single iteration."""
         shared_args = {'response_col': 'energy'}
-        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
+        params = BootstrapParameters(shared_args=shared_args)
         
         iterator = BSParams_iter()
         iteration = iterator(params, nboots=1)
@@ -229,7 +208,7 @@ class TestBSParamsRangeIter:
     def test_bs_params_range_iter_basic(self):
         """Test basic iteration of BSParams_range_iter."""
         shared_args = {'response_col': 'energy'}
-        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
+        params = BootstrapParameters(shared_args=shared_args)
         
         iterator = BSParams_range_iter()
         boots_list = [5, 10, 15, 20]
@@ -247,7 +226,7 @@ class TestBSParamsRangeIter:
     def test_bs_params_range_iter_empty(self):
         """Test BSParams_range_iter with empty list."""
         shared_args = {'response_col': 'energy'}
-        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
+        params = BootstrapParameters(shared_args=shared_args)
         
         iterator = BSParams_range_iter()
         iteration = iterator(params, [])
@@ -258,7 +237,7 @@ class TestBSParamsRangeIter:
     def test_bs_params_range_iter_generator(self):
         """Test BSParams_range_iter with generator."""
         shared_args = {'response_col': 'energy'}
-        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
+        params = BootstrapParameters(shared_args=shared_args)
         
         def boots_generator():
             for i in range(3):
@@ -296,7 +275,6 @@ class TestInitBootstrap:
         
         params = BootstrapParameters(
             shared_args=shared_args,
-            update_rule=dummy_update_rule,
             agg='weight',
             downsample=2,
             bootstrap_iterations=3
@@ -337,7 +315,6 @@ class TestInitBootstrap:
         
         params = BootstrapParameters(
             shared_args=shared_args,
-            update_rule=dummy_update_rule,
             agg=None,
             downsample=3,
             bootstrap_iterations=5
@@ -424,7 +401,6 @@ class TestBootstrapSingle:
         
         params = BootstrapParameters(
             shared_args=shared_args,
-            update_rule=dummy_update_rule,
             success_metrics=[mock_metric_class],
             keep_cols=['param1']
         )
@@ -471,7 +447,6 @@ class TestBootstrapSingle:
         
         params = BootstrapParameters(
             shared_args=shared_args,
-            update_rule=dummy_update_rule,
             success_metrics=[mock_metric1, mock_metric2]
         )
         
@@ -508,7 +483,7 @@ class TestBootstrap:
         })
         
         shared_args = {'response_col': 'energy', 'resource_col': 'time'}
-        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule, downsample=1)
+        params = BootstrapParameters(shared_args=shared_args, downsample=1)
         
         with patch('multiprocess.Pool') as mock_pool:
             mock_pool_instance = MagicMock()
@@ -533,7 +508,7 @@ class TestBootstrap:
             df.to_pickle(tmp_file.name)
             
             shared_args = {'response_col': 'energy', 'resource_col': 'time'}
-            params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule, downsample=1)
+            params = BootstrapParameters(shared_args=shared_args, downsample=1)
             
             with patch('bootstrap.BootstrapSingle') as mock_bootstrap_single:
                 mock_result = pd.DataFrame({'result': [1], 'group': ['A'], 'boots': [1]})
@@ -566,7 +541,7 @@ class TestBootstrap:
         })
         
         shared_args = {'response_col': 'energy', 'resource_col': 'time'}
-        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule, downsample=1)
+        params = BootstrapParameters(shared_args=shared_args, downsample=1)
         
         with patch('bootstrap.BootstrapSingle') as mock_bootstrap_single:
             mock_result = pd.DataFrame({'result': [1, 2], 'group': ['A', 'B'], 'boots': [1, 1]})
@@ -591,7 +566,7 @@ class TestBootstrap:
             })
             
             shared_args = {'response_col': 'energy', 'resource_col': 'time'}
-            params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule, downsample=1)
+            params = BootstrapParameters(shared_args=shared_args, downsample=1)
             
             # Create a progress file that should be loaded
             progress_file = os.path.join(temp_dir, 'bootstrapped_results_boots=1.pkl')
@@ -624,7 +599,7 @@ class TestBootstrapReduceMem:
             df.to_pickle(tmp_file.name)
             
             shared_args = {'response_col': 'energy', 'resource_col': 'time'}
-            params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule, downsample=1)
+            params = BootstrapParameters(shared_args=shared_args, downsample=1)
             
             def name_function(group_data):
                 return f"group_{group_data}"
@@ -669,7 +644,7 @@ class TestEdgeCases:
             'confidence_level': 68
         }
         
-        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
+        params = BootstrapParameters(shared_args=shared_args)
         
         # Should handle empty dataframe gracefully or raise appropriate error
         with pytest.raises((IndexError, KeyError, ValueError)):
@@ -681,7 +656,6 @@ class TestEdgeCases:
         
         params = BootstrapParameters(
             shared_args=shared_args,
-            update_rule=dummy_update_rule,
             success_metrics=[]
         )
         
@@ -701,7 +675,6 @@ class TestEdgeCases:
         
         params = BootstrapParameters(
             shared_args=shared_args,
-            update_rule=dummy_update_rule,
             downsample=1,
             bootstrap_iterations=1
         )

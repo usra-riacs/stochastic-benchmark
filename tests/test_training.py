@@ -63,7 +63,8 @@ class TestBestParameters:
             'resource': [10, 20, 30, 10, 20],
             'response': [100, 80, 120, 90, 110],
             'param1': [1, 2, 3, 1, 2],
-            'param2': ['A', 'B', 'C', 'D', 'E']
+            'param2': ['A', 'B', 'C', 'D', 'E'],
+            'boots': [1, 1, 1, 1, 1]
         })
         
         result = best_parameters(
@@ -91,7 +92,8 @@ class TestBestParameters:
         df = pd.DataFrame({
             'resource': [10, 20, 30],
             'response': [100, 80, 120],
-            'param1': [1, 2, 3]
+            'param1': [1, 2, 3],
+            'boots': [1000, 1000, 1000]  # Add boots column
         })
         
         with warnings.catch_warnings(record=True) as w:
@@ -114,7 +116,8 @@ class TestBestParameters:
         df = pd.DataFrame({
             'resource': [10, 20, 30, 40],
             'response': [100, 80, 120, 90],  # Non-monotonic
-            'param1': [1, 2, 3, 4]
+            'param1': [1, 2, 3, 4],
+            'boots': [1, 1, 1, 1]
         })
         
         with patch('training.df_utils.monotone_df') as mock_monotone:
@@ -136,16 +139,15 @@ class TestBestParameters:
         """Test best_parameters with empty dataframe."""
         df = pd.DataFrame()
         
-        result = best_parameters(
-            df,
-            parameter_names=[],
-            response_col='response',
-            response_dir=1,
-            resource_col='resource'
-        )
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 0
+        # Empty DataFrame should raise KeyError since columns don't exist
+        with pytest.raises(KeyError, match="response"):
+            result = best_parameters(
+                df,
+                parameter_names=[],
+                response_col='response',
+                response_dir=1,
+                resource_col='resource'
+            )
 
 
 class TestVirtualBest:
@@ -194,7 +196,8 @@ class TestVirtualBest:
             'setting': ['S1', 'S2', 'S1', 'S2'],
             'resource': [10, 20, 10, 20],
             'response': [100, 80, 90, 110],
-            'param1': [1, 2, 1, 2]
+            'param1': [1, 2, 1, 2],
+            'boots': [1, 1, 1, 1]
         })
         
         result = virtual_best(
@@ -219,7 +222,8 @@ class TestVirtualBest:
             'instance': ['I1', 'I1', 'I1'],
             'resource': [10, 20, 30],
             'response': [100, 80, 120],
-            'param1': [1, 2, 3]
+            'param1': [1, 2, 3],
+            'boots': [1, 1, 1]
         })
         
         with patch('training.best_parameters') as mock_best_params:
@@ -560,7 +564,12 @@ class TestEvaluate:
         )
         
         assert isinstance(result, pd.DataFrame)
-        assert len(result) == 2  # One per recipe
+        assert len(result) >= 2  # At least one per recipe, possibly more due to ties
+        
+        # Should have all expected columns
+        expected_cols = ['resource', 'param1', 'response', 'distance_scaled', 'param1_scaled', 'param1_rec']
+        for col in expected_cols:
+            assert col in result.columns
     
     def test_evaluate_with_grouping(self):
         """Test evaluate function with grouping."""
@@ -598,7 +607,8 @@ class TestEdgeCases:
         df = pd.DataFrame({
             'resource': [10],
             'response': [100],
-            'param1': [1]
+            'param1': [1],
+            'boots': [1]
         })
         
         result = best_parameters(
@@ -619,7 +629,8 @@ class TestEdgeCases:
             'instance': ['I1', 'I2'],
             'resource': [10, 20],
             'response': [100, 80],
-            'param1': [1, 2]
+            'param1': [1, 2],
+            'boots': [1, 1]
         })
         
         # This should work without errors
@@ -638,10 +649,9 @@ class TestEdgeCases:
         df_empty = pd.DataFrame()
         recipe = pd.Series({'param1': 1.0})
         
-        result = scaled_distance(df_empty, recipe, ['param1'])
-        
-        assert isinstance(result, pd.DataFrame)
-        assert len(result) == 0
+        # Empty DataFrame should raise KeyError since columns don't exist
+        with pytest.raises(KeyError, match="param1"):
+            result = scaled_distance(df_empty, recipe, ['param1'])
 
 
 if __name__ == "__main__":

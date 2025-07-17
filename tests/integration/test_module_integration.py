@@ -70,8 +70,19 @@ class TestModuleIntegration:
         }
         
         # Test bootstrap with multiple success metrics
+        def dummy_update_rule(bs_params, df):
+            pass
+        
+        # Set up metric args for success metrics
+        from collections import defaultdict
+        metric_args = defaultdict(lambda: None)
+        metric_args['Response'] = {'opt_sense': -1}  # Response needs opt_sense
+        metric_args['MeanTime'] = {}  # Resource needs empty dict
+            
         params = bootstrap.BootstrapParameters(
             shared_args=shared_args,
+            update_rule=dummy_update_rule,
+            metric_args=metric_args,
             success_metrics=[success_metrics.Response, success_metrics.Resource],
             bootstrap_iterations=10,
             downsample=5
@@ -203,8 +214,18 @@ class TestWorkflowIntegration:
             'best_value': 80
         }
         
+        def dummy_update_rule(bs_params, df):
+            pass
+        
+        # Set up metric args for Response
+        from collections import defaultdict
+        metric_args = defaultdict(lambda: None)
+        metric_args['Response'] = {'opt_sense': -1}
+            
         bs_params = bootstrap.BootstrapParameters(
             shared_args=shared_args,
+            update_rule=dummy_update_rule,
+            metric_args=metric_args,
             success_metrics=[success_metrics.Response],
             bootstrap_iterations=5,
             downsample=3,

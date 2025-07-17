@@ -157,8 +157,18 @@ class TestBasicFunctionality:
             'best_value': 80
         }
         
+        def dummy_update_rule(bs_params, df):
+            pass
+        
+        # Set up metric args for Response
+        from collections import defaultdict
+        metric_args = defaultdict(lambda: None)
+        metric_args['Response'] = {'opt_sense': -1}
+            
         params = bootstrap.BootstrapParameters(
             shared_args=shared_args,
+            update_rule=dummy_update_rule,
+            metric_args=metric_args,
             success_metrics=[success_metrics.Response],
             bootstrap_iterations=5,
             downsample=2
@@ -176,7 +186,8 @@ class TestBasicFunctionality:
         df = pd.DataFrame({
             'resource': [10, 20, 30],
             'response': [100, 80, 120],
-            'param1': [1, 2, 3]
+            'param1': [1, 2, 3],
+            'boots': [1000, 1000, 1000]  # Add required boots column
         })
         
         # Test best parameters
@@ -242,8 +253,19 @@ class TestModuleCompatibility:
         }
         
         # Test that success metrics can be used in bootstrap
+        def dummy_update_rule(bs_params, df):
+            pass
+        
+        # Set up metric args for success metrics
+        from collections import defaultdict
+        metric_args = defaultdict(lambda: None)
+        metric_args['Response'] = {'opt_sense': -1}
+        metric_args['MeanTime'] = {}
+            
         params = bootstrap.BootstrapParameters(
             shared_args=shared_args,
+            update_rule=dummy_update_rule,
+            metric_args=metric_args,
             success_metrics=[success_metrics.Response, success_metrics.Resource],
             bootstrap_iterations=3,
             downsample=1

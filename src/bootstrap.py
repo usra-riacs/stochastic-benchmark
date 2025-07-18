@@ -8,7 +8,7 @@ import numpy as np
 import os
 import pandas as pd
 from tqdm import tqdm
-from typing import Callable
+from typing import Callable, List, DefaultDict
 
 import names
 import success_metrics
@@ -34,7 +34,7 @@ class BootstrapParameters:
         Function to update the dataframe with the bootstrap results.
     agg : str
         Aggregation function to use for the bootstrap.
-    metric_args : defaultdict[dict]
+    metric_args : DefaultDict[str, dict]
         Dictionary of metric arguments to pass to the success_metrics functions.
     success_metrics : dict
         Dictionary of success_metrics functions to use.
@@ -56,13 +56,13 @@ class BootstrapParameters:
     shared_args: dict  #'resource_col, response_col, response_dir, best_value, random_value, confidence_level'
     update_rule: Callable[[pd.DataFrame], None] = field()
     agg: str = field(default_factory=lambda: None)
-    metric_args: defaultdict[dict] = field(
+    metric_args: DefaultDict[str, dict] = field(
         default_factory=lambda: defaultdict(lambda: None)
     )
     success_metrics: dict = field(default_factory=lambda: [success_metrics.PerfRatio])
     bootstrap_iterations: int = 1000
     downsample: int = 10
-    keep_cols: list = field(default_factory=lambda: [])
+    keep_cols: List = field(default_factory=lambda: [])
 
     def __post_init__(self):
         temp_metric_args = defaultdict(lambda: None)
@@ -107,9 +107,12 @@ class BSParams_iter:
 
     def __next__(self):
         if self.bs_params.downsample <= self.nboots - 1:
-            boots = self.bs_params.downsample
+            # Make a deep copy with current downsample value
+            result = copy.deepcopy(self.bs_params)
+            result.downsample = self.bs_params.downsample
+            # Then increment for next iteration
             self.bs_params.downsample += 1
-            return copy.deepcopy(self.bs_params)
+            return result
         else:
             raise StopIteration
 
@@ -239,10 +242,10 @@ def Bootstrap(df, group_on, bs_params_list, progress_dir=None):
         DataFrame containing the data.
 
     If Split=False
-        group_on : list[str]
+        group_on : List[str]
             Column name to group on.
     If split=True
-        group_on = list[list[str]]
+        group_on = List[List[str]]
             group_on = [upper_group_on, lower_group_on]
             upper_group_on splits will be written to different files
             lower_group_on
@@ -257,7 +260,7 @@ def Bootstrap(df, group_on, bs_params_list, progress_dir=None):
     bs_df : pandas.DataFrame
         DataFrame containing the bootstrap results.
     If split=True:
-    df_list : list[str]
+    df_list : List[str]
         List of strings pointing to files with portions of bootstrapped_results
     """
     if type(df) == list:
@@ -288,6 +291,7 @@ def Bootstrap(df, group_on, bs_params_list, progress_dir=None):
         )
         temp_df.drop("level_{}".format(len(group_on)), axis=1, inplace=True)
         temp_df["boots"] = bs_params.downsample
+        return temp_df
 
     with Pool() as p:
         df_list = p.map(f, bs_params_list)
@@ -302,7 +306,7 @@ def Bootstrap_reduce_mem(df, group_on, bs_params_list, bootstrap_dir, name_fcn=N
     ----------
     df : pandas.DataFrame
         DataFrame containing the data.
-    group_on : list[str]
+    group_on : List[str]
         Column name to group on.
     bs_params_list: list or iterator of bootstrap parameters
         Number of bootstraps.

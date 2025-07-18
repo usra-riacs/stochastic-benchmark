@@ -5,7 +5,7 @@ import pandas as pd
 import scipy.stats
 import os
 from tqdm import tqdm
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, DefaultDict
 import warnings
 
 import names
@@ -26,9 +26,9 @@ class StatsParameters:
     ----------
     metrics : list
         List of metrics to compute
-    lower_bounds : defaultdict[dict]
+    lower_bounds : DefaultDict[str, dict]
         Dictionary of lower bounds for each metric
-    upper_bounds : defaultdict[dict]
+    upper_bounds : DefaultDict[str, dict]
         Dictionary of upper bounds for each metric
     stats_measures : list
         List of statistics to compute
@@ -49,15 +49,15 @@ class StatsParameters:
             "InvPerfRatio",
         ]
     )
-    lower_bounds: defaultdict[dict] = field(
+    lower_bounds: DefaultDict[str, dict] = field(
         default_factory=lambda: defaultdict(lambda: None)
     )
-    upper_bounds: defaultdict[dict] = field(
+    upper_bounds: DefaultDict[str, dict] = field(
         default_factory=lambda: defaultdict(lambda: None)
     )
     # PyLance cries as follows: Subscript for class "defaultdict" will generate runtime exception; enclose type annotation in quotes
     # We need to also include the mean computation here
-    stats_measures: list = field(default_factory=lambda: [Median()])
+    stats_measures: List = field(default_factory=lambda: [Median()])
 
     def __post_init__(self):
         self.lower_bounds["SuccProb"] = 0.0

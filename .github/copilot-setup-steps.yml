@@ -1,0 +1,250 @@
+# GitHub Copilot Setup Steps for stochastic-benchmark
+
+name: copilot-setup-steps
+description: Automated setup steps for GitHub Copilot development in stochastic-benchmark
+
+setup_steps:
+  environment:
+    python_version: "3.9+"
+    required_packages:
+      core:
+        - pandas
+        - numpy
+        - scipy
+        - matplotlib
+        - seaborn
+        - networkx
+        - tqdm
+        - multiprocess
+      testing:
+        - pytest
+        - pytest-cov
+        - pytest-xdist
+      optional:
+        - hyperopt
+        - cloudpickle
+        - dill
+      development:
+        - flake8
+        - black  # code formatter
+        - isort  # import sorter
+
+  project_structure:
+    source_directory: "src/"
+    test_directory: "tests/"
+    examples_directory: "examples/"
+    documentation: ["README.md", "TESTING.md"]
+
+  development_workflow:
+    1_setup:
+      - "git clone repository"
+      - "cd stochastic-benchmark"
+      - "python -m pip install --upgrade pip"
+      - "pip install -r requirements.txt"
+      - "pip install -e ."  # Install in development mode
+    
+    2_testing:
+      - "export PYTHONPATH=${PYTHONPATH}:${PWD}/src"
+      - "python run_tests.py all"  # Run all tests
+      - "pytest tests/ -v --cov=src"  # Run with coverage
+    
+    3_development:
+      - "Follow type annotation standards (Python 3.9+)"
+      - "Write tests before implementing features"
+      - "Use proper mocking for multiprocessing and external dependencies"
+      - "Maintain docstring standards (NumPy style)"
+    
+    4_quality_checks:
+      - "flake8 src --max-line-length=120"
+      - "pytest tests/ -v"
+      - "Coverage should be >80% for new code"
+
+  common_patterns:
+    testing_multiprocess:
+      pattern: |
+        @patch('module.Pool')
+        def test_function(self, mock_pool):
+            mock_pool.return_value.__enter__.return_value.map.return_value = [expected_result]
+            result = function_using_pool()
+            assert result == expected
+    
+    testing_success_metrics:
+      pattern: |
+        @patch.object(SuccessMetric, 'evaluate')
+        def test_metric(self, mock_evaluate):
+            def mock_evaluate_func(df, responses, resources):
+                df['Key=Metric'] = [value]
+                df['ConfInt=lower_Key=Metric'] = [lower]
+                df['ConfInt=upper_Key=Metric'] = [upper]
+            mock_evaluate.side_effect = mock_evaluate_func
+    
+    type_annotations:
+      pattern: |
+        from typing import List, Dict, DefaultDict, Union, Optional, Callable
+        
+        def function(
+            data: List[str], 
+            config: Dict[str, int], 
+            optional: Optional[str] = None
+        ) -> pd.DataFrame:
+    
+    bootstrap_testing:
+      pattern: |
+        # Mock initBootstrap for bootstrap tests
+        @patch('bootstrap.initBootstrap')
+        def test_bootstrap(self, mock_init):
+            mock_init.return_value = (responses_array, resources_array)
+            result = BootstrapSingle(df, params)
+            assert isinstance(result, pd.DataFrame)
+
+  file_templates:
+    test_file:
+      name_pattern: "test_{module_name}.py"
+      structure: |
+        import pytest
+        import pandas as pd
+        import numpy as np
+        from unittest.mock import patch, MagicMock
+        
+        # Add src to path for imports
+        import sys
+        sys.path.insert(0, '/path/to/src')
+        
+        import {module_name}
+        
+        class Test{ModuleName}:
+            """Test class for {module_name} functionality."""
+            
+            def test_{function}_basic(self):
+                """Test basic {function} functionality."""
+                # Setup
+                test_data = create_test_data()
+                
+                # Execute  
+                result = {module_name}.{function}(test_data)
+                
+                # Assert
+                assert isinstance(result, expected_type)
+                assert len(result) > 0
+    
+    integration_test:
+      name_pattern: "test_{workflow}_integration.py"
+      structure: |
+        import pytest
+        import tempfile
+        import os
+        from unittest.mock import patch
+        
+        # Import all modules being integrated
+        import module1
+        import module2
+        
+        class Test{Workflow}Integration:
+            """Integration tests for {workflow} workflow."""
+            
+            def test_{workflow}_end_to_end(self):
+                """Test complete {workflow} from start to finish."""
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Setup workflow steps
+                    step1_result = module1.function(input_data)
+                    step2_result = module2.function(step1_result)
+                    
+                    # Verify integration
+                    assert verify_workflow_output(step2_result)
+
+  debugging_checklist:
+    import_issues:
+      - "Check PYTHONPATH includes src directory"
+      - "Verify all required packages are installed"
+      - "Check for circular imports"
+    
+    test_failures:
+      - "Verify mock targets use correct module paths"
+      - "Ensure test data has appropriate structure"
+      - "Check for Python version compatibility issues"
+    
+    type_annotation_errors:
+      - "Import required types from typing module"
+      - "Use Python 3.9+ compatible syntax"
+      - "Avoid using built-in generics (list[str] -> List[str])"
+    
+    multiprocessing_issues:
+      - "Mock Pool at correct module level"
+      - "Avoid local functions in multiprocessing contexts"
+      - "Test pickle-ability of objects passed to workers"
+
+  ci_cd_integration:
+    github_actions:
+      trigger_events:
+        - "push to main/develop branches"
+        - "pull requests to main/develop"
+      
+      test_matrix:
+        python_versions: ["3.9", "3.10", "3.11", "3.12"]
+        operating_systems: ["ubuntu-latest"]
+      
+      required_checks:
+        - "Code linting (flake8)"
+        - "Unit tests with coverage"
+        - "Integration tests"
+        - "Smoke tests for all modules"
+      
+      coverage_requirements:
+        minimum_coverage: "80%"
+        report_format: "xml, html, term"
+        upload_to: "codecov"
+
+  performance_guidelines:
+    test_performance:
+      - "Use appropriate test data sizes"
+      - "Mock expensive operations"
+      - "Set reasonable timeouts for long-running tests"
+    
+    memory_management:
+      - "Clean up temporary files in tests"
+      - "Use context managers for resource management"
+      - "Monitor memory usage in performance-critical code"
+
+  documentation_standards:
+    docstring_format: "NumPy style"
+    example_docstring: |
+      def function_name(param1: str, param2: int) -> pd.DataFrame:
+          """
+          Brief description of function.
+          
+          Parameters
+          ----------
+          param1 : str
+              Description of param1.
+          param2 : int
+              Description of param2.
+          
+          Returns
+          -------
+          pd.DataFrame
+              Description of return value.
+          
+          Examples
+          --------
+          >>> result = function_name("test", 42)
+          >>> len(result) > 0
+          True
+          """
+
+maintenance:
+  regular_updates:
+    - "Update dependencies in requirements.txt"
+    - "Review and update type annotations"
+    - "Add tests for new functionality"
+    - "Update documentation for API changes"
+  
+  version_compatibility:
+    - "Test against latest Python versions"
+    - "Update CI matrix when dropping old versions"
+    - "Maintain backward compatibility where possible"
+  
+  code_quality:
+    - "Regular code reviews"
+    - "Refactor complex functions"
+    - "Improve test coverage"
+    - "Update documentation"

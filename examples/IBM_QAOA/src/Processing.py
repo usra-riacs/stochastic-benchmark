@@ -75,8 +75,9 @@ def set_data_path(data_dir: str, hardware: bool = False, training: bool = True, 
     else:
         return final_path_hardware
 
-def load_problem_instance(problem_path: str, graph_type: str, num_nodes: str, instance: str) -> list[Path]:
-    """Return the directory containing problem instances for a graph family.
+def load_problem_instance(problem_path: str, graph_type: str, num_nodes: str, instance: str,
+                          degree: str = None, ER_probability: str = None, swap_layers: str = None) -> list[Path]:
+    """Return the paths to problem instance JSON files for a given graph family.
 
     Parameters
     ----------
@@ -84,26 +85,41 @@ def load_problem_instance(problem_path: str, graph_type: str, num_nodes: str, in
         Base directory containing per-graph-type subfolders.
     graph_type : str
         Graph family identifier.
+    num_nodes : str
+        Number of nodes encoded in the filename.
+    instance : str
+        Instance index (zero-padded to 3 digits).
+    degree : str, optional
+        Degree used for ``graph_type="random_regular"``. When provided, only
+        files matching ``random{degree}regular`` are returned, preventing
+        accidental loading of wrong-degree instances.
+    ER_probability : str, optional
+        Erdos-Renyi probability suffix used for ``graph_type="erdos_renyi"``.
+    swap_layers : str, optional
+        Swap-layer count used for ``graph_type="line_to_full"``.
 
     Returns
     -------
-    str
-        Path to the directory containing instances for `graph_type`.
+    list[Path]
+        Paths to the matching instance JSON files.
     """
     instance = str(instance).zfill(3)
     base = Path(problem_path) / graph_type
 
-    if graph_type == "erdos_renyi" :
-        problem_instance_path = f"{instance}*{num_nodes}nodes*.json"
+    if graph_type == "erdos_renyi":
+        prob_suffix = f"erdosrenyi{ER_probability}percent" if ER_probability else ""
+        problem_instance_path = f"{instance}*{num_nodes}nodes*{prob_suffix}*.json"
     elif graph_type == "heavy_hex":
         problem_instance_path = f"{instance}*{num_nodes}nodes*.json"
     elif graph_type == "line_to_full":
-        problem_instance_path = f"{instance}*{num_nodes}nodes*.json"
+        swap_suffix = f"{swap_layers}swap_layers" if swap_layers else ""
+        problem_instance_path = f"{instance}*{num_nodes}nodes*{swap_suffix}*.json"
     elif graph_type == "random_regular":
-        problem_instance_path = f"{instance}*{num_nodes}nodes*.json"
+        degree_suffix = f"random{degree}regular" if degree else ""
+        problem_instance_path = f"{instance}*{num_nodes}nodes*{degree_suffix}*.json"
     else:
         return []
-    
+
     final_problem_instance_path = list(Path(base).glob(problem_instance_path))
 
     return final_problem_instance_path
@@ -183,7 +199,7 @@ class QAOAHardware:
         elif graph_type == "line_to_full":
             instance_path = f"00{instance}N{num_nodes}L2S{swap_layers}_{p}_*.json"
         elif graph_type == "random_regular":
-            instance_path = f"00{instance}N{num_nodes}R{degree}R*_{p}_*.json"
+            instance_path = f"00{instance}N{num_nodes}R{degree}R_{p}_*.json"
         else:
             return []
 
@@ -287,6 +303,12 @@ class QAOAHardware:
             )
 
             all_data.append(run)
+
+        # total_time in hardware JSON is job-level; split evenly across valid methods.
+        if QPU_time is not None and len(all_data) > 0:
+            qpu_time_per_method = QPU_time / len(all_data)
+            for run in all_data:
+                run.QPU_time = qpu_time_per_method
 
         return all_data
 

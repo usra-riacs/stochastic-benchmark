@@ -173,16 +173,17 @@ class TestMonotoneDf:
 
     def test_monotone_df_drops_level_columns(self):
         """Monotone_df should remove groupby generated level columns."""
-        base_df = pd.DataFrame({
+        # Directly construct a DataFrame with level columns to avoid
+        # relying on pandas groupby internals which vary across versions.
+        df_with_levels = pd.DataFrame({
+            'level_0': [0, 1, 2, 3],
+            'level_1': [0, 1, 0, 1],
             'resource': [1, 2, 1, 2],
             'response': [3, 4, 5, 6],
-            'group': ['A', 'A', 'B', 'B']
         })
 
-        grouped = base_df.groupby('group', as_index=False).apply(lambda x: x, include_groups=False)
-        df_with_levels = grouped.reset_index()
-
         assert 'level_0' in df_with_levels.columns  # ensure levels are present
+        assert 'level_1' in df_with_levels.columns
 
         result = monotone_df(df_with_levels.copy(), 'resource', 'response', opt_sense=1)
 

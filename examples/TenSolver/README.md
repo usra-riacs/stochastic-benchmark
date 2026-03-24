@@ -1,14 +1,13 @@
 # TenSolver Benchmark Example
 
-Adds a complete Jupyter notebook benchmarking [TenSolver](https://github.com/SECQUOIA/TenSolver.jl) on 23 QUBO instances from the QpLib subset of QUBOLib (instances 308–330).
+Benchmarking [TenSolver](https://github.com/SECQUOIA/TenSolver.jl) on 23 QUBO instances from the QpLib subset of QUBOLib (instances 308–330).
 
 ## What's included
 
 - **Energy distribution visualizations** — heatmap showing how the sampled energy distribution evolves across DMRG iterations for a representative instance.
 - **Performance ratio** — computed against Gurobi's best-known objectives as the reference minimum and random bitstring sampling as the baseline.
 - **Bootstrap analysis** — performance ratio inferred for 1, 10, 100, and 1000 samples per iteration using the stochastic-benchmark framework.
-- **Resource analysis** — `iterations × samples` used as a proxy for compute; interpolation, train/test split, virtual best baseline, and projection experiments follow the same pattern as the Simulated Annealing example.
-- **Output plots** — `performance.png`, `iteration.png`, `samples.png`.
+- **Resource analysis** — `iterations × samples` used as a proxy for compute; interpolation, train/test split, virtual best baseline, and projection experiments.
 
 ## Data files
 

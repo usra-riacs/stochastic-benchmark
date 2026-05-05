@@ -61,6 +61,14 @@ def plot_ar_hist_by_training_method_with_points(
     symmetric=True,
     normalize="global"):
 
+    def _ensure_training_method_column(dfin: pd.DataFrame) -> pd.DataFrame:
+        """Normalize pandas groupby-apply output across pandas versions."""
+        if "training_method" in dfin.columns:
+            return dfin
+        if getattr(dfin.index, "names", None) and "training_method" in dfin.index.names:
+            return dfin.reset_index()
+        raise KeyError("training_method")
+
     # ---------- Filter ----------
     df = df_samples[(df_samples["instance_name"] == instance_name) &
                     (df_samples["job_p"] == job_p)].copy()
@@ -68,14 +76,23 @@ def plot_ar_hist_by_training_method_with_points(
         raise ValueError("No rows found for that (instance_name, job_p).")
 
     # ---------- Top 1% probability mass per method ----------
-    df_top = (
-        df.sort_values(["training_method", "approximation_ratio"], ascending=[True, False])
-          .groupby("training_method", group_keys=False)
-          .apply(lambda g: g.head(1) if g["prob"].iloc[0] > 0.01
-                 else g[g["prob"].cumsum() <= 0.01])
-    )
+    top_groups = []
+    ordered = df.sort_values(["training_method", "approximation_ratio"], ascending=[True, False])
+    for _, group in ordered.groupby("training_method", sort=False):
+        if group.empty:
+            continue
+        if float(group["prob"].iloc[0]) > 0.01:
+            selected = group.head(1).copy()
+        else:
+            selected = group[group["prob"].cumsum() <= 0.01].copy()
+            if selected.empty:
+                # Keep one representative row so the "Top 1%" panel never disappears.
+                selected = group.head(1).copy()
+        top_groups.append(selected)
+    df_top = pd.concat(top_groups, ignore_index=True) if top_groups else df.iloc[0:0].copy()
 
     def _plot_one(dfin, title_suffix):
+        dfin = _ensure_training_method_column(dfin)
         methods = sorted(dfin["training_method"].unique())
         x_pos = np.arange(len(methods))
         x_map = {m: x_pos[i] for i, m in enumerate(methods)}
@@ -273,6 +290,8 @@ def make_asof_per_file(inner: pd.DataFrame) -> Callable[[pd.DataFrame], pd.DataF
         fn = g.name
         rhs = inner[inner["file_name"].eq(fn)].sort_values("depth_step")
         g2 = g.dropna(subset=["job_p"]).sort_values("job_p")
+        g2 = g2.copy()
+        g2["file_name"] = fn
         if rhs.empty:
             g2["inner_duration_sum"] = 0.0
             return g2
@@ -283,6 +302,7 @@ def make_asof_per_file(inner: pd.DataFrame) -> Callable[[pd.DataFrame], pd.DataF
             right_on="depth_step",
             direction="backward",
         )
+        out["file_name"] = fn
         out["inner_duration_sum"] = out["inner_cum"].fillna(0.0)
         return out.drop(columns=["depth_step", "inner_cum"], errors="ignore")
 
@@ -309,9 +329,20 @@ _METHOD_NAMES = {
     "I": "INTERP",
     "LR": "linear ramp",
     "PT": "parameter transfer",
+    "RTS": "recursive transition states",
     "TQA": "TQA",
 }
 _REOPT_METHODS = {"FA", "TQA"}
+_PURE_FIXED_ANGLE_COLOR = "#6a3d9a"
+
+
+def _is_pure_fixed_angle_label(color_label: str) -> bool:
+    """Return True for fixed-angle methods without the reoptimization suffix."""
+    parts = color_label.split("_")
+    if not parts or parts[0] != "FA":
+        return False
+    has_reopt_suffix = "angleOpt" in parts or ("opt" in parts and "no" not in parts)
+    return not has_reopt_suffix
 
 
 def _hw_style_ind(color_label: str) -> int | None:
@@ -329,11 +360,73 @@ def _compact_method_label(label: str) -> str:
     parts = label.split("_")
     method_key = parts[0] if parts else label
     evaluator = parts[1] if len(parts) > 1 else ""
-    has_opt = "opt" in parts
     method_str = _METHOD_NAMES.get(method_key, method_key)
-    if has_opt and method_key in _REOPT_METHODS:
-        method_str = "reoptimized " + method_str
+    has_no_opt = "no" in parts and "opt" in parts
+    has_angle_opt = any(token in {"angleOpt", "*"} for token in parts)
+    has_param_opt = ("opt" in parts) and not has_no_opt and not has_angle_opt
+
+    if has_angle_opt:
+        method_str = rf"{method_str}$^{{*}}$"
+    elif has_param_opt:
+        method_str = rf"{method_str}$^{{\dagger}}$"
+
     return f"{method_str} with {evaluator}" if evaluator else method_str
+
+
+def _optimization_level(label: str) -> int:
+    """Return 0=no opt, 1=method-parameter opt, 2=angle opt."""
+    parts = str(label).split("_")
+    has_no_opt = "no" in parts and "opt" in parts
+    has_angle_opt = any(token in {"angleOpt", "*"} for token in parts)
+    has_param_opt = ("opt" in parts) and not has_no_opt and not has_angle_opt
+    if has_angle_opt:
+        return 2
+    if has_param_opt:
+        return 1
+    return 0
+
+
+def _optimization_size_maps(
+    raw_small: float = 8.0,
+    raw_medium: float = 10.0,
+    raw_large: float = 12.0,
+    centroid_small: float = 14.0,
+    centroid_medium: float = 18.0,
+    centroid_large: float = 22.0,
+) -> tuple[dict[int, float], dict[int, float]]:
+    """Return marker-size maps keyed by optimization level."""
+    raw_ms_map = {0: raw_small, 1: raw_medium, 2: raw_large}
+    centroid_ms_map = {0: centroid_small, 1: centroid_medium, 2: centroid_large}
+    return raw_ms_map, centroid_ms_map
+
+
+def _optimization_legend_handles(
+    marker: str = "o",
+    markerfacecolor: str = "white",
+    markeredgecolor: str = "k",
+) -> list[Line2D]:
+    """Build a compact legend key for optimization-state marker sizing."""
+    _, centroid_ms_map = _optimization_size_maps()
+    labels = {
+        0: "no optimization",
+        1: r"$^{\dagger}$ method-parameter optimization",
+        2: r"$^{*}$ QAOA angle optimization",
+    }
+    return [
+        Line2D(
+            [0],
+            [0],
+            marker=marker,
+            color="black",
+            markerfacecolor=markerfacecolor,
+            markeredgecolor=markeredgecolor,
+            markeredgewidth=1.2,
+            linestyle="",
+            markersize=centroid_ms_map[level],
+            label=labels[level],
+        )
+        for level in [0, 1, 2]
+    ]
 
 
 def _lighten_color(color, amount: float = 0.5):
@@ -436,9 +529,32 @@ def prepare_ibm_qaoa_plot_data(
         - ``graph_id`` : identifier used in saved figure filenames
     """
     df_plot = df_sb_final.copy()
+    n_rows_input = len(df_plot)
+    required_columns = ["total duration", "approximation_ratio", "job_p", "file_name"]
+    missing_columns = [col for col in required_columns if col not in df_plot.columns]
+    if missing_columns:
+        raise KeyError(
+            "df_sb_final is missing columns required for IBM QAOA plotting: "
+            f"{missing_columns}. Available columns: {list(df_plot.columns)}"
+        )
+
     df_plot["total_duration_s"] = pd.to_numeric(df_plot["total duration"], errors="coerce")
     df_plot["approximation_ratio"] = pd.to_numeric(df_plot["approximation_ratio"], errors="coerce")
     df_plot["job_p"] = pd.to_numeric(df_plot["job_p"], errors="coerce")
+
+    numeric_debug = {
+        "total_duration_non_null": int(df_sb_final["total duration"].notna().sum()),
+        "total_duration_numeric": int(df_plot["total_duration_s"].notna().sum()),
+        "total_duration_positive": int((df_plot["total_duration_s"] > 0).sum()),
+        "approximation_ratio_non_null": int(df_sb_final["approximation_ratio"].notna().sum()),
+        "approximation_ratio_numeric": int(df_plot["approximation_ratio"].notna().sum()),
+        "job_p_non_null": int(df_sb_final["job_p"].notna().sum()),
+        "job_p_numeric": int(df_plot["job_p"].notna().sum()),
+        "file_name_non_null": int(df_sb_final["file_name"].notna().sum()),
+    }
+    numeric_debug["sample_required_rows"] = (
+        df_sb_final.loc[:, required_columns].head(5).astype(str).to_dict("records")
+    )
 
     if "instance_name" not in df_plot.columns and "file_name" in df_plot.columns:
         df_plot = df_plot.merge(
@@ -451,9 +567,13 @@ def prepare_ibm_qaoa_plot_data(
         subset=["total_duration_s", "approximation_ratio", "job_p", "file_name"]
     )
     df_plot = df_plot[df_plot["total_duration_s"] > 0]
+    n_rows_after_numeric_filters = len(df_plot)
 
+    # Prefer the raw training method key when present so closely related
+    # variants such as LR_PP_opt and LR_PP_angleOpt do not collapse into the
+    # same display family before legend generation.
     df_plot["group_label"] = df_plot.get(
-        "trainer_label", df_plot.get("training_method", "method")
+        "training_method", df_plot.get("trainer_label", "method")
     ).astype(str)
     if "evaluator_label" in df_plot.columns and df_plot["evaluator_label"].nunique(dropna=True) > 1:
         df_plot["group_label"] = (
@@ -474,6 +594,7 @@ def prepare_ibm_qaoa_plot_data(
     df_points = df_points[
         ~df_points["color_label"].str.contains(r"_MPS(?!Aer)(?:_|$)", regex=True)
     ]
+    n_rows_after_label_filters = len(df_points)
 
     color_labels_all = sorted(df_points["color_label"].unique())
     color_map = {}
@@ -489,6 +610,8 @@ def prepare_ibm_qaoa_plot_data(
             color_map[label] = _HW_COLORS[fallback_idx % len(_HW_COLORS)]
             shape_map[label] = _HW_MARKERS[fallback_idx % len(_HW_MARKERS)]
             fallback_idx += 1
+        if _is_pure_fixed_angle_label(label):
+            color_map[label] = _PURE_FIXED_ANGLE_COLOR
 
     label_map = {label: _compact_method_label(label) for label in color_labels_all}
 
@@ -505,6 +628,15 @@ def prepare_ibm_qaoa_plot_data(
         "shape_map": shape_map,
         "label_map": label_map,
         "graph_id": graph_id,
+        "debug_summary": {
+            "input_rows": int(n_rows_input),
+            "rows_after_numeric_filters": int(n_rows_after_numeric_filters),
+            "rows_after_grouping_and_label_filters": int(n_rows_after_label_filters),
+            "n_panels": int(df_points["job_p"].nunique()) if not df_points.empty else 0,
+            "job_p_values": sorted(df_points["job_p"].dropna().unique().tolist()) if not df_points.empty else [],
+            "color_labels": color_labels_all,
+            "numeric_debug": numeric_debug,
+        },
     }
 
 
@@ -523,14 +655,12 @@ def plot_ibm_qaoa_performance_panels(
         written to disk.
     """
     fs_tick = 18
-    fs_label = 26
+    fs_label = 20
     fs_title = 28
     fs_legend = 18
-    centroid_ms = 22
-    scatter_ms = 8
-    y_max = 1.00
-    y_major = 0.10
-    y_cushion = 0.03
+    raw_ms_map, centroid_ms_map = _optimization_size_maps()
+    y_scale = 100.0
+    y_cushion = 3.0
     eb_opts = {"mec": "k", "ecolor": "k", "capsize": 3, "elinewidth": 1.2}
 
     _ensure_save_dir(save_dir)
@@ -540,16 +670,46 @@ def plot_ibm_qaoa_performance_panels(
     shape_map = plot_data["shape_map"]
     label_map = plot_data["label_map"]
     graph_id = plot_data["graph_id"]
+    debug_summary = plot_data.get("debug_summary", {})
+
+    if df_points.empty:
+        raise ValueError(
+            "No valid IBM QAOA plot points remain after preprocessing. "
+            f"Debug summary: {debug_summary}. "
+            "Check that df_SB_final contains non-null 'total duration', "
+            "'approximation_ratio', 'job_p', and 'file_name' values, and that "
+            "the label filtering did not remove every method."
+        )
 
     p_vals = sorted(df_points["job_p"].unique())
     n_panels = len(p_vals)
+    if n_panels <= 0:
+        raise ValueError(
+            "No QAOA depth panels are available to plot. "
+            f"Debug summary: {debug_summary}."
+        )
 
     x_all_global = df_points["total_duration_s"].dropna()
     x_lo_global = max(x_all_global.min() / 3, 0.1)
     x_hi_global = x_all_global.max() * 3
 
-    y_all_global = df_points["approximation_ratio"].dropna()
+    y_all_global = y_scale * df_points["approximation_ratio"].dropna()
     y_lo_global = max(0.0, float(y_all_global.min()) - y_cushion)
+    y_hi_global = min(100.0, float(y_all_global.max()) + y_cushion)
+
+    if y_hi_global - y_lo_global < 6.0:
+        y_mid_global = 0.5 * (y_lo_global + y_hi_global)
+        half_span = 3.0
+        y_lo_global = max(0.0, y_mid_global - half_span)
+        y_hi_global = min(100.0, y_mid_global + half_span)
+
+    y_span_global = y_hi_global - y_lo_global
+    if y_span_global <= 10.0:
+        y_major = 1.0
+    elif y_span_global <= 20.0:
+        y_major = 2.0
+    else:
+        y_major = 5.0
 
     fig, axs = plt.subplots(1, n_panels, figsize=(9 * n_panels, 6), sharey=True)
     if n_panels == 1:
@@ -562,9 +722,10 @@ def plot_ibm_qaoa_performance_panels(
 
         for (_, color_label), group in d.groupby(["group_label", "color_label"]):
             x = group["total_duration_s"]
-            y = group["approximation_ratio"]
+            y = y_scale * group["approximation_ratio"]
             color = color_map[color_label]
             marker = shape_map[color_label]
+            opt_level = _optimization_level(color_label)
 
             ax.errorbar(
                 x,
@@ -573,7 +734,7 @@ def plot_ibm_qaoa_performance_panels(
                 linestyle="none",
                 color=color,
                 alpha=0.35,
-                ms=scatter_ms,
+                ms=raw_ms_map[opt_level],
                 **eb_opts,
             )
 
@@ -590,7 +751,7 @@ def plot_ibm_qaoa_performance_panels(
                 xerr=x_err,
                 yerr=y_err,
                 fmt=marker,
-                ms=centroid_ms,
+                ms=centroid_ms_map[opt_level],
                 linestyle="none",
                 color=color,
                 zorder=10,
@@ -606,7 +767,7 @@ def plot_ibm_qaoa_performance_panels(
                     color=color,
                     markeredgecolor="k",
                     lw=0,
-                    markersize=10,
+                    markersize=centroid_ms_map[opt_level],
                     label=expanded,
                 )
 
@@ -626,14 +787,17 @@ def plot_ibm_qaoa_performance_panels(
         ax.tick_params(axis="both", labelsize=fs_tick, labelleft=True)
         ax.set_xscale("log")
         ax.set_xlim(x_lo_global, x_hi_global)
-        ax.set_ylim(y_lo_global, y_max)
+        ax.set_ylim(y_lo_global, y_hi_global)
         ax.yaxis.set_major_locator(MultipleLocator(y_major))
         ax.grid(True)
 
-    axs[0].set_ylabel("Approximation ratio", fontsize=fs_label)
+    axs[0].set_ylabel("Hardware approximation ratio (%)", fontsize=fs_label)
 
     sorted_items = sorted(legend_dict.items(), key=lambda x: x[0])
     all_legend_handles = [handle for _, handle in sorted_items]
+    all_legend_handles.extend(
+        _optimization_legend_handles(marker="o", markerfacecolor="white", markeredgecolor="k")
+    )
 
     fig.legend(
         handles=all_legend_handles,
@@ -645,7 +809,7 @@ def plot_ibm_qaoa_performance_panels(
         fontsize=fs_legend,
     )
 
-    fig.tight_layout(rect=[0, 0.05, 1, 1])
+    fig.tight_layout(rect=[0.035, 0.05, 1, 1])
 
     if save_dir:
         fname = f"{graph_id}_performance"
@@ -676,9 +840,17 @@ def plot_ibm_qaoa_overlay(
         If fewer than two QAOA depth levels are present.
     """
     fs_tick = 18
-    fs_label = 26
+    fs_label = 20
     fs_legend = 15
-    scatter_ms = 8
+    raw_ms_map, centroid_ms_map = _optimization_size_maps(
+        raw_small=8.0,
+        raw_medium=10.0,
+        raw_large=12.0,
+        centroid_small=14.0,
+        centroid_medium=18.0,
+        centroid_large=22.0,
+    )
+    y_scale = 100.0
 
     _ensure_save_dir(save_dir)
 
@@ -707,6 +879,8 @@ def plot_ibm_qaoa_overlay(
             ar_sem=("approximation_ratio", sem),
         )
     )
+    centroids["ar_mean"] *= y_scale
+    centroids["ar_sem"] *= y_scale
 
     valid_methods = []
     for color_label, group in centroids.groupby("color_label"):
@@ -718,21 +892,22 @@ def plot_ibm_qaoa_overlay(
     x_vals = overlay["total_duration_s"].dropna()
     x_lo = max(x_vals.min() / 3, 0.1)
     x_hi = x_vals.max() * 3
-    y_lo = max(0.0, float(overlay["approximation_ratio"].min()) - 0.03)
+    y_lo = max(0.0, float(y_scale * overlay["approximation_ratio"].min()) - 3.0)
 
     fig, ax = plt.subplots(figsize=(18, 6))
 
     for color_label, group in inst_high_p.groupby("color_label"):
         if color_label not in valid_methods:
             continue
+        opt_level = _optimization_level(color_label)
         ax.errorbar(
             group["total_duration_s"],
-            group["approximation_ratio"],
+            y_scale * group["approximation_ratio"],
             fmt=shape_map[color_label],
             linestyle="none",
             color=color_map[color_label],
             alpha=0.28,
-            ms=scatter_ms,
+            ms=raw_ms_map[opt_level],
             mec="k",
             ecolor="k",
             capsize=2,
@@ -747,6 +922,7 @@ def plot_ibm_qaoa_overlay(
         )
         color = color_map[color_label]
         marker = shape_map[color_label]
+        opt_level = _optimization_level(color_label)
 
         for _, row in group.iterrows():
             p = int(row["job_p"])
@@ -757,7 +933,7 @@ def plot_ibm_qaoa_overlay(
                     xerr=row["dur_sem"],
                     yerr=row["ar_sem"],
                     fmt=marker,
-                    ms=18,
+                    ms=centroid_ms_map[opt_level],
                     linestyle="none",
                     color=color,
                     alpha=1.0,
@@ -772,7 +948,7 @@ def plot_ibm_qaoa_overlay(
                     row["dur_mean"],
                     row["ar_mean"],
                     marker=marker,
-                    ms=9,
+                    ms=raw_ms_map[opt_level],
                     linestyle="none",
                     mfc=color,
                     mec="k",
@@ -803,11 +979,11 @@ def plot_ibm_qaoa_overlay(
 
     ax.set_xscale("log")
     ax.set_xlim(x_lo, x_hi)
-    ax.set_ylim(y_lo, 1.00)
-    ax.yaxis.set_major_locator(MultipleLocator(0.10))
+    ax.set_ylim(y_lo, 100.0)
+    ax.yaxis.set_major_locator(MultipleLocator(10.0))
     ax.grid(True)
     ax.set_xlabel("Total duration (s)", fontsize=fs_label)
-    ax.set_ylabel("Approximation ratio", fontsize=fs_label)
+    ax.set_ylabel("Hardware approximation ratio (%)", fontsize=fs_label)
     ax.tick_params(axis="both", labelsize=fs_tick)
 
     method_handles = [
@@ -818,7 +994,7 @@ def plot_ibm_qaoa_overlay(
             color=color_map[color_label],
             markeredgecolor="k",
             lw=0,
-            markersize=10,
+            markersize=centroid_ms_map[_optimization_level(color_label)],
             label=label_map[color_label],
         )
         for color_label in sorted(valid_methods)
@@ -858,9 +1034,14 @@ def plot_ibm_qaoa_overlay(
             label=f"p={int(p_max)} instances",
         ),
     ]
+    opt_handles = _optimization_legend_handles(
+        marker="o",
+        markerfacecolor="white",
+        markeredgecolor="k",
+    )
 
     ax.legend(
-        handles=method_handles + depth_handles + cue_handles,
+        handles=method_handles + depth_handles + cue_handles + opt_handles,
         loc="upper center",
         bbox_to_anchor=(0.5, -0.22),
         ncol=4,
@@ -972,8 +1153,9 @@ def plot_ibm_qaoa_training_bricks(
         written to disk.
     """
     fs_tick = 20
-    fs_label = 26
+    fs_label = 20
     fs_legend = 18
+    y_scale = 100.0
     edge_lw = 0.9
 
     _ensure_save_dir(save_dir)
@@ -982,13 +1164,63 @@ def plot_ibm_qaoa_training_bricks(
     depths = sorted(agg["job_p"].dropna().unique())
     x = np.arange(len(depths))
 
-    idx_p5 = depths.index(5) if 5 in depths else None
-    p5_left = (idx_p5 - 0.5) if idx_p5 is not None else None
-    p5_right = (idx_p5 + 0.5) if idx_p5 is not None else None
+    shaded_depth = min(depths) if len(depths) == 2 else None
+    shaded_idx = depths.index(shaded_depth) if shaded_depth is not None else None
+    shaded_left = (shaded_idx - 0.5) if shaded_idx is not None else None
+    shaded_right = (shaded_idx + 0.5) if shaded_idx is not None else None
 
-    main_ymax = 1500.0
+    upper_bounds = (
+        agg["brick_total"].to_numpy(dtype=float) + agg["sem_total"].fillna(0).to_numpy(dtype=float)
+    )
+    positive_bounds = np.sort(upper_bounds[np.isfinite(upper_bounds) & (upper_bounds > 0)])
+
+    if len(positive_bounds) == 0:
+        main_ymax = 1500.0
+    elif len(positive_bounds) == 1:
+        main_ymax = float(positive_bounds[0]) * 1.12
+    else:
+        min_side = 2 if len(positive_bounds) >= 6 else 1
+        split_idx = None
+        split_ratio = 1.0
+
+        for idx in range(len(positive_bounds) - 1):
+            left_size = idx + 1
+            right_size = len(positive_bounds) - left_size
+            if left_size < min_side or right_size < min_side:
+                continue
+
+            left = float(positive_bounds[idx])
+            right = float(positive_bounds[idx + 1])
+            if left <= 0:
+                continue
+
+            ratio = right / left
+            if ratio > split_ratio:
+                split_ratio = ratio
+                split_idx = idx
+
+        if split_idx is not None and split_ratio >= 2.0:
+            main_ymax = float(positive_bounds[split_idx]) * 1.12
+        else:
+            main_ymax = float(np.quantile(positive_bounds, 0.7)) * 1.12
+
+    max_total = float(positive_bounds[-1]) if len(positive_bounds) else main_ymax
+    if len(positive_bounds):
+        main_ymax = max(main_ymax, float(positive_bounds[0]) * 1.12, 1.0)
+    main_ymax = min(main_ymax, max_total * 0.9)
+
     overflow_methods = sorted(
-        [m for m in methods if any(agg[agg["method_base"] == m]["brick_total"].values > main_ymax)]
+        [
+            m
+            for m in methods
+            if any(
+                (
+                    agg[agg["method_base"] == m]["brick_total"].to_numpy(dtype=float)
+                    + agg[agg["method_base"] == m]["sem_total"].fillna(0).to_numpy(dtype=float)
+                )
+                > main_ymax
+            )
+        ]
     )
     inset_ymin = main_ymax
 
@@ -997,9 +1229,9 @@ def plot_ibm_qaoa_training_bricks(
         inset_top_needed = (
             agg_overflow["brick_total"] + agg_overflow["sem_total"].fillna(0)
         ).max()
-        inset_ymax = max(45000.0, float(inset_top_needed) * 1.08)
+        inset_ymax = max(float(inset_ymin) * 1.15, float(inset_top_needed) * 1.08)
     else:
-        inset_ymax = 45000.0
+        inset_ymax = max(float(inset_ymin) * 1.15, float(max_total) * 1.08)
 
     fig = plt.figure(figsize=(20, 7))
     gs = gridspec.GridSpec(1, 2, figure=fig, width_ratios=[2.5, 1.5], wspace=0.35)
@@ -1007,9 +1239,9 @@ def plot_ibm_qaoa_training_bricks(
     ax = fig.add_subplot(gs[0])
     inset_ax = fig.add_subplot(gs[1])
 
-    if idx_p5 is not None:
-        ax.axvspan(p5_left, p5_right, color="0.92", zorder=0)
-        inset_ax.axvspan(p5_left, p5_right, color="0.92", zorder=0)
+    if shaded_idx is not None:
+        ax.axvspan(shaded_left, shaded_right, color="0.92", zorder=0)
+        inset_ax.axvspan(shaded_left, shaded_right, color="0.92", zorder=0)
 
     _draw_training_bars(ax, agg, step_cols, methods, depths, color_map, edge_lw)
     ax.set_xticks(x)
@@ -1105,9 +1337,14 @@ def plot_ibm_qaoa_training_bricks(
         for i, method in enumerate(methods)
     ]
     legend_labels = [label_map.get(method, method) for method in methods]
+    note_handles = [
+        Line2D([0], [0], linestyle="", color="none", label="no superscript: no optimization"),
+        Line2D([0], [0], linestyle="", color="none", label=r"$^{\dagger}$ method-parameter optimization"),
+        Line2D([0], [0], linestyle="", color="none", label=r"$^{*}$ QAOA angle optimization"),
+    ]
     fig.legend(
-        handles,
-        legend_labels,
+        handles + note_handles,
+        legend_labels + [handle.get_label() for handle in note_handles],
         loc="upper center",
         bbox_to_anchor=(0.5, 0.00),
         ncol=4,
@@ -1205,38 +1442,65 @@ def plot_ibm_qaoa_recommendation(
         written to disk.
     """
     fs_tick = 18
-    fs_label = 26
-    fs_legend = 18
+    fs_label = 20
+    fs_legend = 16
+    y_scale = 100.0
+    raw_alpha = 0.18
+    raw_ms_map = {0: 8, 1: 10, 2: 12}
+    frontier_ms_map = {0: 14, 1: 18, 2: 22}
+    eb_opts = {"mec": "k", "ecolor": "k", "capsize": 3, "elinewidth": 1.2}
 
     _ensure_save_dir(save_dir)
 
     df_centroids, _ = build_recommendation_data(df_points)
-
-    p_levels = sorted(pd.to_numeric(df_centroids["job_p"], errors="coerce").dropna().astype(int).unique())
-    if len(p_levels) <= 1:
-        size_map = {int(p_levels[0]): 20} if len(p_levels) == 1 else {}
-    else:
-        sizes = np.linspace(16, 22, len(p_levels))
-        size_map = {int(p): int(round(s)) for p, s in zip(p_levels, sizes)}
-    scatter_size_map = {p: max(10, size_map[p] - 6) for p in size_map}
+    p_values = sorted(pd.to_numeric(df_points["job_p"], errors="coerce").dropna().astype(int).unique())
+    depth_palette = plt.get_cmap("tab10")
+    depth_color_map = {
+        int(p): depth_palette(idx % depth_palette.N)
+        for idx, p in enumerate(p_values)
+    }
 
     x_all = df_centroids["dur_mean"].dropna()
     x_left = max(x_all.min() / 3, 0.1)
-    x_right = 1e4
+    if not df_frontier.empty:
+        frontier_x = (
+            pd.to_numeric(df_frontier["dur_mean"], errors="coerce")
+            .dropna()
+            .to_numpy(dtype=float)
+        )
+        x_last = float(frontier_x[-1])
+        if len(frontier_x) >= 2:
+            tail_gap_decades = np.log10(max(frontier_x[-1], 1e-12)) - np.log10(
+                max(frontier_x[-2], 1e-12)
+            )
+        else:
+            tail_gap_decades = 0.18
+        tail_gap_decades = float(np.clip(tail_gap_decades, 0.12, 0.30))
+        x_right = 10 ** (np.log10(max(x_last, 1e-12)) + tail_gap_decades)
+    else:
+        x_right = float(x_all.max()) * 1.25 if not x_all.empty else 1e4
 
     fig, ax = plt.subplots(figsize=(18, 8))
+
+    def _deterministic_log_jitter(values: pd.Series, width: float = 0.06) -> np.ndarray:
+        arr = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
+        n = len(arr)
+        if n <= 1:
+            return arr
+        offsets = np.linspace(-width, width, n)
+        return arr * np.power(10.0, offsets)
 
     if not df_frontier.empty:
         for seg_idx in range(len(df_frontier)):
             row = df_frontier.iloc[seg_idx]
-            color_seg = color_map[row["color_label"]]
+            color_seg = depth_color_map[int(row["job_p"])]
             x_start = x_left if seg_idx == 0 else row["dur_mean"]
             x_end = (
                 df_frontier.iloc[seg_idx + 1]["dur_mean"]
                 if seg_idx < len(df_frontier) - 1
                 else x_right
             )
-            y_this = row["ar_mean"]
+            y_this = y_scale * row["ar_mean"]
 
             ax.plot(
                 [x_start, x_end],
@@ -1244,25 +1508,23 @@ def plot_ibm_qaoa_recommendation(
                 color=color_seg,
                 linewidth=3,
                 linestyle="--",
-                alpha=0.95,
+                alpha=0.85,
                 zorder=9,
             )
 
             if seg_idx > 0:
-                y_prev = df_frontier.iloc[seg_idx - 1]["ar_mean"]
+                y_prev = y_scale * df_frontier.iloc[seg_idx - 1]["ar_mean"]
                 ax.plot(
                     [row["dur_mean"], row["dur_mean"]],
                     [y_prev, y_this],
                     color=color_seg,
                     linewidth=3,
                     linestyle="--",
-                    alpha=0.95,
+                    alpha=0.85,
                     zorder=9,
                 )
 
     frontier_pairs = df_frontier[["color_label", "job_p"]].drop_duplicates()
-    frontier_clabs = sorted(frontier_pairs["color_label"].unique())
-    frontier_ps = sorted(int(p) for p in frontier_pairs["job_p"].dropna().unique())
 
     for _, pair in frontier_pairs.iterrows():
         color_label = pair["color_label"]
@@ -1272,96 +1534,213 @@ def plot_ibm_qaoa_recommendation(
         ]
         if inst_sub.empty:
             continue
+        opt_level = _optimization_level(color_label)
+        inst_sub = inst_sub.sort_values(
+            ["total_duration_s", "approximation_ratio", "instance_name"],
+            kind="mergesort",
+        ).reset_index(drop=True)
+        x_plot = _deterministic_log_jitter(inst_sub["total_duration_s"])
         ax.plot(
-            inst_sub["total_duration_s"],
-            inst_sub["approximation_ratio"],
+            x_plot,
+            y_scale * inst_sub["approximation_ratio"],
             linestyle="",
             marker=shape_map[color_label],
-            ms=scatter_size_map.get(p_val, 10),
-            mfc=color_map[color_label],
+            ms=raw_ms_map[opt_level],
+            mfc=depth_color_map[p_val],
             mec="k",
-            mew=1.1,
-            alpha=0.35,
+            mew=0.8,
+            alpha=raw_alpha,
             zorder=6,
+            rasterized=True,
         )
+
+    y_values = []
+    if not df_frontier.empty:
+        y_values.append(y_scale * df_frontier["ar_mean"].dropna().to_numpy(dtype=float))
+        if "ar_sem" in df_frontier.columns:
+            y_values.append(
+                y_scale
+                * (df_frontier["ar_mean"] + df_frontier["ar_sem"].fillna(0)).dropna().to_numpy(dtype=float)
+            )
+            y_values.append(
+                y_scale
+                * (df_frontier["ar_mean"] - df_frontier["ar_sem"].fillna(0)).dropna().to_numpy(dtype=float)
+            )
+
+    for _, pair in frontier_pairs.iterrows():
+        color_label = pair["color_label"]
+        p_val = int(pair["job_p"])
+        inst_sub = df_points[
+            (df_points["color_label"] == color_label) & (df_points["job_p"] == p_val)
+        ]
+        if not inst_sub.empty:
+            y_values.append(
+                y_scale * inst_sub["approximation_ratio"].dropna().to_numpy(dtype=float)
+            )
+
+    if y_values:
+        y_all = np.concatenate([vals for vals in y_values if len(vals) > 0])
+        y_min_data = float(np.min(y_all))
+        y_max_data = float(np.max(y_all))
+        y_span = y_max_data - y_min_data
+        y_pad = max(0.8, 0.12 * y_span)
+        y_lo = max(0.0, y_min_data - y_pad)
+        y_hi = min(100.0, y_max_data + y_pad)
+
+        if y_hi - y_lo < 4.0:
+            y_mid = 0.5 * (y_lo + y_hi)
+            half_span = 2.0
+            y_lo = max(0.0, y_mid - half_span)
+            y_hi = min(100.0, y_mid + half_span)
+    else:
+        y_lo = 50.0
+        y_hi = 100.0
 
     for _, row in df_frontier.iterrows():
         p = int(row["job_p"])
+        opt_level = _optimization_level(row["color_label"])
+        x_val = float(row["dur_mean"])
+        y_val = y_scale * float(row["ar_mean"])
+        xerr = None if pd.isna(row.get("dur_sem", np.nan)) else float(row["dur_sem"])
+        yerr = None if pd.isna(row.get("ar_sem", np.nan)) else y_scale * float(row["ar_sem"])
+        if xerr is not None or yerr is not None:
+            ax.errorbar(
+                x_val,
+                y_val,
+                xerr=xerr,
+                yerr=yerr,
+                fmt="none",
+                zorder=10,
+                **eb_opts,
+            )
         ax.plot(
-            row["dur_mean"],
-            row["ar_mean"],
+            x_val,
+            y_val,
             marker=shape_map[row["color_label"]],
-            ms=size_map.get(p, 20),
-            mfc=color_map[row["color_label"]],
+            ms=frontier_ms_map[opt_level],
+            mfc=depth_color_map[p],
             mec="k",
             mew=2.0,
             linestyle="",
             zorder=11,
         )
 
+    ax.set_ylim(y_lo, y_hi)
     ax.set_xlabel("Total duration (s)", fontsize=fs_label)
-    ax.set_ylabel("Approximation ratio", fontsize=fs_label)
+    ax.set_ylabel("Hardware approximation ratio (%)", fontsize=fs_label)
     ax.set_xscale("log")
     ax.set_xlim(x_left, x_right)
 
-    if not df_frontier.empty:
-        y_min_data = float(df_frontier["ar_mean"].min())
-        y_lo = max(0.50, y_min_data - 0.06)
-    else:
-        y_lo = 0.50
-    ax.set_ylim(y_lo, 1.00)
-
     ax.xaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0, 2.0, 5.0), numticks=100))
     ax.xaxis.set_major_formatter(LogFormatterMathtext(base=10.0, labelOnlyBase=False))
-    ax.yaxis.set_major_locator(MultipleLocator(0.02))
+    y_span = y_hi - y_lo
+    if y_span <= 8.0:
+        y_step = 1.0
+    elif y_span <= 18.0:
+        y_step = 2.0
+    else:
+        y_step = 5.0
+    ax.yaxis.set_major_locator(MultipleLocator(y_step))
     ax.minorticks_off()
     ax.tick_params(axis="both", which="major", labelsize=fs_tick, length=6)
     ax.grid(True)
 
-    legend_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker=shape_map[color_label],
-            color=color_map[color_label],
-            markeredgecolor="k",
-            markersize=10,
-            linestyle="",
-            label=label_map[color_label],
-        )
-        for color_label in frontier_clabs
-    ]
-
-    for p in frontier_ps:
-        legend_handles.append(
+    legend_pairs = (
+        df_frontier[["color_label"]]
+        .drop_duplicates()
+        .sort_values(["color_label"])
+    )
+    method_handles = []
+    for _, pair in legend_pairs.iterrows():
+        color_label = pair["color_label"]
+        opt_level = _optimization_level(color_label)
+        method_handles.append(
             Line2D(
                 [0],
                 [0],
-                marker="o",
-                color="gray",
+                marker=shape_map[color_label],
+                color="black",
+                markerfacecolor="white",
                 markeredgecolor="k",
-                markersize=size_map.get(p, 16),
+                markeredgewidth=1.5,
+                markersize=frontier_ms_map[opt_level],
                 linestyle="",
-                label=f"p={p}",
+                label=label_map[color_label],
             )
         )
 
-    legend_handles.append(
-        Line2D([0], [0], color="black", linewidth=2.5, linestyle="--", label="Pareto Frontier")
+    depth_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color=depth_color_map[p],
+            markerfacecolor=depth_color_map[p],
+            markeredgecolor="k",
+            markeredgewidth=1.0,
+            markersize=10,
+            linestyle="",
+            label=f"p={p}",
+        )
+        for p in p_values
+    ]
+
+    frontier_handle = Line2D(
+        [0],
+        [0],
+        color="black",
+        linewidth=2.5,
+        linestyle="--",
+        label="Pareto Frontier",
+    )
+    no_opt_note = Line2D(
+        [0],
+        [0],
+        linestyle="",
+        color="none",
+        label="no superscript: no optimization",
+    )
+    dagger_note = Line2D(
+        [0],
+        [0],
+        linestyle="",
+        color="none",
+        label=r"$^{\dagger}$ method-parameter optimization",
+    )
+    star_note = Line2D(
+        [0],
+        [0],
+        linestyle="",
+        color="none",
+        label=r"$^{*}$ QAOA angle optimization",
     )
 
-    ax.legend(
-        handles=legend_handles,
+    method_legend = fig.legend(
+        handles=method_handles,
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.18),
-        ncol=5,
+        bbox_to_anchor=(0.24, 0.01),
+        ncol=min(3, max(1, len(method_handles))),
         borderaxespad=0,
         fontsize=fs_legend,
         frameon=True,
+        title="Method",
     )
+    depth_legend = fig.legend(
+        handles=depth_handles + [frontier_handle, no_opt_note, dagger_note, star_note],
+        loc="upper center",
+        bbox_to_anchor=(0.78, 0.01),
+        ncol=min(3, max(2, len(depth_handles) + 4)),
+        borderaxespad=0,
+        fontsize=fs_legend,
+        frameon=True,
+        title="Depth / Frontier",
+        handlelength=2.0,
+    )
+    fig.add_artist(method_legend)
+    fig.add_artist(depth_legend)
 
     fig.tight_layout()
-    fig.subplots_adjust(bottom=0.27)
+    fig.subplots_adjust(left=0.08, bottom=0.24)
 
     if save_dir:
         fname = f"{graph_id}_recommendation"
@@ -1401,4 +1780,17 @@ def print_budget_recommendations(df_frontier: pd.DataFrame) -> None:
             f"{int(row['job_p']):<5} {row['ar_mean']:.4f}"
         )
 
+    print("=" * 80)
+    print()
+    print("FRONTIER POINTS")
+    print("=" * 80)
+    print(f"{'Method':<35} {'p':<5} {'Duration (s)':<15} {'Approx Ratio':<15}")
+    print("-" * 80)
+    for _, row in df_frontier.iterrows():
+        print(
+            f"{row['group_label']:<35} "
+            f"{int(row['job_p']):<5} "
+            f"{float(row['dur_mean']):<15.2f} "
+            f"{float(row['ar_mean']):<15.4f}"
+        )
     print("=" * 80)

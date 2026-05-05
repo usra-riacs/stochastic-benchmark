@@ -1,5 +1,7 @@
 from pathlib import Path
 import json
+import numpy as np
+from collections import Counter
 
 def get_minmax(minmax_path: str, graph_type: str, instance: str, num_nodes: str, 
                 ER_probability: str = None, swap_layers: str = None, degree: str = None):
@@ -109,3 +111,140 @@ def maxcut_approximation_ratio(
     cut_val = energy + 0.5 * sum_weights
 
     return (cut_val - min_cut) / (max_cut - min_cut)
+
+
+def load_maxcut_instance_context(graph_file: str | Path) -> dict[str, np.ndarray | float]:
+    """Load the graph data needed to evaluate MaxCut bitstrings.
+
+    Parameters
+    ----------
+    graph_file : str or pathlib.Path
+        Path to the problem-instance JSON file.
+
+    Returns
+    -------
+    dict
+        Preprocessed edge endpoints, weights, and total edge-weight sum.
+    """
+    graph_path = Path(graph_file)
+
+    with graph_path.open("r") as f:
+        inst_json = json.load(f)
+
+    edges = inst_json["edge list"]
+    u = np.array([e["nodes"][0] for e in edges], dtype=int)
+    v = np.array([e["nodes"][1] for e in edges], dtype=int)
+    w = np.array([e["weight"] for e in edges], dtype=float)
+
+    return {
+        "u": u,
+        "v": v,
+        "w": w,
+        "sum_weights": float(w.sum()),
+    }
+
+
+def maxcut_energy_from_bitstring(
+    bitstring: str, instance_context: dict[str, np.ndarray | float]
+) -> float:
+    """Evaluate one measured bitstring in the MaxCut energy convention.
+
+    Parameters
+    ----------
+    bitstring : str
+        Measured bitstring from the hardware counts.
+    instance_context : dict
+        Graph data returned by :func:`load_maxcut_instance_context`.
+
+    Returns
+    -------
+    float
+        Energy corresponding to the measured bitstring.
+    """
+    bs = bitstring[::-1]
+    bits = np.fromiter((c == "1" for c in bs), dtype=np.int8)
+
+    u = instance_context["u"]
+    v = instance_context["v"]
+    w = instance_context["w"]
+    sum_weights = instance_context["sum_weights"]
+
+    cut_val = float(np.sum(w * (bits[u] != bits[v])))
+    return cut_val - 0.5 * sum_weights
+
+
+def counts_from_bitstring_samples(bitstrings: list[str]) -> dict[str, int]:
+    """Aggregate a sample stream into a counts dictionary."""
+
+    return {str(bitstring): int(count) for bitstring, count in Counter(bitstrings).items()}
+
+
+def best_prefix_metrics(
+    bitstrings: list[str],
+    checkpoints: list[int],
+    instance_context: dict[str, np.ndarray | float],
+    min_cut: float,
+    max_cut: float,
+    sum_weights: float,
+) -> list[dict[str, float | int | dict[str, int] | str]]:
+    """Summarize best-so-far MaxCut metrics for cumulative sample checkpoints.
+
+    Parameters
+    ----------
+    bitstrings : list[str]
+        Ordered sample stream.
+    checkpoints : list[int]
+        Prefix lengths to evaluate. Values are clipped to the available stream length.
+    instance_context : dict
+        Graph data returned by :func:`load_maxcut_instance_context`.
+    min_cut, max_cut, sum_weights : float
+        Instance min/max-cut metadata.
+
+    Returns
+    -------
+    list[dict]
+        One dictionary per checkpoint containing counts and best-so-far metrics.
+    """
+
+    if not bitstrings:
+        return []
+
+    rows: list[dict[str, float | int | dict[str, int] | str]] = []
+    running_counts: Counter[str] = Counter()
+    best_energy = float("-inf")
+    best_cut_value = float("-inf")
+    best_ratio = float("-inf")
+    best_bitstring = ""
+    checkpoint_iter = iter(sorted({min(len(bitstrings), int(val)) for val in checkpoints if int(val) > 0}))
+    next_checkpoint = next(checkpoint_iter, None)
+
+    for shot_idx, bitstring in enumerate(bitstrings, start=1):
+        running_counts[str(bitstring)] += 1
+        energy = maxcut_energy_from_bitstring(bitstring, instance_context)
+        cut_value = energy + 0.5 * sum_weights
+        approx_ratio = maxcut_approximation_ratio(min_cut, max_cut, sum_weights, energy)
+
+        if approx_ratio > best_ratio:
+            best_ratio = float(approx_ratio)
+            best_cut_value = float(cut_value)
+            best_energy = float(energy)
+            best_bitstring = str(bitstring)
+
+        if next_checkpoint is None or shot_idx != next_checkpoint:
+            continue
+
+        rows.append(
+            {
+                "Q": int(shot_idx),
+                "counts": {str(bitstring): int(count) for bitstring, count in running_counts.items()},
+                "best_bitstring": best_bitstring,
+                "best_energy": best_energy,
+                "best_cut_value": best_cut_value,
+                "best_approx_ratio": best_ratio,
+            }
+        )
+        next_checkpoint = next(checkpoint_iter, None)
+        if next_checkpoint is None:
+            break
+
+    return rows

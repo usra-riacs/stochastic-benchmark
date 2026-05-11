@@ -1,6 +1,6 @@
 # IBM_QAOA `src`
 
-This folder contains lightweight utilities used by the IBM QAOA example notebooks (in particular, `notebooks/Analysis.ipynb`).
+This folder contains utilities used by the IBM QAOA example notebooks and campaign scripts, including the hardware-analysis notebook and the simulation-validation/Window Sticker workflow.
 
 ## Files
 
@@ -18,6 +18,20 @@ This folder contains lightweight utilities used by the IBM QAOA example notebook
 - `utils.py`
   - General helper utilities used by the notebooks:
     - DataFrame helpers (e.g., expanding IBM counts into sample rows)
-    - Plotting helpers used in the analysis notebook
+    - Plotting helpers used in the analysis and simulation-validation notebooks
     - Small statistical/label helpers used by plots (e.g., `sem`, `title_from_instance_names`)
     - Factory helper `make_asof_per_file` to build the groupby-apply function used when merging cumulative training duration.
+    - Window Sticker notebook helpers for shared approximation-ratio axes, monotone curves, multi-strategy summaries, and plot saving.
+
+- `simulation_validation.py`
+  - Campaign and analysis utilities for simulation-method validation and Window Sticker experiments.
+  - Builds generated train/test instance sets, exact FA/PT PSS points, budget frontiers, stochastic-benchmark campaign tables, and Window Sticker summaries.
+  - Uses a shared generated-instance cache by default at `examples/IBM_QAOA/data/generated_instances`.
+  - The cache key is derived from graph type, node count, graph parameters, starting train index, and train count, so repeated campaigns can reuse the same graph JSON and min/max cut files.
+
+## Campaign scripts
+
+- `../run_prepare_pss_campaign.py`
+  - Script equivalent of the setup/precompute path for `Simulation_Method_Validation_and_WS.ipynb`.
+  - Accepts `--instance-cache-root` to override the shared generated-instance cache.
+  - Continues to write campaign-specific summaries and frontier outputs under `../results/pss_window_sticker/<result_tag>`.

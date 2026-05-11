@@ -1,6 +1,7 @@
 import re
 import math
 import os
+from pathlib import Path
 from typing import Callable
 import pandas as pd
 import numpy as np
@@ -8,7 +9,14 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.lines import Line2D
 import matplotlib.colors as mcolors
-from matplotlib.ticker import FuncFormatter, LogFormatterMathtext, LogLocator, MultipleLocator
+from matplotlib.ticker import (
+    FixedLocator,
+    FormatStrFormatter,
+    FuncFormatter,
+    LogFormatterMathtext,
+    LogLocator,
+    MultipleLocator,
+)
 
 
 def is_empty_nested_list(x):
@@ -1794,3 +1802,299 @@ def print_budget_recommendations(df_frontier: pd.DataFrame) -> None:
             f"{float(row['ar_mean']):<15.4f}"
         )
     print("=" * 80)
+
+
+def save_current_plot(name: str, plot_dir: str | Path, figure=None) -> None:
+    """Save the current matplotlib figure as PDF and PNG."""
+    plot_dir = Path(plot_dir)
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    fig = figure if figure is not None else plt.gcf()
+    for ext, kwargs in {"pdf": {}, "png": {"dpi": 300}}.items():
+        path = plot_dir / f"{name}.{ext}"
+        fig.savefig(path, bbox_inches="tight", **kwargs)
+    print(f"Saved: {plot_dir / name}.pdf and .png")
+
+
+def shared_approx_ylim(*series_list, pad_fraction: float = 0.08) -> tuple[float, float] | None:
+    """Return a shared approximation-ratio y-limit across several series."""
+    values: list[float] = []
+    for series in series_list:
+        if series is None:
+            continue
+        values.extend(pd.to_numeric(series, errors="coerce").dropna().tolist())
+    if not values:
+        return None
+    y_min = min(values)
+    y_max = max(values)
+    pad = 0.01 if y_min == y_max else max((y_max - y_min) * pad_fraction, 0.005)
+    return max(0.0, y_min - pad), min(1.0, y_max + pad)
+
+
+def shared_approx_yticks(ylim: tuple[float, float] | None, n_ticks: int = 6) -> list[float] | None:
+    """Return evenly spaced ticks for a shared approximation-ratio y-limit."""
+    if ylim is None:
+        return None
+    y_min, y_max = ylim
+    step = (y_max - y_min) / float(n_ticks - 1)
+    return [y_min + step * i for i in range(n_ticks)]
+
+
+def apply_shared_approx_axis(
+    ax=None,
+    *,
+    ylim: tuple[float, float] | None = None,
+    yticks: list[float] | None = None,
+) -> None:
+    """Apply shared approximation-ratio y-axis limits and formatting."""
+    if ylim is None:
+        return
+    axis = ax if ax is not None else plt.gca()
+    axis.set_ylim(*ylim)
+    if yticks is not None:
+        axis.yaxis.set_major_locator(FixedLocator(yticks))
+    axis.yaxis.set_major_formatter(FormatStrFormatter("%.3f"))
+
+
+def curve_label(df: pd.DataFrame, default: str) -> str:
+    """Build a compact method label from strategy, simulator, and depth columns."""
+    if df.empty:
+        return default
+    strategy = (
+        df["strategy"].dropna().astype(str).iloc[0]
+        if "strategy" in df and df["strategy"].notna().any()
+        else default
+    )
+    simulator = (
+        df["simulation_method"].dropna().astype(str).iloc[0]
+        if "simulation_method" in df and df["simulation_method"].notna().any()
+        else None
+    )
+    p_val = float(df["p"].dropna().iloc[0]) if "p" in df and df["p"].notna().any() else None
+    parts = []
+    if simulator is not None:
+        parts.append(simulator)
+    if p_val is not None:
+        parts.append(f"p={p_val:g}")
+    return f"{strategy} ({', '.join(parts)})" if parts else strategy
+
+
+def prepare_monotone_curve(
+    df: pd.DataFrame,
+    resource_col: str = "resource",
+    response_col: str = "response",
+) -> pd.DataFrame:
+    """Average duplicate resources and add a monotone best-so-far response."""
+    keep_cols = [
+        col
+        for col in [resource_col, response_col, "response_lower", "response_upper"]
+        if col in df.columns
+    ]
+    curve = (
+        df.loc[:, keep_cols]
+        .dropna(subset=[resource_col, response_col])
+        .sort_values(resource_col)
+        .groupby(resource_col, as_index=False)
+        .mean(numeric_only=True)
+    )
+    curve["response_monotone"] = curve[response_col].cummax()
+    return curve
+
+
+def resolve_result_root(tag_or_path: str | Path, results_base: str | Path) -> Path:
+    """Resolve either an absolute result path or a tag under a results base."""
+    path = Path(tag_or_path)
+    if not path.is_absolute():
+        path = Path(results_base) / path
+    return path.resolve()
+
+
+def read_summary_csv(root: str | Path, name: str) -> pd.DataFrame:
+    """Read a result summary CSV when present, otherwise return an empty frame."""
+    path = Path(root) / name
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(path)
+
+
+def attach_result_metadata(
+    df: pd.DataFrame,
+    result_tag: str,
+    root: str | Path,
+    label: str,
+) -> pd.DataFrame:
+    """Attach result metadata columns used by multi-strategy notebook plots."""
+    if df.empty:
+        return df
+    out = df.copy()
+    out["result_tag"] = result_tag
+    out["result_root"] = str(root)
+    out["method_label"] = label
+    return out
+
+
+def load_multi_strategy_summaries(
+    result_tags: list[str | Path],
+    results_base: str | Path,
+) -> list[dict[str, object]]:
+    """Load the summary CSV bundle for several PSS campaign result roots."""
+    rows: list[dict[str, object]] = []
+    missing = []
+    for tag in result_tags:
+        root = resolve_result_root(tag, results_base)
+        if not root.exists():
+            missing.append((tag, root, "root"))
+            continue
+
+        strategy_budget = read_summary_csv(root, "strategy_budget_summary_train.csv")
+        actionable_lookup = read_summary_csv(root, "actionable_pss_lookup_train.csv")
+        actionable_fit = read_summary_csv(root, "actionable_pss_fit_train.csv")
+        window_sticker = read_summary_csv(root, "window_sticker_summary.csv")
+        projection = read_summary_csv(root, "projection_summary.csv")
+        virtual_best = read_summary_csv(root, "virtual_best_summary.csv")
+
+        label_source = strategy_budget
+        for candidate in [
+            label_source,
+            window_sticker,
+            projection,
+            actionable_lookup,
+            actionable_fit,
+            virtual_best,
+        ]:
+            if not candidate.empty:
+                label_source = candidate
+                break
+        label = curve_label(label_source, Path(tag).name)
+        result_tag = Path(tag).name
+
+        rows.append(
+            {
+                "result_tag": result_tag,
+                "root": root,
+                "method_label": label,
+                "strategy_budget": attach_result_metadata(strategy_budget, result_tag, root, label),
+                "actionable_lookup": attach_result_metadata(actionable_lookup, result_tag, root, label),
+                "actionable_fit": attach_result_metadata(actionable_fit, result_tag, root, label),
+                "window_sticker": attach_result_metadata(window_sticker, result_tag, root, label),
+                "projection": attach_result_metadata(projection, result_tag, root, label),
+                "virtual_best": attach_result_metadata(virtual_best, result_tag, root, label),
+            }
+        )
+    if missing:
+        print("Missing result roots:")
+        for tag, root, _ in missing:
+            print(f"  {tag}: {root}")
+    return rows
+
+
+def concat_summary(strategy_summaries: list[dict[str, object]], key: str) -> pd.DataFrame:
+    """Concatenate a named summary table across loaded strategy roots."""
+    frames = [item[key] for item in strategy_summaries if not item[key].empty]
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
+def curve_from_training_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """Build a monotone curve from per-budget training summary rows."""
+    required = {"method_label", "T", "response_mean"}
+    if df.empty or not required.issubset(df.columns):
+        return pd.DataFrame(columns=["method_label", "T", "response"])
+    curve = (
+        df.loc[:, ["method_label", "T", "response_mean"]]
+        .dropna(subset=["T", "response_mean"])
+        .sort_values(["method_label", "T"])
+        .groupby(["method_label", "T"], as_index=False)
+        .first()
+        .rename(columns={"response_mean": "response"})
+    )
+    curve["response_monotone"] = curve.groupby("method_label")["response"].cummax()
+    return curve
+
+
+def curve_from_window_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """Build a monotone curve from Window Sticker projection rows."""
+    required = {"method_label", "resource", "response"}
+    if df.empty or not required.issubset(df.columns):
+        return pd.DataFrame(columns=["method_label", "resource", "response"])
+    curve = (
+        df.loc[:, ["method_label", "resource", "response"]]
+        .dropna(subset=["resource", "response"])
+        .sort_values(["method_label", "resource"])
+        .groupby(["method_label", "resource"], as_index=False)
+        .first()
+    )
+    curve["response_monotone"] = curve.groupby("method_label")["response"].cummax()
+    return curve
+
+
+def cross_strategy_envelope(
+    curve_df: pd.DataFrame,
+    resource_col: str,
+    response_col: str = "response_monotone",
+) -> pd.DataFrame:
+    """Build the best-so-far envelope across method labels."""
+    if curve_df.empty:
+        return pd.DataFrame(columns=[resource_col, response_col, "method_label"])
+    rows = []
+    labels = sorted(curve_df["method_label"].dropna().unique())
+    resources = sorted(pd.to_numeric(curve_df[resource_col], errors="coerce").dropna().unique())
+    best_response = -np.inf
+    best_label = None
+    for resource in resources:
+        candidates = []
+        for label in labels:
+            group = curve_df[curve_df["method_label"].eq(label)]
+            eligible = group[pd.to_numeric(group[resource_col], errors="coerce") <= resource]
+            if eligible.empty:
+                continue
+            row = eligible.sort_values(resource_col).iloc[-1]
+            candidates.append((float(row[response_col]), label))
+        if not candidates:
+            continue
+        response, label = max(candidates, key=lambda item: item[0])
+        if response >= best_response:
+            best_response = response
+            best_label = label
+        rows.append({resource_col: resource, response_col: best_response, "method_label": best_label})
+    return pd.DataFrame(rows)
+
+
+def plot_method_curves(
+    curve_df: pd.DataFrame,
+    envelope_df: pd.DataFrame,
+    resource_col: str,
+    ylabel: str,
+    title: str,
+    filename: str,
+    *,
+    plot_dir: str | Path,
+    approx_ylim: tuple[float, float] | None = None,
+    approx_yticks: list[float] | None = None,
+) -> None:
+    """Plot per-method curves and their cross-strategy envelope."""
+    if curve_df.empty:
+        print(f"Skipping {title}: no curve data found.")
+        return
+    plt.figure(figsize=(8.5, 5))
+    for label, group in curve_df.groupby("method_label"):
+        group = group.sort_values(resource_col)
+        plt.plot(group[resource_col], group["response_monotone"], linewidth=2.0, label=label)
+    if not envelope_df.empty:
+        plt.plot(
+            envelope_df[resource_col],
+            envelope_df["response_monotone"],
+            color="black",
+            linewidth=2.8,
+            linestyle="--",
+            label="Envelope across strategies",
+        )
+    plt.xscale("log")
+    plt.xlabel(r"Resource $T_{\mathrm{proxy}}$")
+    plt.ylabel(ylabel)
+    apply_shared_approx_axis(ylim=approx_ylim, yticks=approx_yticks)
+    plt.title(title)
+    plt.grid(alpha=0.25)
+    plt.legend()
+    save_current_plot(filename, plot_dir)
+    plt.show()

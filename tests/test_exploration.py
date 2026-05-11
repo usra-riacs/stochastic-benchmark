@@ -4,10 +4,6 @@ import numpy as np
 import sys
 import os
 
-# Monkey patch pandas DataFrame iteritems for pandas>=2
-if not hasattr(pd.DataFrame, 'iteritems'):
-    pd.DataFrame.iteritems = pd.DataFrame.items
-
 # Add src directory to path for imports
 TESTS_DIR = os.path.dirname(__file__)
 SRC_PATH = os.path.abspath(os.path.join(TESTS_DIR, os.pardir, 'src'))

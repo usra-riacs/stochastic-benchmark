@@ -1,0 +1,48 @@
+# Conda environment file to replicate CI testing conditions
+# This environment matches the GitHub Actions CI setup for local testing
+# 
+# Usage:
+#   conda env create -f environment-ci.yml
+#   conda activate stochastic-benchmark-ci
+#
+# To test with different Python versions (like CI does with 3.10, 3.11, 3.12):
+#   conda env create -f environment-ci.yml -n stochastic-benchmark-ci-py311 python=3.11
+#   conda env create -f environment-ci.yml -n stochastic-benchmark-ci-py312 python=3.12
+
+name: stochastic-benchmark-ci
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python version (CI tests 3.10, 3.11, 3.12)
+  - python=3.10
+  
+  # Only install pip from conda, everything else via pip for consistency with CI
+  - pip
+  
+  # Install all packages via pip to match CI exactly
+  - pip:
+    # Core dependencies from requirements.txt
+    - numpy>=2.0
+    - pandas>=2.3
+    - scipy>=1.11
+    - matplotlib>=3.7
+    - seaborn>=0.13.2
+    - networkx>=3.0
+    - tqdm>=4.66
+    - cloudpickle>=2.2
+    - dill>=0.3.5
+    - fonttools>=4.25
+    - mkl-service>=2.5.2
+    - multiprocess>=0.70.18
+    - hyperopt>=0.2.7
+    - munkres>=1.1.4
+    # Testing dependencies from requirements-dev.txt
+    - pytest
+    - pytest-cov
+    - pytest-xdist
+    # Linting (used in CI)
+    - flake8
+    # Coverage tools
+    - coverage

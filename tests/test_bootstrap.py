@@ -28,8 +28,12 @@ from bootstrap import (
 import success_metrics
 
 
-def dummy_update_rule(bs_params, df):
-    """Default dummy update rule for testing."""
+def dummy_update_rule(self, df):
+    """Default dummy update rule for testing.
+    
+    Note: update_rule functions should use signature (self, df) where
+    self is the BootstrapParameters instance. The function will be called as bs_params.update_rule(bs_params, df).
+    """
     pass
 
 
@@ -48,7 +52,7 @@ class TestBootstrapParameters:
         }
         
         # Create a simple update rule function
-        def dummy_update_rule(bs_params, df):
+        def dummy_update_rule(self, df):
             pass
             
         params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
@@ -95,7 +99,7 @@ class TestBootstrapParameters:
         """Test BootstrapParameters post-initialization behavior."""
         shared_args = {'response_col': 'energy'}
         
-        def dummy_update_rule(bs_params, df):
+        def dummy_update_rule(self, df):
             pass
             
         params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
@@ -103,8 +107,9 @@ class TestBootstrapParameters:
         # Check that metric_args is a defaultdict
         assert isinstance(params.metric_args, defaultdict)
         
-        # Check that accessing non-existent key returns None
-        assert params.metric_args['NonExistent'] is None
+        # Check that accessing non-existent key returns empty dict
+        assert params.metric_args['NonExistent'] == {}
+        assert isinstance(params.metric_args['NonExistent'], dict)
         
         # Check that update_rule is set to default if not provided
         assert hasattr(params, 'update_rule')
@@ -118,11 +123,11 @@ class TestBootstrapParameters:
             'response_dir': -1
         }
         
-        def dummy_update_rule(bs_params, df):
+        def dummy_update_rule(self, df):
             pass
         
         # Provide metric_args with RTT structure
-        metric_args = defaultdict(lambda: None)
+        metric_args = defaultdict(dict)
         metric_args['RTT'] = {}
             
         params = BootstrapParameters(
@@ -154,11 +159,11 @@ class TestBootstrapParameters:
             'response_dir': 1
         }
         
-        def dummy_update_rule(bs_params, df):
+        def dummy_update_rule(self, df):
             pass
         
         # Provide metric_args with RTT structure
-        metric_args = defaultdict(lambda: None)
+        metric_args = defaultdict(dict)
         metric_args['RTT'] = {}
             
         params = BootstrapParameters(
@@ -177,6 +182,238 @@ class TestBootstrapParameters:
         
         # Should set best_value to maximum energy
         assert params.shared_args['best_value'] == 120
+
+    def test_update_rule_called_via_initBootstrap(self):
+        """Test that update_rule is called correctly through initBootstrap.
+        
+        This test verifies the actual code path where update_rule is called
+        as bs_params.update_rule(bs_params, df) from initBootstrap().
+        """
+        shared_args = {
+            'response_col': 'energy',
+            'resource_col': 'time',
+            'response_dir': -1,
+            'confidence_level': 68
+        }
+        
+        # Track whether update_rule was called correctly
+        call_tracker = {'called': False, 'self_param': None, 'df_param': None}
+        
+        def custom_update(bs_params, df):
+            call_tracker['called'] = True
+            call_tracker['self_param'] = bs_params
+            call_tracker['df_param'] = df
+            bs_params.shared_args['best_value'] = df['energy'].min()
+        
+        metric_args = defaultdict(dict)
+        metric_args['RTT'] = {}
+        
+        params = BootstrapParameters(
+            shared_args=shared_args,
+            update_rule=custom_update,
+            metric_args=metric_args,
+            bootstrap_iterations=10,
+            downsample=2
+        )
+        
+        df = pd.DataFrame({
+            'energy': [100, 80, 120, 90],
+            'time': [10, 15, 8, 12]
+        })
+        
+        # Call initBootstrap which internally calls update_rule(bs_params, df)
+        responses, resources = initBootstrap(df, params)
+        
+        # Verify update_rule was called
+        assert call_tracker['called'], "update_rule should have been called"
+        assert call_tracker['self_param'] is params, "First parameter should be bs_params"
+        assert isinstance(call_tracker['df_param'], pd.DataFrame), "Second parameter should be DataFrame"
+        assert params.shared_args['best_value'] == 80, "best_value should be updated"
+
+    def test_default_update_called_via_initBootstrap(self):
+        """Test that default_update works when called through update_rule.
+        
+        This test verifies that when no custom update_rule is provided,
+        the default_update method is correctly assigned and called as an
+        unbound method through the update_rule attribute.
+        """
+        shared_args = {
+            'response_col': 'energy',
+            'resource_col': 'time',
+            'response_dir': -1,
+            'confidence_level': 68
+        }
+        
+        metric_args = defaultdict(dict)
+        metric_args['RTT'] = {}
+        
+        # Don't provide update_rule, should use default
+        params = BootstrapParameters(
+            shared_args=shared_args,
+            metric_args=metric_args,
+            bootstrap_iterations=10,
+            downsample=2
+        )
+        
+        df = pd.DataFrame({
+            'energy': [100, 80, 120, 90],
+            'time': [10, 15, 8, 12]
+        })
+        
+        # Verify default_update was assigned
+        assert params.update_rule is not None
+        assert params.update_rule == BootstrapParameters.default_update
+        
+        # Call initBootstrap which internally calls update_rule(bs_params, df)
+        responses, resources = initBootstrap(df, params)
+        
+        # Verify default_update was executed correctly
+        assert 'best_value' in params.shared_args
+        assert params.shared_args['best_value'] == 80  # min energy
+        assert params.metric_args['RTT']['RTT_factor'] == 1e-6 * df['time'].sum()
+
+    def test_update_rule_signature_with_self_and_df(self):
+        """Test that update_rule functions must accept (self, df) parameters.
+        
+        This verifies the correct signature pattern where update_rule is an
+        unbound function taking (BootstrapParameters instance, DataFrame).
+        """
+        shared_args = {
+            'response_col': 'energy',
+            'resource_col': 'time',
+            'response_dir': -1,
+            'confidence_level': 68
+        }
+        
+        metric_args = defaultdict(dict)
+        metric_args['Response'] = {'opt_sense': -1}
+        metric_args['RTT'] = {'fail_value': np.nan, 'RTT_factor': 1.0}
+        
+        # Define update_rule like in wishart_ws.py example
+        def update_rules(self, df):
+            """Custom update rule that modifies shared_args and metric_args."""
+            # Simulate getting ground truth from dataframe
+            if 'ground_truth' in df.columns:
+                self.shared_args['best_value'] = df['ground_truth'].iloc[0]
+            self.metric_args['RTT']['RTT_factor'] = df['time'].iloc[0]
+        
+        params = BootstrapParameters(
+            shared_args=shared_args,
+            update_rule=update_rules,
+            metric_args=metric_args,
+            bootstrap_iterations=10,
+            downsample=2
+        )
+        
+        df = pd.DataFrame({
+            'energy': [100, 80, 120],
+            'time': [10, 15, 8],
+            'ground_truth': [75, 75, 75]
+        })
+        
+        # Call update_rule the way bootstrap.py does
+        if params.update_rule is not None:
+            params.update_rule(params, df)
+        
+        # Verify the updates were applied
+        assert params.shared_args['best_value'] == 75
+        assert params.metric_args['RTT']['RTT_factor'] == 10
+
+    def test_update_rule_wrong_signature_fails(self):
+        """Test that update_rule with wrong signature fails at runtime.
+        
+        This test validates that providing an update_rule with incorrect signature
+        (missing self parameter) will fail when called, helping catch common mistakes.
+        """
+        import inspect
+        
+        shared_args = {
+            'response_col': 'energy',
+            'resource_col': 'time',
+            'response_dir': -1,
+            'confidence_level': 68
+        }
+        
+        # Define update_rule with WRONG signature (only takes df)
+        def wrong_update(df):
+            """This has wrong signature - missing self parameter."""
+            pass
+        
+        # Create params with wrong signature function
+        params = BootstrapParameters(
+            shared_args=shared_args,
+            update_rule=wrong_update,  # type: ignore  # Intentionally wrong for testing
+            metric_args=defaultdict(dict),
+            bootstrap_iterations=10,
+            downsample=2
+        )
+        
+        df = pd.DataFrame({
+            'energy': [100, 80, 120],
+            'time': [10, 15, 8]
+        })
+        
+        # Verify the signature is actually wrong (only 1 parameter)
+        sig = inspect.signature(wrong_update)
+        assert len(sig.parameters) == 1, "Test setup: function should have 1 parameter"
+        
+        # Calling it should fail with TypeError
+        with pytest.raises(TypeError) as exc_info:
+            params.update_rule(params, df)  # type: ignore  # Will fail at runtime
+        
+        assert "takes 1 positional argument but 2 were given" in str(exc_info.value)
+
+    def test_update_rule_signature_validation(self):
+        """Test helper to validate update_rule has correct signature.
+        
+        This demonstrates how to check update_rule signature before using it,
+        which could be useful for providing better error messages to users.
+        """
+        import inspect
+        
+        def correct_signature(self, df):
+            """Correct: takes self and df."""
+            pass
+        
+        def wrong_signature_1(df):
+            """Wrong: only takes df."""
+            pass
+        
+        def wrong_signature_2(self, df, extra):
+            """Wrong: takes too many parameters."""
+            pass
+        
+        def wrong_signature_3():
+            """Wrong: takes no parameters."""
+            pass
+        
+        # Helper function to validate signature
+        def validate_update_rule_signature(func):
+            """Check if function has correct signature (2 parameters)."""
+            sig = inspect.signature(func)
+            param_count = len(sig.parameters)
+            return param_count == 2
+        
+        # Test validation
+        assert validate_update_rule_signature(correct_signature) is True
+        assert validate_update_rule_signature(wrong_signature_1) is False
+        assert validate_update_rule_signature(wrong_signature_2) is False
+        assert validate_update_rule_signature(wrong_signature_3) is False
+        
+        # Show that correct signature works
+        params = BootstrapParameters(
+            shared_args={'response_col': 'energy'},
+            update_rule=correct_signature,
+            metric_args=defaultdict(dict)
+        )
+        
+        df = pd.DataFrame({'energy': [100, 80, 120]})
+        
+        # Validate before using
+        assert validate_update_rule_signature(params.update_rule) is True
+        
+        # Should work fine
+        params.update_rule(params, df)  # type: ignore  # Already validated above
 
 
 class TestBSParamsIter:
@@ -646,6 +883,28 @@ class TestBootstrapReduceMem:
             
             # Clean up
             os.unlink(tmp_file.name)
+    
+    def test_bootstrap_reduce_mem_requires_name_fcn(self):
+        """Test that Bootstrap_reduce_mem fails fast when name_fcn is None."""
+        df = pd.DataFrame({
+            'energy': [100, 80],
+            'time': [10, 15],
+            'group': ['A', 'B']
+        })
+        
+        shared_args = {'response_col': 'energy', 'resource_col': 'time'}
+        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
+        
+        with tempfile.TemporaryDirectory() as bootstrap_dir:
+            # Test with None name_fcn - should fail fast at function start
+            with pytest.raises(ValueError, match="name_fcn is required for Bootstrap_reduce_mem"):
+                Bootstrap_reduce_mem(
+                    df,
+                    [['group']],
+                    [params],
+                    bootstrap_dir,
+                    name_fcn=None  # This should cause immediate failure
+                )
 
 
 class TestConstants:

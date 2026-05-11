@@ -49,10 +49,10 @@ stochastic-benchmark/
 ## Code Standards and Guidelines
 
 ### Python Version Compatibility
-- **Minimum Python version**: 3.9
-- **Tested versions**: 3.9, 3.10, 3.11, 3.12
-- **Type hints**: Use `from typing import List, Dict, DefaultDict, ...` for compatibility
-- **Avoid**: Modern syntax like `list[str]` or `dict[str, int]` (use `List[str]`, `Dict[str, int]`)
+- **Minimum Python version**: 3.10
+- **Tested versions**: 3.10, 3.11, 3.12
+- **Type hints**: Use `from typing import List, Dict, DefaultDict, ...` for compatibility with older versions
+- **Note**: You can use modern syntax like `list[str]` or `dict[str, int]` as Python 3.10+ supports it, but `List[str]`, `Dict[str, int]` is also acceptable
 
 ### Code Quality Standards
 - **Linting**: Code is linted with flake8 (max line length: 120 characters)
@@ -181,7 +181,7 @@ def test_bootstrap_with_metrics(self, mock_evaluate):
 5. **Handle edge cases** and error conditions
 6. **Maintain backward compatibility** with existing APIs
 7. **Document complex algorithms** with clear comments
-8. **Test on multiple Python versions** (3.9-3.12)
+8. **Test on multiple Python versions** (3.10-3.12)
 9. **Keep functions focused** with single responsibilities
 10. **Use descriptive variable names** and function signatures
 

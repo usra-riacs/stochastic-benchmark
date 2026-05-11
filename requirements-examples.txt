@@ -1,0 +1,3 @@
+# Optional dependencies for running example notebooks and scripts
+# These are NOT required for core stochastic-benchmark functionality
+scikit-learn>=1.3.0

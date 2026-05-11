@@ -5,10 +5,6 @@ import tempfile
 import os, sys
 from unittest.mock import patch
 
-# Monkey patch pandas DataFrame to add back iteritems for compatibility
-if not hasattr(pd.DataFrame, 'iteritems'):
-    pd.DataFrame.iteritems = pd.DataFrame.items
-
 # Add src directory to path
 TESTS_DIR = os.path.dirname(__file__)
 SRC_PATH = os.path.abspath(os.path.join(TESTS_DIR, os.pardir, os.pardir, 'src'))

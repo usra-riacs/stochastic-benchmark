@@ -9,7 +9,7 @@ import numpy as np
 import os
 import pandas as pd
 from tqdm import tqdm
-from typing import Callable, List, DefaultDict
+from typing import Callable, List, DefaultDict, Optional
 
 import names
 import success_metrics
@@ -33,14 +33,30 @@ class BootstrapParameters:
     shared_args : dict
         Shared arguments for the bootstrap method.
         We usually have 'resource_col, response_col, response_dir, best_value, random_value, confidence_level'
-    update_rule : Callable[[pd.DataFrame], None]
-        Function to update the dataframe with the bootstrap results.
-    agg : str
-        Aggregation function to use for the bootstrap.
+    update_rule : Callable[[BootstrapParameters, pd.DataFrame], None], optional
+        Update rule function to modify shared_args and metric_args for each bootstrap group.
+        
+        This is an UNBOUND function pattern where you define a function with signature:
+            def update_rule(bs_params, df)
+        
+        When called, the first parameter receives the BootstrapParameters instance,
+        and the second receives the DataFrame. Inside the function, access attributes via
+        the first parameter (e.g., bs_params.shared_args, bs_params.metric_args).
+        
+        The function is stored and called as: bs_params.update_rule(bs_params, df)
+        
+        If None, uses default_update which sets best_value and RTT_factor.
+        
+        Example:
+            def custom_update(bs_params, df):
+                bs_params.shared_args['best_value'] = df['ground_truth'].iloc[0]
+                bs_params.metric_args['RTT']['RTT_factor'] = df['time'].iloc[0]
+    agg : Optional[str]
+        Aggregation column name to use for weighted sampling, or None for uniform sampling.
     metric_args : DefaultDict[str, dict]
         Dictionary of metric arguments to pass to the success_metrics functions.
-    success_metrics : dict
-        Dictionary of success_metrics functions to use.
+    success_metrics : List
+        List of success_metrics classes to use.
     bootstrap_iterations : int
         Number of bootstrap iterations to perform.
     downsample : int
@@ -52,28 +68,31 @@ class BootstrapParameters:
     -------
     __post_init__()
         Post-initialization function.
-    default_update(df)
-        Default update rule for the bootstrap method.
+    default_update(self, df)
+        Default update rule for the bootstrap method (bound method).
+        Sets best_value based on response direction and RTT_factor based on resource sum.
+        Note: This is a bound method, but when assigned to update_rule, it becomes
+        unbound and must be called as update_rule(bs_params, df).
     """
 
     shared_args: dict  #'resource_col, response_col, response_dir, best_value, random_value, confidence_level'
-    update_rule: Callable[[pd.DataFrame], None] = field()
-    agg: str = field(default_factory=lambda: None)
+    update_rule: Optional[Callable[['BootstrapParameters', pd.DataFrame], None]] = None
+    agg: Optional[str] = None
     metric_args: DefaultDict[str, dict] = field(
-        default_factory=lambda: defaultdict(lambda: None)
+        default_factory=lambda: defaultdict(dict)
     )
-    success_metrics: dict = field(default_factory=lambda: [success_metrics.PerfRatio])
+    success_metrics: List = field(default_factory=lambda: [success_metrics.PerfRatio])
     bootstrap_iterations: int = 1000
     downsample: int = 10
     keep_cols: List = field(default_factory=lambda: [])
 
     def __post_init__(self):
-        temp_metric_args = defaultdict(lambda: None)
+        temp_metric_args = defaultdict(dict)
         temp_metric_args.update(self.metric_args)
         self.metric_args = temp_metric_args
 
-        if not hasattr(self, "update_rule"):
-            self.update_rule = self.default_update
+        if self.update_rule is None:
+            self.update_rule = BootstrapParameters.default_update
 
     def default_update(self, df):
         if self.shared_args["response_dir"] == -1:  # Minimization
@@ -266,16 +285,17 @@ def Bootstrap(df, group_on, bs_params_list, progress_dir=None):
     df_list : List[str]
         List of strings pointing to files with portions of bootstrapped_results
     """
-    if type(df) == list:
-        if type(df)[0] == pd.DataFrame:
+    if isinstance(df, list):
+        if isinstance(df[0], pd.DataFrame):
             df = pd.concat(df, ignore_index=True)
-        elif type(df)[0] == str:
+        elif isinstance(df[0], str):
             df = pd.concat([pd.read_pickle(df_str) for df_str in df], ignore_index=True)
-    elif type(df) == str:
+    elif isinstance(df, str):
         df = pd.read_pickle(df)
 
-    if type(df) != pd.DataFrame:
+    if not isinstance(df, pd.DataFrame):
         logger.error("Unsupported type as bootstrap input")
+        raise TypeError(f"Expected DataFrame but got {type(df)}")
 
     def f(bs_params):
         if progress_dir is not None:
@@ -324,14 +344,19 @@ def Bootstrap_reduce_mem(df, group_on, bs_params_list, bootstrap_dir, name_fcn=N
         DataFrame containing the bootstrap results.
     """
     bs_params_list = list(bs_params_list)
+    
+    # Validate name_fcn early for all code paths that require it
+    # (All paths in Bootstrap_reduce_mem require name_fcn to generate group names)
+    if name_fcn is None:
+        raise ValueError("name_fcn is required for Bootstrap_reduce_mem operation")
 
-    if (type(df) == pd.DataFrame) or (type(df) == str):
-        if type(df) == str:
+    if isinstance(df, pd.DataFrame) or isinstance(df, str):
+        if isinstance(df, str):
             df = pd.read_pickle(df)
         lower_group_on = group_on[1]
         group_on = group_on[0]
 
-        def upper_f(df_upper_group, bs_params_list):
+        def upper_f_dataframe(df_upper_group, bs_params_list):
             group_name = name_fcn(df_upper_group[0])
             df_group = df_upper_group[1]
             filename = os.path.join(
@@ -365,12 +390,14 @@ def Bootstrap_reduce_mem(df, group_on, bs_params_list, bootstrap_dir, name_fcn=N
                 res = pd.concat(df_list, ignore_index=True)
                 res.to_pickle(filename)
             return filename
+        
+        upper_f = upper_f_dataframe
 
-    elif type(df) == list:
-        if type(df[0]) == str:
+    elif isinstance(df, list):
+        if isinstance(df[0], str):
             logger.debug("calling list of names method")
 
-            def upper_f(upper_group_filename, bs_params_list):
+            def upper_f_str_list(upper_group_filename, bs_params_list):
                 df_group = pd.read_pickle(upper_group_filename)
                 group_name = name_fcn(upper_group_filename)
                 logger.info("evaluation bs for %s", group_name)
@@ -406,10 +433,12 @@ def Bootstrap_reduce_mem(df, group_on, bs_params_list, bootstrap_dir, name_fcn=N
                     res = pd.concat(df_list, ignore_index=True)
                     res.to_pickle(filename)
                 return filename
+            
+            upper_f = upper_f_str_list
 
-        elif type(df[0]) == pd.DataFrame:
+        elif isinstance(df[0], pd.DataFrame):
 
-            def upper_f(df_group, bs_params_list):
+            def upper_f_df_list(df_group, bs_params_list):
                 group_name = name_fcn(df_group)
                 filename = os.path.join(
                     bootstrap_dir, "bootstrapped_results_{}.pkl".format(group_name)
@@ -443,6 +472,12 @@ def Bootstrap_reduce_mem(df, group_on, bs_params_list, bootstrap_dir, name_fcn=N
                     res = pd.concat(df_list, ignore_index=True)
                     res.to_pickle(filename)
                 return filename
+            
+            upper_f = upper_f_df_list
+        else:
+            raise TypeError(f"Unsupported type for df[0]: {type(df[0])}")
+    else:
+        raise TypeError(f"Unsupported type for df: {type(df)}")
 
     bs_filenames = [upper_f(df_group, bs_params_list) for df_group in df]
     return bs_filenames

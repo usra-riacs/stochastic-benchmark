@@ -2,10 +2,6 @@ import pytest
 import pandas as pd
 import os, sys
 
-# Monkey patch pandas DataFrame to add back iteritems for compatibility
-if not hasattr(pd.DataFrame, 'iteritems'):
-    pd.DataFrame.iteritems = pd.DataFrame.items
-
 import matplotlib.cm as mpl_cm
 import matplotlib
 if not hasattr(mpl_cm, 'register_cmap'):
@@ -325,6 +321,117 @@ class TestErrorHandling:
         except ValueError:
             # Expected behavior for invalid input
             pass
+
+
+
+
+class TestStochasticBenchmarkErrorHandling:
+    """Test error handling in stochastic_benchmark module."""
+    
+    def test_interpolate_with_none_bs_results_clear_error(self):
+        """Test that interpolation with None bs_results gives clear ValueError, not confusing TypeError."""
+        import stochastic_benchmark
+        import interpolate
+        import tempfile
+        import pandas as pd
+        
+        def dummy_resource_fcn(df):
+            return pd.Series([1]*len(df))
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create a minimal stochastic_benchmark instance
+            sb = stochastic_benchmark.stochastic_benchmark(
+                here=temp_dir,
+                response_key="test_response",
+                response_dir="max",
+                parameter_names=["param1"],
+                instance_cols=["instance"],
+            )
+            
+            # Set up interpolation parameters
+            iParams = interpolate.InterpolationParameters(
+                resource_fcn=dummy_resource_fcn,
+                resource_value_type="manual",
+                resource_values=[1, 2, 3]
+            )
+            
+            # Ensure bs_results is None
+            sb.bs_results = None
+            sb.reduce_mem = False
+            
+            # Test that we get a clear ValueError about None, not a TypeError
+            with pytest.raises(ValueError, match="bs_results is None"):  # Now expects clearer ValueError
+                sb.run_Interpolate(iParams)
+    
+    def test_interpolate_reduce_mem_with_none_bs_results_clear_error(self):
+        """Test that reduce_mem interpolation with None bs_results gives clear ValueError."""
+        import stochastic_benchmark
+        import interpolate
+        import tempfile
+        import pandas as pd
+        
+        def dummy_resource_fcn(df):
+            return pd.Series([1]*len(df))
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create a minimal stochastic_benchmark instance
+            sb = stochastic_benchmark.stochastic_benchmark(
+                here=temp_dir,
+                response_key="test_response",
+                response_dir="max",
+                parameter_names=["param1"],
+                instance_cols=["instance"],
+            )
+            
+            # Set up interpolation parameters
+            iParams = interpolate.InterpolationParameters(
+                resource_fcn=dummy_resource_fcn,
+                resource_value_type="manual",
+                resource_values=[1, 2, 3]
+            )
+            
+            # Ensure bs_results is None
+            sb.bs_results = None
+            sb.reduce_mem = True
+            
+            # Test that we get a clear ValueError about None, not a TypeError
+            with pytest.raises(ValueError, match="bs_results is None"):  # Now expects clearer ValueError
+                sb.run_Interpolate(iParams)
+    
+    def test_interpolate_with_wrong_type_gives_type_error(self):
+        """Test that interpolation with wrong type gives TypeError (after None check)."""
+        import stochastic_benchmark
+        import interpolate
+        import tempfile
+        import pandas as pd
+        
+        def dummy_resource_fcn(df):
+            return pd.Series([1]*len(df))
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create a minimal stochastic_benchmark instance
+            sb = stochastic_benchmark.stochastic_benchmark(
+                here=temp_dir,
+                response_key="test_response",
+                response_dir="max",
+                parameter_names=["param1"],
+                instance_cols=["instance"],
+            )
+            
+            # Set up interpolation parameters
+            iParams = interpolate.InterpolationParameters(
+                resource_fcn=dummy_resource_fcn,
+                resource_value_type="manual",
+                resource_values=[1, 2, 3]
+            )
+            
+            # Set bs_results to wrong type (not None, but not the expected type)
+            sb.bs_results = "wrong_type"  # String instead of DataFrame
+            sb.reduce_mem = False
+            
+            # Test that we get a TypeError about wrong type
+            with pytest.raises(TypeError, match="Expected DataFrame.*but got"):
+                sb.run_Interpolate(iParams)
 
 
 if __name__ == "__main__":

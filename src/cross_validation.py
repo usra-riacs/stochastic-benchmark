@@ -169,7 +169,7 @@ def process_params_across_splits(parameter_names, confidence_level=68):
             expt_param_df = (
                 curr_param_df[["resource", param]]
                 .groupby("resource")
-                .apply(lambda col: all_ci(col, param, confidence_level))
+                .apply(lambda col: all_ci(col, param, confidence_level), include_groups=False)
                 .reset_index()
             )
             expt_param_df.drop("level_1", axis=1, inplace=True)
@@ -204,7 +204,7 @@ def process_performance_across_splits(
             perf_df = (
                 curr_perf_df[["resource", "response"]]
                 .groupby("resource")
-                .apply(lambda col: all_ci(col, "response"))
+                .apply(lambda col: all_ci(col, "response"), include_groups=False)
                 .reset_index()
             )
             perf_df.drop("level_1", axis=1, inplace=True)
@@ -214,7 +214,7 @@ def process_performance_across_splits(
 
             perf_df = (
                 curr_perf_df.groupby("resource")
-                .apply(lambda df: propagate_ci(df, stats_measure))
+                .apply(lambda df: propagate_ci(df, stats_measure), include_groups=False)
                 .reset_index()
             )
             perf_df.drop("level_1", axis=1, inplace=True)

@@ -49,7 +49,7 @@ def single_split(split_ind, train_test_split = 0.8):
                 'response_dir':1,
                 'confidence_level':68}
     boots_range = [1,2,5, 10, 20, 50, 100]
-    bsParams = bootstrap.BootstrapParameters(shared_args=shared_args, update_rule= lambda df: None)
+    bsParams = bootstrap.BootstrapParameters(shared_args=shared_args, update_rule=lambda self, df: None)
     bs_iter_class = bootstrap.BSParams_range_iter()
     bsParams_iter = bs_iter_class(bsParams, boots_range)
     sb.run_Bootstrap(bsParams_iter)

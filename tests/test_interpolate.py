@@ -4,10 +4,6 @@ import numpy as np
 import warnings
 from unittest.mock import patch, MagicMock
 
-# Monkey patch pandas DataFrame to add back iteritems for compatibility
-if not hasattr(pd.DataFrame, 'iteritems'):
-    pd.DataFrame.iteritems = pd.DataFrame.items
-
 # Import the module to test
 import sys
 import os

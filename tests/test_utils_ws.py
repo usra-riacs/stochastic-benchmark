@@ -1,10 +1,5 @@
 import pandas as pd
 import numpy as np
-
-# Ensure compatibility with pandas >=2
-if not hasattr(pd.DataFrame, 'iteritems'):
-    pd.DataFrame.iteritems = pd.DataFrame.items
-
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))

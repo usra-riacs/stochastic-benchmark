@@ -54,7 +54,7 @@ pytest tests/ --cov=src --cov-report=html
 
 The repository includes automated testing via GitHub Actions:
 
-- **Matrix Testing**: Tests across Python versions 3.8, 3.9, 3.10, 3.11, 3.12
+- **Matrix Testing**: Tests across Python versions 3.10, 3.11, 3.12
 - **Linting**: Code quality checks with flake8
 - **Coverage**: Automated coverage reporting via Codecov
 - **Integration Tests**: Cross-module functionality verification

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.9, '3.10', '3.11', '3.12']
+        python-version: ['3.10', '3.11', '3.12']
 
     steps:
     - uses: actions/checkout@v4
@@ -29,12 +29,8 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-cov pytest-xdist
-        pip install pandas numpy scipy matplotlib seaborn
-        pip install networkx tqdm multiprocess
-        # Install optional dependencies for extended functionality
-        pip install hyperopt || echo "hyperopt installation failed, continuing..."
-        pip install cloudpickle dill || echo "pickle dependencies failed, continuing..."
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
         
         # Install package in development mode
         pip install -e .
@@ -98,9 +94,8 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pandas numpy scipy matplotlib seaborn
-        pip install networkx tqdm multiprocess
-        pip install pytest
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
         pip install -e .
     
     - name: Run integration tests
@@ -129,9 +124,8 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-cov
-        pip install pandas numpy scipy matplotlib seaborn
-        pip install networkx tqdm multiprocess
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
         pip install -e .
     
     - name: Generate final coverage report

@@ -12,6 +12,10 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
 import sys
 from tqdm import tqdm
+import warnings
+
+# Filter known third-party warnings
+warnings.filterwarnings('ignore', message='pkg_resources is deprecated')
 
 sys.path.append('../../src') #TODO set path to point to src of stochastic-benchmark
 import bootstrap
@@ -27,8 +31,10 @@ from utils_ws import *
 import wishart_runs #TODO I need to find the file I sent previous -> add to path if necessary
 
 alpha = '0.50'
-# datadir = '/home/bernalde/repos/stochastic-benchmark/examples/wishart_n_50_alpha_{}/data'.format(alpha)  #TODO set this to where the pickled datafiles are stored
-datadir = '/home/bernalde/repos/stochastic-benchmark/examples/wishart_n_50_alpha_{}/rerun_data'.format(alpha) #TODO set this to where the pickled datafiles are stored
+# Set datadir relative to the current file location
+# This assumes the data is in rerun_data/ subdirectory of the example folder
+script_dir = os.path.dirname(os.path.abspath(__file__))
+datadir = os.path.join(script_dir, 'rerun_data')  # Use relative path for portability
 
 
 def compress_order(df_single):
@@ -185,8 +191,8 @@ def postprocess_random(meta_params):
 def stoch_bench_setup():
     # Set up basic information 
     alpha = '0.5'
-    # path to working directory
-    here = os.path.join('/home/robin/stochastic-benchmark/examples', 'wishart_n_50_alpha_{}/'.format(alpha))
+    # path to working directory - use current directory (where notebook is located)
+    here = os.path.abspath(os.getcwd())
     parameter_names = ['sweeps', 'replicas', 'pcold', 'phot']
     instance_cols = ['instance'] #indicates how instances should be grouped, default is ['instance']
 
@@ -207,15 +213,15 @@ def stoch_bench_setup():
                     'response_dir':-1,\
                     'confidence_level':68,\
                     'random_value':0.}
-    metric_args = {}
+    metric_args = defaultdict(dict)
     metric_args['Response'] = {'opt_sense':-1}
     metric_args['SuccessProb'] = {'gap':1.0, 'response_dir':-1}
     metric_args['RTT'] = {'fail_value': np.nan, 'RTT_factor':1.,\
                             'gap':1.0, 's':0.99}
 
-    def update_rules(self, df):  #These update the bootstrap parameters for each group 
+    def update_rules(self, df):  # Update the bootstrap parameters for each group 
         GTMinEnergy = df['GTMinEnergy'].iloc[0] 
-        self.shared_args['best_value'] = GTMinEnergy #update best value for each instance
+        self.shared_args['best_value'] = GTMinEnergy  # Update best value for each instance
         self.metric_args['RTT']['RTT_factor'] = df['MeanTime'].iloc[0]
 
     agg = 'count' #aggregated column
@@ -274,7 +280,8 @@ def stoch_bench_setup():
     resource_values = list(recipes['resource'])
     budgets = [i*10**j for i in [1, 1.5, 2, 3, 5, 7]
                 for j in [3, 4, 5]] + [1e6]
-    budgets = np.unique([take_closest(resource_values, b) for b in budgets])
+    # Convert to list for type safety with RandomSearchParameters.budgets: list
+    budgets = list(np.unique([take_closest(resource_values, b) for b in budgets]))
 
     # which columns determin the order in sequential search experiments
     ssOrderCols0 = ['warmstart=0_hpo_order={}'.format(hpo_trial) for hpo_trial in range(10)] 
@@ -308,8 +315,11 @@ def stoch_bench_setup():
     sb.run_StaticRecommendationExperiment(sb.experiments[0])
     sb.run_StaticRecommendationExperiment(sb.experiments[1])
 
-    testing_results = sb.interp_results[sb.interp_results['train'] == 0].copy()
-    testing_instances = list(np.unique(testing_results['instance']))
+    if sb.interp_results is not None:
+        testing_results = sb.interp_results[sb.interp_results['train'] == 0].copy()
+        # np.unique returns ndarray which works fine for iteration, but explicit list
+        # conversion improves clarity and ensures compatibility with functions expecting lists
+        testing_instances = list(np.unique(testing_results['instance']))
     # for idx in [5, 6]:
     #     parameters_list = sb.experiments[idx].list_runs()
     #     if idx == 5:
@@ -418,10 +428,26 @@ def process_rerun(sb, results_dict):
     for k in tqdm(results_dict.keys()):
         ret = prepare_param(k)
         ret_list.append(ret)
+    
+    # Filter out None values that may be returned when res_list is empty
+    ret_list = [r for r in ret_list if r is not None]
+    
+    if len(ret_list) == 0:
+        print('Warning: No valid results to concatenate. Returning empty DataFrame.')
+        return pd.DataFrame()
+    
     try:
         ret = pd.concat(ret_list, ignore_index=True)
-    except:
-        print('failing external loop')
+    except ValueError as e:
+        # Raised when DataFrames have incompatible columns or no objects to concatenate
+        print(f'Error concatenating results: {e}')
+        print(f'Number of DataFrames: {len(ret_list)}')
+        raise
+    except TypeError as e:
+        # Raised when ret_list contains non-DataFrame objects
+        print(f'Error: ret_list contains invalid objects: {e}')
+        print(f'Types in ret_list: {[type(r) for r in ret_list]}')
+        raise
     return ret
         
 def main():

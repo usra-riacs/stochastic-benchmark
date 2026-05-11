@@ -3,11 +3,6 @@ from scipy.special import erfinv
 import pandas as pd
 import numpy as np
 import os
-
-# compatibility for pandas >=2
-if not hasattr(pd.DataFrame, 'iteritems'):
-    pd.DataFrame.iteritems = pd.DataFrame.items
-
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 

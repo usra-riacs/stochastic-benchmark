@@ -5,7 +5,7 @@ description: Automated setup steps for GitHub Copilot development in stochastic-
 
 setup_steps:
   environment:
-    python_version: "3.9+"
+    python_version: "3.10+"
     required_packages:
       core:
         - pandas
@@ -49,7 +49,7 @@ setup_steps:
       - "pytest tests/ -v --cov=src"  # Run with coverage
     
     3_development:
-      - "Follow type annotation standards (Python 3.9+)"
+      - "Follow type annotation standards (Python 3.10+)"
       - "Write tests before implementing features"
       - "Use proper mocking for multiprocessing and external dependencies"
       - "Maintain docstring standards (NumPy style)"
@@ -165,8 +165,8 @@ setup_steps:
     
     type_annotation_errors:
       - "Import required types from typing module"
-      - "Use Python 3.9+ compatible syntax"
-      - "Avoid using built-in generics (list[str] -> List[str])"
+      - "Use Python 3.10+ compatible syntax"
+      - "Can use built-in generics (list[str]) or typing module (List[str])"
     
     multiprocessing_issues:
       - "Mock Pool at correct module level"
@@ -180,7 +180,7 @@ setup_steps:
         - "pull requests to main/develop"
       
       test_matrix:
-        python_versions: ["3.9", "3.10", "3.11", "3.12"]
+        python_versions: ["3.10", "3.11", "3.12"]
         operating_systems: ["ubuntu-latest"]
       
       required_checks:

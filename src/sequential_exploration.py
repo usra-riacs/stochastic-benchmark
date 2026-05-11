@@ -345,25 +345,9 @@ def apply_allocations(
             if len(df_experiment) >= 1:
                 final_values.append(df_experiment)
 
-            # res_list = []
-            # for name, group in df_stats.groupby(group_on):
-            #     # print(name)
-            #     res = fcn(group)
-            #     if res is not None:
-            #         res_list.append(res.iloc[[-1]])
-            #     # try:
-            #     #     res_list.append(res.iloc[-1])
-            #     # except:
-            #     #     print(name)
-            #     #     print(res)
-            # # print(len(res_list))
-            # if len(res_list) >= 1:
-            #     df_experiment = pd.concat(res_list, ignore_index=True)
-            #     final_values.append(df_experiment)
-            # else:
-            #     print('no res list')
-
-        # df_experiment = df_stats.groupby(group_on, include_groups=False).apply(lambda df: SequentialExplorationSingle(df, ssParams, 0, budget, explore_frac, tau).iloc[[-1]])
+            # Note: Previous sequential implementation (manual iteration with res_list)
+            # was replaced with applyParallel for better performance and cleaner error handling.
+            # See git history for the sequential loop pattern if needed for debugging.
 
     return pd.concat(final_values, ignore_index=True)
 

@@ -1,12 +1,11 @@
 cloudpickle>=2.2
 dill>=0.3.5
 fonttools>=4.25
-future>=0.18
 hyperopt>=0.2.7
 mkl-service>=2.5.2
 multiprocess>=0.70.18
 munkres>=1.1.4
-networkx>=3.5
+networkx>=3.0
 numpy>=2.0
 pandas>=2.3
 scipy>=1.11

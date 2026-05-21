@@ -117,6 +117,24 @@ def _benchmark_with_fake_results(tmp_path):
     return bench
 
 
+def _projection_plot_csvs(bench):
+    projection_perf = pd.read_csv(
+        os.path.join(
+            bench.here.checkpoints,
+            "performance_plotting",
+            "Projection from TrainingStats.csv",
+        )
+    )
+    projection_params = pd.read_csv(
+        os.path.join(
+            bench.here.checkpoints,
+            "params_plotting",
+            "Projection from TrainingStats.csv",
+        )
+    )
+    return projection_perf, projection_params
+
+
 def test_export_plot_csvs_writes_resource_columns_and_manifest(tmp_path):
     bench = _benchmark_with_fake_results(tmp_path)
 
@@ -217,20 +235,28 @@ def test_init_plotting_uses_legacy_monotone_switch_when_unspecified(tmp_path):
     finally:
         plotting.monotone = previous_monotone
 
-    projection_perf = pd.read_csv(
-        os.path.join(
-            bench.here.checkpoints,
-            "performance_plotting",
-            "Projection from TrainingStats.csv",
-        )
-    )
-    projection_params = pd.read_csv(
-        os.path.join(
-            bench.here.checkpoints,
-            "params_plotting",
-            "Projection from TrainingStats.csv",
-        )
-    )
+    projection_perf, projection_params = _projection_plot_csvs(bench)
 
     assert projection_perf["response"].tolist() == [0.85, 0.9]
     assert projection_params["alpha"].tolist() == [0.17, 0.27]
+
+
+def test_init_plotting_explicit_monotone_overrides_legacy_switch(tmp_path):
+    previous_monotone = plotting.monotone
+
+    try:
+        plotting.monotone = False
+        monotone_bench = _benchmark_with_fake_results(tmp_path / "monotone")
+        monotone_bench.initPlotting(monotone=True)
+        projection_perf, projection_params = _projection_plot_csvs(monotone_bench)
+        assert projection_perf["response"].tolist() == [0.85, 0.9]
+        assert projection_params["alpha"].tolist() == [0.17, 0.27]
+
+        plotting.monotone = True
+        raw_bench = _benchmark_with_fake_results(tmp_path / "raw")
+        raw_bench.initPlotting(monotone=False)
+        projection_perf, projection_params = _projection_plot_csvs(raw_bench)
+        assert projection_perf["response"].tolist() == [0.45, 0.65]
+        assert projection_params["alpha"].tolist() == [0.15, 0.25]
+    finally:
+        plotting.monotone = previous_monotone

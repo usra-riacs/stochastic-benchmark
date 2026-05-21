@@ -32,6 +32,30 @@ def test_StatsSingle():
     }, "The DataFrame should have the correct columns"
 
 
+def test_Stats_keeps_singleton_groups_when_requested():
+    df = pd.DataFrame(
+        {
+            "Key=A": [1.0, 2.0, 4.0],
+            "ConfInt=lower_Key=A": [0.8, 1.8, 3.8],
+            "ConfInt=upper_Key=A": [1.2, 2.2, 4.2],
+            "C": ["x", "y", "y"],
+        }
+    )
+    stats_params = StatsParameters(metrics=["A"], stats_measures=[Mean()])
+
+    default_result = Stats(df, stats_params, ["C"])
+    assert set(default_result["C"]) == {"y"}
+
+    result = Stats(df, stats_params, ["C"], drop_singletons=False)
+    result = result.set_index("C")
+
+    assert set(result.index) == {"x", "y"}
+    assert result.loc["x", "count"] == 1
+    assert result.loc["x", "Key=A_Metric=mean"] == pytest.approx(1.0)
+    assert result.loc["x", "ConfInt=lower_Key=A_Metric=mean"] == pytest.approx(0.8)
+    assert result.loc["x", "ConfInt=upper_Key=A_Metric=mean"] == pytest.approx(1.2)
+
+
 def test_applyBounds():
     df = pd.DataFrame(
         {

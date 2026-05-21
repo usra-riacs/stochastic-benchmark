@@ -251,10 +251,11 @@ class stochastic_benchmark:
             self.populate_interp_results()
 
     def get_experiment_parameters(self) -> ExperimentParameters:
-        baseline = getattr(self, "baseline", None)
-        baseline_recalibrate = (
-            baseline.recalibrate if baseline is not None else lambda df: None
-        )
+        def baseline_recalibrate(df):
+            baseline = getattr(self, "baseline", None)
+            if baseline is not None:
+                baseline.recalibrate(df)
+
         return ExperimentParameters(
             parameter_names=self.parameter_names,
             instance_cols=self.instance_cols,

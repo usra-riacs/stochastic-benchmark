@@ -21,6 +21,7 @@ SRC_PATH = os.path.abspath(os.path.join(TESTS_DIR, os.pardir, 'src'))
 sys.path.insert(0, SRC_PATH)
 
 import experiments
+import names
 import stats
 
 
@@ -47,6 +48,27 @@ def _make_experiment_params():
     )
 
 
+def _make_virtual_best_baseline(response_key="response"):
+    params = _make_experiment_params()
+    params = experiments.ExperimentParameters(
+        parameter_names=params.parameter_names,
+        instance_cols=params.instance_cols,
+        interp_results=params.interp_results,
+        checkpoint_path=params.checkpoint_path,
+        response_key=response_key,
+        response_dir=params.response_dir,
+        smooth=params.smooth,
+        stat_params=params.stat_params,
+        training_stats=params.training_stats,
+        testing_stats=params.testing_stats,
+        evaluate_without_bootstrap=params.evaluate_without_bootstrap,
+        baseline_recalibrate=params.baseline_recalibrate,
+    )
+    baseline = experiments.VirtualBestBaseline.__new__(experiments.VirtualBestBaseline)
+    baseline.parent_params = params
+    return baseline
+
+
 class TestExperimentBaseClass:
     """Tests for the Experiment base class."""
 
@@ -57,6 +79,53 @@ class TestExperimentBaseClass:
 
         with pytest.raises(NotImplementedError, match="overridden"):
             exp.evaluate()
+
+
+class TestVirtualBestBaseline:
+    """Tests for VirtualBestBaseline evaluation."""
+
+    def test_evaluate_keeps_singleton_resource_levels(self):
+        baseline = _make_virtual_best_baseline()
+        base = names.param2filename({"Key": "response"}, "")
+        lower = names.param2filename({"Key": "response", "ConfInt": "lower"}, "")
+        upper = names.param2filename({"Key": "response", "ConfInt": "upper"}, "")
+        baseline.rec_params = pd.DataFrame(
+            {
+                "resource": [1, 2, 2],
+                "param1": [0.1, 0.2, 0.4],
+                base: [0.2, 0.3, 0.7],
+                lower: [-0.8, 0.2, 0.6],
+                upper: [1.2, 0.4, 0.8],
+            }
+        )
+
+        _, eval_df = baseline.evaluate()
+        by_resource = eval_df.set_index("resource")
+
+        assert set(by_resource.index) == {1, 2}
+        assert by_resource.loc[1, "count"] == 1
+        assert by_resource.loc[1, "response"] == pytest.approx(0.2)
+        assert by_resource.loc[1, "response_lower"] == pytest.approx(-0.8)
+        assert by_resource.loc[1, "response_upper"] == pytest.approx(1.2)
+
+    def test_evaluate_uses_response_key_bounds_when_available(self):
+        baseline = _make_virtual_best_baseline(response_key="PerfRatio")
+        base = names.param2filename({"Key": "PerfRatio"}, "")
+        lower = names.param2filename({"Key": "PerfRatio", "ConfInt": "lower"}, "")
+        upper = names.param2filename({"Key": "PerfRatio", "ConfInt": "upper"}, "")
+        baseline.rec_params = pd.DataFrame(
+            {
+                "resource": [1, 1],
+                "param1": [0.1, 0.2],
+                base: [0.95, 1.05],
+                lower: [0.7, 0.9],
+                upper: [1.2, 1.3],
+            }
+        )
+
+        _, eval_df = baseline.evaluate()
+
+        assert eval_df.loc[0, "response_upper"] == pytest.approx(1.0)
 
 
 class TestStaticRecommendationExperiment:

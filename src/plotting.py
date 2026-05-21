@@ -59,6 +59,8 @@ class Plotting:
         if hasattr(checkpoints_dir, "here") and hasattr(
             checkpoints_dir.here, "checkpoints"
         ):
+            if hasattr(checkpoints_dir, "export_plot_csvs"):
+                checkpoints_dir.export_plot_csvs(monotone=monotone)
             checkpoints_dir = checkpoints_dir.here.checkpoints
 
         self.checkpoints_dir = os.fspath(checkpoints_dir)

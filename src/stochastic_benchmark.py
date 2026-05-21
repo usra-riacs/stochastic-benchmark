@@ -11,6 +11,7 @@ import logging
 import bootstrap
 import df_utils
 import interpolate
+import plotting as plotting_module
 from plotting import *
 import stats
 import success_metrics
@@ -803,16 +804,25 @@ class stochastic_benchmark:
         )
         csv_df.to_csv(path, index=False)
 
-    def export_plot_csvs(self, monotone=False):
+    def export_plot_csvs(self, monotone=None):
         """
         Export the CSV files used by the plotting module.
 
         This separates plot rendering from in-memory benchmark objects. After this
         method runs, ``plotting.Plotting`` can recreate plots from the checkpoint
         directory alone.
+
+        Parameters
+        ----------
+        monotone : bool, optional
+            If provided, controls whether experiment CSVs are exported from
+            ``evaluate_monotone()`` when available. If omitted, this preserves the
+            legacy ``plotting.monotone`` module-level switch.
         """
         if not hasattr(self, "baseline"):
             raise AttributeError("run_baseline() must be called before exporting plots")
+        if monotone is None:
+            monotone = plotting_module.monotone
 
         params_dir = os.path.join(self.here.checkpoints, "params_plotting")
         perf_dir = os.path.join(self.here.checkpoints, "performance_plotting")
@@ -925,9 +935,19 @@ class stochastic_benchmark:
 
         return manifest
 
-    def initPlotting(self, export_csvs=True, monotone=False):
+    def initPlotting(self, export_csvs=True, monotone=None):
         """
-        Sets up plotting - this should be run after all experiments are run
+        Sets up plotting - this should be run after all experiments are run.
+
+        Parameters
+        ----------
+        export_csvs : bool, optional
+            Whether to export plotting CSVs before constructing the plotting
+            helper.
+        monotone : bool, optional
+            If provided, controls whether exported experiment curves use
+            ``evaluate_monotone()`` when available. If omitted, this preserves
+            the legacy ``plotting.monotone`` module-level switch.
         """
         if export_csvs:
             self.export_plot_csvs(monotone=monotone)

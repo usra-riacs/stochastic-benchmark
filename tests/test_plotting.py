@@ -12,6 +12,7 @@ TESTS_DIR = os.path.dirname(__file__)
 SRC_PATH = os.path.abspath(os.path.join(TESTS_DIR, os.pardir, "src"))
 sys.path.insert(0, SRC_PATH)
 
+import plotting
 import stochastic_benchmark
 from plotting import Plotting
 
@@ -51,6 +52,21 @@ class FakeProjectionExperiment:
         )
         preproc_params = pd.DataFrame(
             {"resource": [10, 20], "alpha": [0.12, 0.22]}
+        )
+        return params_df, eval_df, preproc_params
+
+    def evaluate_monotone(self):
+        params_df = pd.DataFrame({"resource": [10, 20], "alpha": [0.17, 0.27]})
+        eval_df = pd.DataFrame(
+            {
+                "resource": [10, 20],
+                "response": [0.85, 0.9],
+                "response_lower": [0.8, 0.85],
+                "response_upper": [0.9, 0.95],
+            }
+        )
+        preproc_params = pd.DataFrame(
+            {"resource": [10, 20], "alpha": [0.14, 0.24]}
         )
         return params_df, eval_df, preproc_params
 
@@ -157,6 +173,64 @@ def test_init_plotting_exports_csvs_and_reads_from_checkpoint_dir(tmp_path):
     meta_figs, meta_axes = bench.plots.plot_meta_parameters()
     assert set(meta_axes["RandomSearch"]) == {"ExploreFrac", "tau"}
 
+    together_fig, together_axes = bench.plots.plot_parameters_together()
+    assert set(together_axes) == {"alpha"}
+
+    separate_figs, separate_axes = bench.plots.plot_parameters_separate()
+    assert set(separate_axes) == {"alpha"}
+
+    distance_fig, distance_ax = bench.plots.plot_parameters_distance()
+    assert distance_ax.get_ylabel() == "distance_scaled"
+
     plt.close(fig)
     for fig in meta_figs["RandomSearch"].values():
         plt.close(fig)
+    plt.close(together_fig)
+    for fig in separate_figs.values():
+        plt.close(fig)
+    plt.close(distance_fig)
+
+
+def test_direct_plotting_constructor_exports_from_benchmark_object(tmp_path):
+    bench = _benchmark_with_fake_results(tmp_path)
+
+    plots = Plotting(bench)
+
+    assert isinstance(plots, Plotting)
+    assert plots.parameter_names == ["alpha"]
+    assert os.path.exists(
+        os.path.join(bench.here.checkpoints, "performance_plotting", "baseline.csv")
+    )
+
+    fig, ax = plots.plot_performance()
+    assert ax.get_ylabel() == "PerfRatio"
+    plt.close(fig)
+
+
+def test_init_plotting_uses_legacy_monotone_switch_when_unspecified(tmp_path):
+    bench = _benchmark_with_fake_results(tmp_path)
+    previous_monotone = plotting.monotone
+
+    try:
+        plotting.monotone = True
+        bench.initPlotting()
+    finally:
+        plotting.monotone = previous_monotone
+
+    projection_perf = pd.read_csv(
+        os.path.join(
+            bench.here.checkpoints,
+            "performance_plotting",
+            "Projection from TrainingStats.csv",
+        )
+    )
+    projection_params = pd.read_csv(
+        os.path.join(
+            bench.here.checkpoints,
+            "params_plotting",
+            "Projection from TrainingStats.csv",
+        )
+    )
+
+    assert projection_perf["response"].tolist() == [0.85, 0.9]
+    assert projection_params["alpha"].tolist() == [0.17, 0.27]

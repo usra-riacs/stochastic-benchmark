@@ -1,0 +1,117 @@
+{
+  "308": {
+    "best_objective": -806,
+    "status": 2,
+    "optimal": true
+  },
+  "309": {
+    "best_objective": -440,
+    "status": 2,
+    "optimal": true
+  },
+  "310": {
+    "best_objective": -1686,
+    "status": 9,
+    "optimal": false
+  },
+  "311": {
+    "best_objective": -1542,
+    "status": 9,
+    "optimal": false
+  },
+  "312": {
+    "best_objective": -1844,
+    "status": 9,
+    "optimal": false
+  },
+  "313": {
+    "best_objective": -614,
+    "status": 2,
+    "optimal": true
+  },
+  "314": {
+    "best_objective": -1142,
+    "status": 2,
+    "optimal": true
+  },
+  "315": {
+    "best_objective": -688,
+    "status": 2,
+    "optimal": true
+  },
+  "316": {
+    "best_objective": -514,
+    "status": 2,
+    "optimal": true
+  },
+  "317": {
+    "best_objective": -1402,
+    "status": 2,
+    "optimal": true
+  },
+  "318": {
+    "best_objective": -900,
+    "status": 2,
+    "optimal": true
+  },
+  "319": {
+    "best_objective": -1298,
+    "status": 2,
+    "optimal": true
+  },
+  "320": {
+    "best_objective": -2022,
+    "status": 9,
+    "optimal": false
+  },
+  "321": {
+    "best_objective": -362,
+    "status": 2,
+    "optimal": true
+  },
+  "322": {
+    "best_objective": -1040,
+    "status": 2,
+    "optimal": true
+  },
+  "323": {
+    "best_objective": -23964950,
+    "status": 9,
+    "optimal": false
+  },
+  "324": {
+    "best_objective": -74347446,
+    "status": 2,
+    "optimal": true
+  },
+  "325": {
+    "best_objective": -68476481,
+    "status": 2,
+    "optimal": true
+  },
+  "326": {
+    "best_objective": -86899,
+    "status": 9,
+    "optimal": false
+  },
+  "327": {
+    "best_objective": -25305,
+    "status": 2,
+    "optimal": true
+  },
+  "328": {
+    "best_objective": -50321,
+    "status": 9,
+    "optimal": false
+  },
+  "329": {
+    "best_objective": -71422,
+    "status": 9,
+    "optimal": false
+  },
+  "330": {
+    "best_objective": -256359,
+    "status": 9,
+    "optimal": false
+  }
+}

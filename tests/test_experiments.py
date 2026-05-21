@@ -167,6 +167,93 @@ class TestStochasticBenchmarkRuntimeErrors:
             with pytest.raises(RuntimeError, match="Interpolation failed"):
                 sb.run_Interpolate(iParams)
 
+    def test_run_baseline_does_not_require_existing_baseline(self):
+        """run_baseline should construct the first baseline without a placeholder."""
+        import stochastic_benchmark as sb_module
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sb = sb_module.stochastic_benchmark(
+                here=temp_dir,
+                response_key="PerfRatio",
+                response_dir=1,
+                parameter_names=["iteration", "samples"],
+                instance_cols=["instance"],
+                reduce_mem=False,
+                smooth=False,
+            )
+            sb.interp_results = pd.DataFrame(
+                {
+                    "instance": [1, 1, 2, 2],
+                    "train": [0, 0, 0, 0],
+                    "resource": [1, 2, 1, 2],
+                    "iteration": [1, 2, 1, 2],
+                    "samples": [1, 1, 1, 1],
+                    "Key=PerfRatio": [0.5, 0.8, 0.6, 0.9],
+                    "ConfInt=lower_Key=PerfRatio": [0.4, 0.7, 0.5, 0.8],
+                    "ConfInt=upper_Key=PerfRatio": [0.6, 0.9, 0.7, 1.0],
+                }
+            )
+            sb.training_stats = pd.DataFrame()
+            sb.testing_stats = pd.DataFrame()
+            sb.stat_params = stats.StatsParameters(
+                metrics=["PerfRatio"],
+                stats_measures=[stats.Mean()],
+                lower_bounds={},
+                upper_bounds={},
+            )
+
+            assert not hasattr(sb, "baseline")
+
+            sb.run_baseline()
+
+            assert sb.baseline.name == "VirtualBest"
+
+    def test_experiment_parameters_recalibrate_late_bound_baseline(self):
+        """Experiment parameters should recalibrate a baseline added after creation."""
+        import stochastic_benchmark as sb_module
+        import tempfile
+
+        class RecordingBaseline:
+            def __init__(self):
+                self.calls = []
+
+            def recalibrate(self, df):
+                self.calls.append(df)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sb = sb_module.stochastic_benchmark(
+                here=temp_dir,
+                response_key="PerfRatio",
+                response_dir=1,
+                parameter_names=["iteration", "samples"],
+                instance_cols=["instance"],
+                reduce_mem=False,
+                smooth=False,
+            )
+            sb.interp_results = pd.DataFrame()
+            sb.training_stats = pd.DataFrame()
+            sb.testing_stats = pd.DataFrame()
+            sb.stat_params = stats.StatsParameters(
+                metrics=["PerfRatio"],
+                stats_measures=[stats.Mean()],
+                lower_bounds={},
+                upper_bounds={},
+            )
+
+            params = sb.get_experiment_parameters()
+            baseline = RecordingBaseline()
+            sb.baseline = baseline
+            experiment = experiments.StaticRecommendationExperiment(
+                params,
+                pd.DataFrame({"resource": [1], "iteration": [1], "samples": [1]}),
+            )
+            eval_df = pd.DataFrame({"resource": [1], "response": [0.5]})
+
+            experiment.attach_runs(eval_df, process=False)
+
+            assert baseline.calls == [eval_df]
+
 
 class TestStochasticBenchmarkUsesLogger:
     """Tests that stochastic_benchmark uses logger, not print()."""

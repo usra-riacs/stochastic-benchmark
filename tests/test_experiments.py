@@ -167,6 +167,48 @@ class TestStochasticBenchmarkRuntimeErrors:
             with pytest.raises(RuntimeError, match="Interpolation failed"):
                 sb.run_Interpolate(iParams)
 
+    def test_run_baseline_does_not_require_existing_baseline(self):
+        """run_baseline should construct the first baseline without a placeholder."""
+        import stochastic_benchmark as sb_module
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sb = sb_module.stochastic_benchmark(
+                here=temp_dir,
+                response_key="PerfRatio",
+                response_dir=1,
+                parameter_names=["iteration", "samples"],
+                instance_cols=["instance"],
+                reduce_mem=False,
+                smooth=False,
+            )
+            sb.interp_results = pd.DataFrame(
+                {
+                    "instance": [1, 1, 2, 2],
+                    "train": [0, 0, 0, 0],
+                    "resource": [1, 2, 1, 2],
+                    "iteration": [1, 2, 1, 2],
+                    "samples": [1, 1, 1, 1],
+                    "Key=PerfRatio": [0.5, 0.8, 0.6, 0.9],
+                    "ConfInt=lower_Key=PerfRatio": [0.4, 0.7, 0.5, 0.8],
+                    "ConfInt=upper_Key=PerfRatio": [0.6, 0.9, 0.7, 1.0],
+                }
+            )
+            sb.training_stats = pd.DataFrame()
+            sb.testing_stats = pd.DataFrame()
+            sb.stat_params = stats.StatsParameters(
+                metrics=["PerfRatio"],
+                stats_measures=[stats.Mean()],
+                lower_bounds={},
+                upper_bounds={},
+            )
+
+            assert not hasattr(sb, "baseline")
+
+            sb.run_baseline()
+
+            assert sb.baseline.name == "VirtualBest"
+
 
 class TestStochasticBenchmarkUsesLogger:
     """Tests that stochastic_benchmark uses logger, not print()."""

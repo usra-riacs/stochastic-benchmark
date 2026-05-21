@@ -161,3 +161,10 @@ examples/**/checkpoints/*.pkl
 examples/**/checkpoints/**/*.pkl
 examples/**/*.pkl
 !examples/**/*demo*.pkl
+
+# Generated plotting CSVs from example/tutorial runs. Existing tracked CSVs
+# remain tracked; force-add only if new example fixture CSVs are intentional.
+examples/**/checkpoints/params_plotting/
+examples/**/checkpoints/performance_plotting/
+examples/**/checkpoints/meta_params_plotting/
+examples/**/checkpoints/plotting_manifest.json

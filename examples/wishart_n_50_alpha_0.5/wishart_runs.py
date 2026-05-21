@@ -1,29 +1,19 @@
 import dill
-from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
-from hyperopt.fmin import generate_trials_to_calculate
 import math
 import numpy as np
 import os
 import pandas as pd
-try:
-    from pysa.sa import Solver
-except:
-    print('no pysa found')
 from scipy.sparse import csr_matrix
 import sys
 from tqdm import tqdm
 import time
 
+from wishart_paths import alpha, datapath, rerun_datapath, logname
+
 N = 50
-alpha = '0.50'
 n_reads = 1001 #TODO change this if you want
 float_type = 'float32'
 penalty = 1e6
-
-# Use relative paths based on this script's location
-script_dir = os.path.dirname(os.path.abspath(__file__))
-datapath = os.path.join(script_dir, 'data')  # Relative path for portability
-rerun_datapath = os.path.join(script_dir, 'rerun_data')  # Relative path for portability
 
 class seen_result:
     def __init__(self):
@@ -34,13 +24,15 @@ class seen_result:
     def to_dateframe(self):
         return
 
-def logname(instance_num, sweeps, replicas, pcold, phot, rerun=False):
-    log = 'inst={}_pcold={:.2f}_phot={:.1f}_replicas={}_sweeps={}.pkl'.format(instance_num, pcold, phot, replicas, sweeps)
-    obj = 'obj_inst={}_pcold={:.2f}_phot={:.1f}_replicas={}_sweeps={}.pkl'.format(instance_num, pcold, phot, replicas, sweeps) 
-    if rerun:
-        return os.path.join(rerun_datapath, log), os.path.join(rerun_datapath, obj)
-    else:
-        return os.path.join(datapath, log), os.path.join(datapath, obj)
+def _pysa_solver():
+    try:
+        from pysa.sa import Solver
+    except ImportError as exc:
+        raise ImportError(
+            'PySA is required to generate or rerun Wishart experimental data. '
+            'Install PySA before calling run_pysa() or rerun_pysa().'
+        ) from exc
+    return Solver
 
 def sol_to_bitstring(sol):
     bitstring = ''.join([str(int(x)) for x in sol])
@@ -120,6 +112,7 @@ def run_pysa(args, instance_num, pbar=None):
             min_temp = 2 * np.min(np.abs(qubo[np.nonzero(qubo)])) / np.log(100/pcold)
     #         min_temp_cal = 2*min(sum(abs(i) for i in qubo)) / np.log(100/p_cold)
             max_temp = 2 * np.max(np.abs(qubo.A).sum(axis=0)) / np.log(100/phot)
+            Solver = _pysa_solver()
             solver = Solver(problem=qubo.A, problem_type='ising', float_type=float_type)
             res = solver.metropolis_update(
                 num_sweeps = sweeps,
@@ -141,6 +134,7 @@ def run_pysa(args, instance_num, pbar=None):
         min_temp = 2 * np.min(np.abs(qubo[np.nonzero(qubo)])) / np.log(100/pcold)
 #         min_temp_cal = 2*min(sum(abs(i) for i in qubo)) / np.log(100/p_cold)
         max_temp = 2 * np.max(np.abs(qubo.A).sum(axis=0)) / np.log(100/phot)
+        Solver = _pysa_solver()
         solver = Solver(problem=qubo.A, problem_type='ising', float_type=float_type)
         res = solver.metropolis_update(
             num_sweeps = sweeps,
@@ -192,6 +186,7 @@ def rerun_pysa(params, instance_num):
         min_temp = 2 * np.min(np.abs(qubo[np.nonzero(qubo)])) / np.log(100/pcold)
 #         min_temp_cal = 2*min(sum(abs(i) for i in qubo)) / np.log(100/p_cold)
         max_temp = 2 * np.max(np.abs(qubo.A).sum(axis=0)) / np.log(100/phot)
+        Solver = _pysa_solver()
         solver = Solver(problem=qubo.A, problem_type='ising', float_type=float_type)
         res = solver.metropolis_update(
             num_sweeps = sweeps,
@@ -248,6 +243,9 @@ def process_pysa(res, gs_energy):
     return norm_score, mean_time, seen
 
 def run_hyperopt(h, hpo_trial, instance_num):
+    from hyperopt import fmin, tpe, hp
+    from hyperopt.fmin import generate_trials_to_calculate
+
     # TODO set your parameters space
     spaceVar = {'sweeps': hp.qloguniform('sweeps', 0, 4, 1),
                 'replicas': hp.quniform('replicas', 1, 16, 1),

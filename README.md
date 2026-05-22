@@ -131,6 +131,14 @@ After installing `requirements-examples.txt`, a notebook can be checked from the
 python -m jupyter nbconvert --to notebook --execute --inplace path/to/notebook.ipynb
 ```
 
+To run the same self-contained tutorial notebook smoke check used in CI:
+
+```bash
+python scripts/verify_tutorials.py --output-dir executed-notebooks
+```
+
+The manifest at `examples/tutorials.json` lists runnable notebooks and documents notebooks that are intentionally skipped because they require external setup.
+
 ## Documentation
 
 Use the root README as the entry point, then follow the focused documents for the part of the workflow you need:

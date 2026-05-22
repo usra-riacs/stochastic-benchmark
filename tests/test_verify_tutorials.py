@@ -1,0 +1,131 @@
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "verify_tutorials.py"
+SPEC = importlib.util.spec_from_file_location("verify_tutorials", SCRIPT_PATH)
+verify_tutorials = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = verify_tutorials
+SPEC.loader.exec_module(verify_tutorials)
+
+
+def write_manifest(path, entries):
+    path.write_text(json.dumps({"notebooks": entries}), encoding="utf-8")
+
+
+def make_notebook(root, rel_path):
+    notebook = root / rel_path
+    notebook.parent.mkdir(parents=True, exist_ok=True)
+    notebook.write_text("{}", encoding="utf-8")
+    return notebook
+
+
+def test_load_manifest_classifies_runnable_and_skipped_notebooks(tmp_path):
+    make_notebook(tmp_path, "examples/run.ipynb")
+    make_notebook(tmp_path, "examples/external.ipynb")
+    manifest = tmp_path / "tutorials.json"
+    write_manifest(
+        manifest,
+        [
+            {"path": "examples/run.ipynb", "category": "self_contained"},
+            {
+                "path": "examples/external.ipynb",
+                "category": "external",
+                "reason": "Requires external data",
+            },
+        ],
+    )
+
+    tutorials = verify_tutorials.load_manifest(manifest, tmp_path)
+
+    assert [tutorial.category for tutorial in tutorials] == ["self_contained", "external"]
+    assert tutorials[1].reason == "Requires external data"
+
+
+def test_load_manifest_requires_skip_reason(tmp_path):
+    make_notebook(tmp_path, "examples/external.ipynb")
+    manifest = tmp_path / "tutorials.json"
+    write_manifest(
+        manifest,
+        [{"path": "examples/external.ipynb", "category": "external"}],
+    )
+
+    try:
+        verify_tutorials.load_manifest(manifest, tmp_path)
+    except verify_tutorials.ManifestError as exc:
+        assert "skip reason" in str(exc)
+    else:
+        raise AssertionError("external notebooks without skip reasons should fail")
+
+
+def test_build_nbconvert_command_writes_to_output_directory(tmp_path):
+    notebook = make_notebook(tmp_path, "examples/demo/demo.ipynb")
+    output_dir = tmp_path / "executed" / "examples" / "demo"
+
+    command = verify_tutorials.build_nbconvert_command(
+        notebook_path=notebook,
+        output_dir=output_dir,
+        timeout=120,
+        python_executable="python",
+    )
+
+    assert command == [
+        "python",
+        "-m",
+        "jupyter",
+        "nbconvert",
+        "--to",
+        "notebook",
+        "--execute",
+        str(notebook),
+        "--output",
+        "demo.ipynb",
+        "--output-dir",
+        str(output_dir),
+        "--ExecutePreprocessor.timeout=120",
+    ]
+
+
+def test_run_tutorials_dry_run_reports_skips_and_commands(tmp_path, capsys):
+    run_notebook = make_notebook(tmp_path, "examples/run.ipynb")
+    external_notebook = make_notebook(tmp_path, "examples/external.ipynb")
+    tutorials = [
+        verify_tutorials.Tutorial(run_notebook, "self_contained"),
+        verify_tutorials.Tutorial(external_notebook, "external", "Requires external code"),
+    ]
+
+    exit_code = verify_tutorials.run_tutorials(
+        tutorials=tutorials,
+        root=tmp_path,
+        output_dir=tmp_path / "executed",
+        timeout=30,
+        dry_run=True,
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "EXECUTE examples/run.ipynb" in output
+    assert "DRY-RUN" in output
+    assert "SKIP examples/external.ipynb (external): Requires external code" in output
+
+
+def test_run_tutorials_returns_nbconvert_failure(tmp_path, monkeypatch):
+    run_notebook = make_notebook(tmp_path, "examples/run.ipynb")
+    tutorials = [verify_tutorials.Tutorial(run_notebook, "self_contained")]
+
+    def fail_nbconvert(*args, **kwargs):
+        return subprocess.CompletedProcess(args=args[0], returncode=11)
+
+    monkeypatch.setattr(verify_tutorials.subprocess, "run", fail_nbconvert)
+
+    exit_code = verify_tutorials.run_tutorials(
+        tutorials=tutorials,
+        root=tmp_path,
+        output_dir=tmp_path / "executed",
+        timeout=30,
+    )
+
+    assert exit_code == 11

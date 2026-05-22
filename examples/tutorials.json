@@ -1,0 +1,33 @@
+{
+  "notebooks": [
+    {
+      "path": "examples/TenSolver/TenSolver.ipynb",
+      "category": "self_contained"
+    },
+    {
+      "path": "examples/QAOA_iterative/qaoa_demo.ipynb",
+      "category": "self_contained"
+    },
+    {
+      "path": "examples/QAOA_multipleSplits/qaoa_multiple_splits.ipynb",
+      "category": "self_contained"
+    },
+    {
+      "path": "examples/Simulated_Annealing/simulated_annealing.ipynb",
+      "category": "self_contained"
+    },
+    {
+      "path": "examples/wishart_n_50_alpha_0.5/wishart_n_50_alpha_0.50.ipynb",
+      "category": "self_contained"
+    },
+    {
+      "path": "examples/wishart_n_50_alpha_0.5/wishart_n_50_alpha_0.50_split.ipynb",
+      "category": "self_contained"
+    },
+    {
+      "path": "examples/QEDC_to_WS_conversion/conversion.ipynb",
+      "category": "external",
+      "reason": "Requires external maxcut_benchmark code; tracked in issue #54."
+    }
+  ]
+}

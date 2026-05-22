@@ -280,12 +280,18 @@ class stochastic_benchmark:
 
         logger.info("Loading and bootstrapping experimental data...")
         if self.reduce_mem:
+            found_bs_results = self._bootstrap_checkpoint_files()
+            if len(found_bs_results) >= 1 and self.recover:
+                logger.info(
+                    "Found %s bootstrapped results files in checkpoints: reading results.",
+                    len(found_bs_results),
+                )
+                self.bs_results = found_bs_results
+                return
+
             self.raw_data = glob.glob(os.path.join(self.here.raw_data, "*.pkl"))
 
             if len(self.raw_data) == 0:
-                found_bs_results = glob.glob(
-                    os.path.join(self.here.checkpoints, "bootstrapped_results*.pkl")
-                )
                 if len(found_bs_results) >= 1:
                     logger.info(
                         "Found %s bootstrapped results files and no raw data: reading results.",
@@ -370,6 +376,24 @@ class stochastic_benchmark:
             )
             if isinstance(self.bs_results, pd.DataFrame):
                 self.bs_results.to_pickle(self.here.bootstrap)
+
+    def _bootstrap_checkpoint_files(self):
+        """
+        Return reusable bootstrapped result pickle files from checkpoints.
+
+        Reduced-memory runs write one file per group. If those files are present,
+        they should be used instead of deriving expected checkpoint names from
+        exp_raw. A single aggregate bootstrap file can also be reused by the
+        interpolation path as a one-item list.
+        """
+        segmented_results = sorted(
+            glob.glob(os.path.join(self.here.checkpoints, "bootstrapped_results_*.pkl"))
+        )
+        if len(segmented_results) >= 1:
+            return segmented_results
+        if os.path.exists(self.here.bootstrap):
+            return [self.here.bootstrap]
+        return []
 
     def set_Bootstrap(self, bs_results):
         """

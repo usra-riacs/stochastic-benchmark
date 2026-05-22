@@ -45,6 +45,42 @@ def test_load_manifest_classifies_runnable_and_skipped_notebooks(tmp_path):
     assert tutorials[1].reason == "Requires external data"
 
 
+def test_qedc_conversion_manifest_points_to_external_setup_docs():
+    root = Path(__file__).resolve().parents[1]
+    qedc_path = "examples/QEDC_to_WS_conversion/conversion.ipynb"
+    tutorials = verify_tutorials.load_manifest(root / "examples" / "tutorials.json", root)
+    qedc = next(
+        tutorial
+        for tutorial in tutorials
+        if tutorial.path.relative_to(root).as_posix() == qedc_path
+    )
+
+    assert qedc.category == "external"
+    assert "QED-C" in qedc.reason
+    assert "maxcut_benchmark" in qedc.reason
+    assert "__results" in qedc.reason
+
+    readme = (root / "examples" / "QEDC_to_WS_conversion" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    notebook = json.loads(
+        (root / "examples" / "QEDC_to_WS_conversion" / "conversion.ipynb").read_text(
+            encoding="utf-8"
+        )
+    )
+    notebook_intro = "\n".join(
+        line
+        for cell in notebook["cells"][:2]
+        for line in cell.get("source", [])
+    )
+    setup_docs = readme + "\n" + notebook_intro
+
+    assert "QC-App-Oriented-Benchmarks" in setup_docs
+    assert "qedcbench/maxcut/qiskit" in setup_docs
+    assert "maxcut_benchmark" in setup_docs
+    assert "__results" in setup_docs
+
+
 def test_load_manifest_requires_skip_reason(tmp_path):
     make_notebook(tmp_path, "examples/external.ipynb")
     manifest = tmp_path / "tutorials.json"

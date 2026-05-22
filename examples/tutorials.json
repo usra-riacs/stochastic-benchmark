@@ -29,7 +29,7 @@
     {
       "path": "examples/QEDC_to_WS_conversion/conversion.ipynb",
       "category": "external",
-      "reason": "Requires external maxcut_benchmark code; tracked in issue #54."
+      "reason": "Requires the external QED-C QC-App-Oriented-Benchmarks checkout, its maxcut_benchmark module, and QED-C __results data."
     }
   ]
 }

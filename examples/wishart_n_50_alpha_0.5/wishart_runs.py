@@ -10,6 +10,21 @@ import time
 
 from wishart_paths import alpha, datapath, rerun_datapath, logname
 
+
+def _load_hyperopt():
+    try:
+        from hyperopt import fmin, hp, tpe
+        from hyperopt.fmin import generate_trials_to_calculate
+    except ImportError as exc:
+        raise RuntimeError(
+            "Hyperopt is required for Wishart data generation. Install the "
+            "generation dependencies with `pip install -r requirements-generation.txt` "
+            "from the repository root."
+        ) from exc
+
+    return fmin, hp, tpe, generate_trials_to_calculate
+
+
 N = 50
 n_reads = 1001 #TODO change this if you want
 float_type = 'float32'
@@ -243,8 +258,7 @@ def process_pysa(res, gs_energy):
     return norm_score, mean_time, seen
 
 def run_hyperopt(h, hpo_trial, instance_num):
-    from hyperopt import fmin, tpe, hp
-    from hyperopt.fmin import generate_trials_to_calculate
+    fmin, hp, tpe, generate_trials_to_calculate = _load_hyperopt()
 
     # TODO set your parameters space
     spaceVar = {'sweeps': hp.qloguniform('sweeps', 0, 4, 1),

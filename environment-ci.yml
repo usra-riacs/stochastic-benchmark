@@ -36,7 +36,6 @@ dependencies:
     - fonttools>=4.25
     - mkl-service>=2.5.2
     - multiprocess>=0.70.18
-    - hyperopt>=0.2.7
     - munkres>=1.1.4
     # Testing dependencies from requirements-dev.txt
     - pytest

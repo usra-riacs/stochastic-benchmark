@@ -160,12 +160,21 @@ The CI environment includes:
 - networkx >= 3.0
 - tqdm >= 4.66
 
-**Additional Dependencies:**
+**Additional Core Dependencies:**
 - cloudpickle >= 2.2
 - dill >= 0.3.5
-- hyperopt >= 0.2.7
 - multiprocess >= 0.70.18
 - munkres >= 1.1.4
+
+**Optional Example Notebook Dependencies:**
+- scikit-learn >= 1.3.0
+- dimod >= 0.12
+- nbconvert >= 7
+- ipykernel >= 6
+
+**Optional Data-Generation Dependencies:**
+- hyperopt >= 0.2.7
+- setuptools < 81 (temporary Hyperopt 0.2.7 compatibility workaround)
 
 **Testing Tools:**
 - pytest

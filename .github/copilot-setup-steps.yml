@@ -16,14 +16,20 @@ setup_steps:
         - networkx
         - tqdm
         - multiprocess
+        - cloudpickle
+        - dill
       testing:
         - pytest
         - pytest-cov
         - pytest-xdist
-      optional:
+      examples:
+        - scikit-learn
+        - dimod
+        - nbconvert
+        - ipykernel
+      generation:
         - hyperopt
-        - cloudpickle
-        - dill
+        - "setuptools<81"
       development:
         - flake8
         - black  # code formatter

@@ -1,7 +1,7 @@
 # Window Sticker - Stochastic Benchmark
 
 [![CI](https://github.com/bernalde/stochastic-benchmark/actions/workflows/ci.yml/badge.svg)](https://github.com/bernalde/stochastic-benchmark/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/bernalde/stochastic-benchmark/branch/main/graph/badge.svg)](https://codecov.io/gh/bernalde/stochastic-benchmark)
+[![codecov](https://codecov.io/gh/usra-riacs/stochastic-benchmark/branch/main/graph/badge.svg)](https://codecov.io/gh/usra-riacs/stochastic-benchmark)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 [![License](https://img.shields.io/github/license/bernalde/stochastic-benchmark)](LICENSE)
 
@@ -130,6 +130,15 @@ After installing `requirements-examples.txt`, a notebook can be checked from the
 ```bash
 python -m jupyter nbconvert --to notebook --execute --inplace path/to/notebook.ipynb
 ```
+
+To run the same self-contained tutorial notebook smoke check used in CI:
+
+```bash
+python scripts/verify_tutorials.py --output-dir executed-notebooks
+```
+
+The manifest at `examples/tutorials.json` lists runnable notebooks and documents notebooks that are intentionally skipped because they require external setup or are too slow for the lightweight CI smoke job.
+The smoke check executes copied notebook directories under the output directory, so generated plots, summaries, and caches are kept with the executed notebooks instead of modifying the source examples.
 
 ## Documentation
 

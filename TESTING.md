@@ -50,6 +50,23 @@ pytest tests/test_names.py -v
 pytest tests/ --cov=src --cov-report=html
 ```
 
+### Tutorial notebook smoke checks
+
+The CI tutorial smoke job executes the self-contained notebooks listed in
+`examples/tutorials.json` and writes executed copies to `executed-notebooks/`.
+Run the same check locally with:
+
+```bash
+python scripts/verify_tutorials.py --output-dir executed-notebooks
+```
+
+The manifest also lists notebooks that are intentionally skipped with a visible
+reason, such as tutorials that require external repositories, external data, or
+more runtime than the lightweight CI smoke job should use.
+Runnable notebooks are executed from copied notebook directories under the
+output directory, keeping generated plots, summaries, caches, and executed
+notebooks together without modifying the source `examples/` tree.
+
 ## GitHub Actions CI/CD
 
 The repository includes automated testing via GitHub Actions:
@@ -58,6 +75,7 @@ The repository includes automated testing via GitHub Actions:
 - **Linting**: Code quality checks with flake8
 - **Coverage**: Automated coverage reporting via Codecov
 - **Integration Tests**: Cross-module functionality verification
+- **Tutorial Smoke Tests**: Self-contained notebooks execute on Python 3.10 and upload executed notebooks as artifacts
 
 ## Test Coverage
 

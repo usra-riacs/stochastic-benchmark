@@ -1,12 +1,18 @@
 # Functions for storing and plotting windows stickers plots
 # new functions
 
+import json
 import pickle
 import pandas as pd
 import numpy as np
 import os
 import glob
-import maxcut_benchmark
+try:
+    import maxcut_benchmark
+    from qedclib import metrics
+except ImportError:
+    maxcut_benchmark = None
+    metrics = None
 from scipy.special import erfinv
 
 times_list = ["elapsed_time", "exec_time", "opt_exec_time", "create_time"]
@@ -20,6 +26,60 @@ all_quantities_list = times_list + cumul_time_list + metrics_list + other_quanti
 def flatten(xss):
     "Flatten a list of lists"
     return [x for xs in xss for x in xs]
+
+
+def _get_width_restart_tuple_from_filename(file_name):
+    """Extract QED-C MaxCut width and restart index from a result JSON name."""
+    stem = os.path.splitext(os.path.basename(file_name))[0]
+    marker = "_restartInd_"
+    try:
+        width_text, restart_text = stem.removeprefix("width_").split(marker, maxsplit=1)
+        width = int(width_text)
+        restart = int(restart_text)
+    except (KeyError, ValueError) as exc:
+        raise ValueError(f"Unexpected QED-C result filename: {file_name}") from exc
+    return width, restart
+
+
+def _iteration_index(circuit_id, restart_ind):
+    circuit_id = int(circuit_id)
+    if circuit_id >= 1000:
+        return circuit_id // 1000, circuit_id % 1000
+    return restart_ind, circuit_id
+
+
+def _load_metrics_from_qedc_json(folder):
+    """Load the small QED-C JSON subset needed by this conversion utility."""
+    width_files = sorted(
+        file_name
+        for file_name in os.listdir(folder)
+        if file_name.startswith("width") and file_name.endswith(".json")
+    )
+    if not width_files:
+        raise FileNotFoundError(f"No QED-C width_*.json files found in {folder}")
+
+    detail_by_width = {}
+    gen_prop = None
+    for file_name in width_files:
+        width, restart_ind = _get_width_restart_tuple_from_filename(file_name)
+        with open(os.path.join(folder, file_name), "r", encoding="utf-8") as json_file:
+            data = json.load(json_file)
+
+        gen_prop = data["general_properties"]
+        width_metrics = detail_by_width.setdefault(str(width), {})
+        for circuit_id, metric_values in data["iterations"].items():
+            restart_index, minimizer_iteration = _iteration_index(circuit_id, restart_ind)
+            restart_metrics = width_metrics.setdefault(restart_index, {})
+            restart_metrics[minimizer_iteration] = metric_values
+
+    return gen_prop, detail_by_width
+
+
+def _load_qedc_metrics(folder):
+    if maxcut_benchmark is not None and metrics is not None:
+        gen_prop = maxcut_benchmark.load_all_metrics(folder)
+        return gen_prop, metrics.circuit_metrics_detail_2
+    return _load_metrics_from_qedc_json(folder)
 
 
 def json_to_pkl(folder, load_from_json = False, target_folder = None, target_file_name = None, monotonized = True):
@@ -77,13 +137,13 @@ def json_to_pkl(folder, load_from_json = False, target_folder = None, target_fil
         print(f"Loading from json files...")
         if not os.path.exists(target_folder) : os.makedirs(target_folder)
         
-        gen_prop = maxcut_benchmark.load_all_metrics(folder)
+        gen_prop, detail_by_width = _load_qedc_metrics(folder)
         mini_iters = gen_prop['max_iter']
         restarts = gen_prop['max_circuits']
        
         # create a multiindex dataframe, indexed by 1) minimizer iteration number and 2)
         num_qubits = gen_prop['min_qubits']
-        detail_2_width = metrics.circuit_metrics_detail_2[str(num_qubits)]
+        detail_2_width = detail_by_width[str(num_qubits)]
         # for each restart, get the time series of the metric
         # all_qtys_dict = {qty : [] for qty in all_quantities_list}
         metric = gen_prop['objective_func_type']

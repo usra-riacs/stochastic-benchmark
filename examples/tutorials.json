@@ -28,8 +28,7 @@
     },
     {
       "path": "examples/QEDC_to_WS_conversion/conversion.ipynb",
-      "category": "external",
-      "reason": "Requires external maxcut_benchmark code; tracked in issue #54."
+      "category": "self_contained"
     }
   ]
 }

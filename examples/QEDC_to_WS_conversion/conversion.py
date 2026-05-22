@@ -7,6 +7,7 @@ import numpy as np
 import os
 import glob
 import maxcut_benchmark
+from qedclib import metrics
 from scipy.special import erfinv
 
 times_list = ["elapsed_time", "exec_time", "opt_exec_time", "create_time"]

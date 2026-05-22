@@ -2,12 +2,12 @@
 
 This directory contains an external conversion utility for QED-C MaxCut output.
 It is not a self-contained stochastic-benchmark tutorial: `conversion.py`
-imports QED-C's `maxcut_benchmark` module and expects QED-C result JSON files
-under a local `__results` directory.
+imports QED-C's `maxcut_benchmark` and `qedclib.metrics` modules and expects
+QED-C result JSON files under a local `__results` directory.
 
-`maxcut_benchmark` is supplied by the QED-C repository. It is not provided by
-this repository and is not available as a PyPI package named
-`maxcut-benchmark`.
+`maxcut_benchmark` and `qedclib` are supplied by the QED-C repository. They are
+not provided by this repository, and `maxcut_benchmark` is not available as a
+PyPI package named `maxcut-benchmark`.
 
 ## External setup
 

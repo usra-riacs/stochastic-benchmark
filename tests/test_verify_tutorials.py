@@ -58,6 +58,7 @@ def test_qedc_conversion_manifest_points_to_external_setup_docs():
     assert qedc.category == "external"
     assert "QED-C" in qedc.reason
     assert "maxcut_benchmark" in qedc.reason
+    assert "qedclib.metrics" in qedc.reason
     assert "__results" in qedc.reason
 
     readme = (root / "examples" / "QEDC_to_WS_conversion" / "README.md").read_text(
@@ -78,6 +79,7 @@ def test_qedc_conversion_manifest_points_to_external_setup_docs():
     assert "QC-App-Oriented-Benchmarks" in setup_docs
     assert "qedcbench/maxcut/qiskit" in setup_docs
     assert "maxcut_benchmark" in setup_docs
+    assert "qedclib.metrics" in setup_docs
     assert "__results" in setup_docs
 
 

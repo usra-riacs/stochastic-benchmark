@@ -132,10 +132,11 @@ def test_run_tutorials_returns_nbconvert_failure(tmp_path, monkeypatch):
 
 
 def test_run_tutorials_executes_copied_workspace(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     run_notebook = make_notebook(tmp_path, "examples/demo/demo.ipynb")
     source_data = tmp_path / "examples" / "demo" / "input.txt"
     source_data.write_text("source data", encoding="utf-8")
-    output_dir = tmp_path / "executed"
+    output_dir = Path("executed")
     tutorials = [verify_tutorials.Tutorial(run_notebook, "self_contained")]
     calls = []
 
@@ -154,7 +155,7 @@ def test_run_tutorials_executes_copied_workspace(tmp_path, monkeypatch):
         timeout=30,
     )
 
-    workspace = output_dir / "examples" / "demo"
+    workspace = tmp_path / "executed" / "examples" / "demo"
     assert exit_code == 0
     assert calls[0][0][7] == str(workspace / "demo.ipynb")
     assert calls[0][1]["cwd"] == workspace

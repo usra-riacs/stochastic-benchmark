@@ -153,6 +153,7 @@ def run_tutorials(
     timeout: int,
     dry_run: bool = False,
 ) -> int:
+    output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     env = _env_with_src_path(root)
 

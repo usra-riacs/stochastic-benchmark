@@ -18,7 +18,8 @@
     },
     {
       "path": "examples/wishart_n_50_alpha_0.5/wishart_n_50_alpha_0.50.ipynb",
-      "category": "self_contained"
+      "category": "slow",
+      "reason": "Self-contained but exceeds the lightweight GitHub Actions smoke timeout."
     },
     {
       "path": "examples/wishart_n_50_alpha_0.5/wishart_n_50_alpha_0.50_split.ipynb",

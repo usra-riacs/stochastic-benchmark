@@ -137,7 +137,7 @@ To run the same self-contained tutorial notebook smoke check used in CI:
 python scripts/verify_tutorials.py --output-dir executed-notebooks
 ```
 
-The manifest at `examples/tutorials.json` lists runnable notebooks and documents notebooks that are intentionally skipped because they require external setup.
+The manifest at `examples/tutorials.json` lists runnable notebooks and documents notebooks that are intentionally skipped because they require external setup or are too slow for the lightweight CI smoke job.
 
 ## Documentation
 

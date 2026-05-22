@@ -61,7 +61,8 @@ python scripts/verify_tutorials.py --output-dir executed-notebooks
 ```
 
 The manifest also lists notebooks that are intentionally skipped with a visible
-reason, such as tutorials that require external repositories or data.
+reason, such as tutorials that require external repositories, external data, or
+more runtime than the lightweight CI smoke job should use.
 
 ## GitHub Actions CI/CD
 

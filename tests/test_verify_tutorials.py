@@ -45,7 +45,7 @@ def test_load_manifest_classifies_runnable_and_skipped_notebooks(tmp_path):
     assert tutorials[1].reason == "Requires external data"
 
 
-def test_qedc_conversion_manifest_points_to_external_setup_docs():
+def test_qedc_conversion_manifest_is_self_contained_with_fixture_docs():
     root = Path(__file__).resolve().parents[1]
     qedc_path = "examples/QEDC_to_WS_conversion/conversion.ipynb"
     tutorials = verify_tutorials.load_manifest(root / "examples" / "tutorials.json", root)
@@ -55,11 +55,8 @@ def test_qedc_conversion_manifest_points_to_external_setup_docs():
         if tutorial.path.relative_to(root).as_posix() == qedc_path
     )
 
-    assert qedc.category == "external"
-    assert "QED-C" in qedc.reason
-    assert "maxcut_benchmark" in qedc.reason
-    assert "qedclib.metrics" in qedc.reason
-    assert "__results" in qedc.reason
+    assert qedc.category == "self_contained"
+    assert qedc.reason == ""
 
     readme = (root / "examples" / "QEDC_to_WS_conversion" / "README.md").read_text(
         encoding="utf-8"
@@ -76,6 +73,9 @@ def test_qedc_conversion_manifest_points_to_external_setup_docs():
     )
     setup_docs = readme + "\n" + notebook_intro
 
+    assert "tiny QED-C-compatible fixture" in setup_docs
+    assert "benchmark-quality" in setup_docs
+    assert "self-contained" in setup_docs
     assert "QC-App-Oriented-Benchmarks" in setup_docs
     assert "qedcbench/maxcut/qiskit" in setup_docs
     assert "maxcut_benchmark" in setup_docs

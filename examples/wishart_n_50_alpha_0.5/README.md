@@ -10,10 +10,11 @@ This example has different dependencies depending on what you want to do:
 
 #### For Running Analysis Only (using pre-generated data):
 ```bash
+pip install -r ../../requirements.txt
 pip install -r ../../requirements-examples.txt
 ```
 
-This installs:
+This installs the core stochastic-benchmark dependencies plus:
 - **scikit-learn** - Required for polynomial regression models in parameter recommendation
 
 #### For Generating New Experimental Data:
@@ -23,7 +24,7 @@ If you want to generate new data (not just analyze existing results), you also n
 
 These generation-only dependencies are imported lazily by `wishart_runs.py`, so importing the analysis helpers in `wishart_ws.py` does not require them.
 
-The analysis notebook (`wishart_n_50_alpha_0.50.ipynb`) only requires scikit-learn and works with pre-generated data files.
+The analysis notebook (`wishart_n_50_alpha_0.50.ipynb`) requires the core stochastic-benchmark dependencies and scikit-learn, and works with pre-generated data files without importing PySA-only generation paths.
 
 ### Data Files
 
@@ -48,6 +49,7 @@ wishart_n_50_alpha_0.5/
 
 2. **Install dependencies**:
    ```bash
+   pip install -r ../../requirements.txt
    pip install -r ../../requirements-examples.txt
    ```
 

@@ -18,6 +18,15 @@ from matplotlib.ticker import (
     MultipleLocator,
 )
 
+try:
+    from qaoa_parameter_setting.utils.labels import (
+        format_method_label_to as _qps_external_format_method_label_to,
+        trainer_config_to_method_label as _qps_external_trainer_config_to_method_label,
+    )
+except Exception:
+    _qps_external_format_method_label_to = None
+    _qps_external_trainer_config_to_method_label = None
+
 
 def is_empty_nested_list(x):
     """Check whether `x` is a non-empty list of empty lists.
@@ -150,9 +159,13 @@ def plot_ar_hist_by_training_method_with_points(
                    label="Best AR", zorder=5)
 
         ax.set_xticks(x_pos)
-        ax.set_xticklabels(methods, rotation=45, ha="right")
+        ax.set_xticklabels(
+            [_compact_method_label(method) for method in methods],
+            rotation=45,
+            ha="right",
+        )
         ax.set_ylabel("Approximation Ratio")
-        ax.set_xlabel("Training_method")
+        ax.set_xlabel("Training method")
         ax.set_xlim(-0.7, len(methods) - 0.3)
         ax.set_ylim(0.45, 1.00)
         ax.set_title(f"{instance_name} | p={job_p} | {title_suffix}")
@@ -342,6 +355,40 @@ _METHOD_NAMES = {
 }
 _REOPT_METHODS = {"FA", "TQA"}
 _PURE_FIXED_ANGLE_COLOR = "#6a3d9a"
+_QPS_METHOD_LABELS = {
+    "F.json": "Fourier*",
+    "FAer.json": "Fourier*",
+    "FA_no_opt.json": "Fixed Angles†",
+    "FA_opt.json": "Fixed Angles*",
+    "FAAer_opt.json": "Fixed Angles*",
+    "FAAer_no_opt.json": "Fixed Angles†",
+    "I.json": "Interp.*",
+    "IAer.json": "Interp.*",
+    "I_no_opt.json": "Interp.",
+    "IAer_no_opt.json": "Interp.",
+    "LR_opt.json": "Linear Ramp",
+    "LRAer_opt.json": "Linear Ramp",
+    "LR_no_opt.json": "Linear Ramp†",
+    "LRAer_no_opt.json": "Linear Ramp†",
+    "LR_angle_opt.json": "Linear Ramp*",
+    "LRAer_angle_opt.json": "Linear Ramp*",
+    "RTS.json": "Recursive TS",
+    "RTSAer.json": "Recursive TS",
+    "TS.json": "Recursive TS",
+    "TQA_no_opt.json": "TQA",
+    "TQA_opt.json": "TQA*",
+    "TQAAer_opt.json": "TQA*",
+    "TQAAer_no_opt.json": "TQA",
+    "PT_AAAM.json": "Param. Transfer",
+    "PT_AAA.json": "Param. Transfer",
+}
+_QPS_METHOD_PREFIXES = tuple(
+    sorted(
+        {name.removesuffix(".json").split("_", 1)[0] for name in _QPS_METHOD_LABELS},
+        key=len,
+        reverse=True,
+    )
+)
 
 
 def _is_pure_fixed_angle_label(color_label: str) -> bool:
@@ -365,33 +412,94 @@ def _hw_style_ind(color_label: str) -> int | None:
 
 def _compact_method_label(label: str) -> str:
     """Build the compact display label used in IBM QAOA plot legends."""
-    parts = label.split("_")
-    method_key = parts[0] if parts else label
-    evaluator = parts[1] if len(parts) > 1 else ""
-    method_str = _METHOD_NAMES.get(method_key, method_key)
-    has_no_opt = "no" in parts and "opt" in parts
-    has_angle_opt = any(token in {"angleOpt", "*"} for token in parts)
-    has_param_opt = ("opt" in parts) and not has_no_opt and not has_angle_opt
-
-    if has_angle_opt:
-        method_str = rf"{method_str}$^{{*}}$"
-    elif has_param_opt:
-        method_str = rf"{method_str}$^{{\dagger}}$"
-
-    return f"{method_str} with {evaluator}" if evaluator else method_str
+    method_label = _method_label_from_training_method(label, format="latex")
+    evaluator = _evaluation_label_from_training_method(label)
+    return f"{method_label} with {evaluator}" if evaluator else method_label
 
 
 def _optimization_level(label: str) -> int:
-    """Return 0=no opt, 1=method-parameter opt, 2=angle opt."""
-    parts = str(label).split("_")
-    has_no_opt = "no" in parts and "opt" in parts
-    has_angle_opt = any(token in {"angleOpt", "*"} for token in parts)
-    has_param_opt = ("opt" in parts) and not has_no_opt and not has_angle_opt
-    if has_angle_opt:
+    """Return 0=no opt, 1=method-parameter opt, 2=full angle opt."""
+    method_label = _method_label_from_training_method(label, format="text")
+    if "*" in method_label:
         return 2
-    if has_param_opt:
-        return 1
-    return 0
+    if "†" in method_label:
+        return 0
+    return 1
+
+
+def _qps_format_method_label(label: str, format: str = "latex") -> str:
+    """Format QAOA Parameter Setting label markers for display."""
+    if format in {"latex", "siunitx"}:
+        return label.replace("*", r"$^\star$").replace("†", r"$^\dagger$")
+    return label
+
+
+def _normalise_training_method_to_config(label: str) -> str:
+    """Convert IBM method strings/filenames to canonical QPS config names."""
+    value = str(label).split("|", 1)[0].strip()
+    basename = Path(value).name
+    stem = basename[:-5] if basename.endswith(".json") else basename
+    parts = stem.split("_")
+
+    start_idx = None
+    for idx, part in enumerate(parts):
+        if part in _QPS_METHOD_PREFIXES:
+            start_idx = idx
+            break
+    if start_idx is not None:
+        stem = "_".join(parts[start_idx:])
+
+    stem = re.sub(r"_\d+$", "", stem)
+    stem = re.sub(r"angleOpt(?:MW|BD)?\d*", "angle_opt", stem)
+    stem = re.sub(r"noOpt(?:MW|BD)?\d*", "no_opt", stem)
+    stem = re.sub(r"opt(?:MW|BD)\d*", "opt", stem)
+    stem = re.sub(r"_+", "_", stem).strip("_")
+    return f"{stem}.json"
+
+
+def _method_config_to_method(config_name: str) -> str:
+    """Drop the evaluator token from a canonical trainer config name."""
+    return re.sub(r"_(?:MPSAer|MPS|PP|SV)(?=_)", "", config_name)
+
+
+def _method_label_from_training_method(label: str, format: str = "latex") -> str:
+    """Map IBM method keys through the QPS method-label convention."""
+    config_name = _normalise_training_method_to_config(label)
+    if (
+        _qps_external_trainer_config_to_method_label is not None
+        and _qps_external_format_method_label_to is not None
+    ):
+        try:
+            return _qps_external_format_method_label_to(
+                _qps_external_trainer_config_to_method_label(config_name),
+                format=format,
+            )
+        except Exception:
+            pass
+
+    method_name = _method_config_to_method(config_name)
+    method_label = _QPS_METHOD_LABELS.get(method_name)
+
+    if method_label is None:
+        parts = method_name.removesuffix(".json").split("_")
+        method_key = parts[0] if parts else method_name.removesuffix(".json")
+        method_label = _METHOD_NAMES.get(method_key, method_key)
+
+    return _qps_format_method_label(method_label, format=format)
+
+
+def _evaluation_label_from_training_method(label: str) -> str:
+    """Return the canonical evaluator label used by QPS plots."""
+    config_name = _normalise_training_method_to_config(label)
+    if "_MPSAer_" in config_name:
+        return "MPS (Aer)"
+    if "_MPS_" in config_name:
+        return "MPS (Quimb)"
+    if "_PP_" in config_name:
+        return "PP"
+    if "_SV_" in config_name:
+        return "SV"
+    return ""
 
 
 def _optimization_size_maps(
@@ -416,9 +524,9 @@ def _optimization_legend_handles(
     """Build a compact legend key for optimization-state marker sizing."""
     _, centroid_ms_map = _optimization_size_maps()
     labels = {
-        0: "no optimization",
-        1: r"$^{\dagger}$ method-parameter optimization",
-        2: r"$^{*}$ QAOA angle optimization",
+        0: r"$^\dagger$ no optimization",
+        1: "method-parameter optimization",
+        2: r"$^\star$ full angle optimization",
     }
     return [
         Line2D(
@@ -2096,5 +2204,244 @@ def plot_method_curves(
     plt.title(title)
     plt.grid(alpha=0.25)
     plt.legend()
+    save_current_plot(filename, plot_dir)
+    plt.show()
+
+
+def plot_exact_resource_model_predictions(
+    prediction_df: pd.DataFrame,
+    summary_df: pd.DataFrame,
+    *,
+    plot_dir: str | Path,
+    filename: str = "exact_resource_model_predictions",
+) -> None:
+    """Plot predicted versus measured exact resource for the best model."""
+    if prediction_df.empty or summary_df.empty:
+        print("Skipping exact-resource model plot: no prediction data found.")
+        return
+
+    best_model = str(summary_df.iloc[0]["model"])
+    model_df = prediction_df[prediction_df["model"].astype(str).eq(best_model)].copy()
+    if model_df.empty:
+        print("Skipping exact-resource model plot: best model has no rows.")
+        return
+
+    measured = pd.to_numeric(model_df["T_exact"], errors="coerce")
+    predicted = pd.to_numeric(model_df["T_exact_pred"], errors="coerce")
+    finite = measured.notna() & predicted.notna() & (measured > 0) & (predicted > 0)
+    model_df = model_df.loc[finite].copy()
+    if model_df.empty:
+        print("Skipping exact-resource model plot: no positive measured/predicted pairs.")
+        return
+
+    lo = float(min(model_df["T_exact"].min(), model_df["T_exact_pred"].min()))
+    hi = float(max(model_df["T_exact"].max(), model_df["T_exact_pred"].max()))
+    diag = np.geomspace(lo, hi, 200)
+
+    plt.figure(figsize=(6.5, 5.5))
+    for split, group in model_df.groupby("split"):
+        plt.scatter(
+            group["T_exact"],
+            group["T_exact_pred"],
+            s=26,
+            alpha=0.72,
+            label=str(split),
+        )
+    plt.plot(diag, diag, color="black", linewidth=2.0, linestyle="--", label="ideal")
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.xlabel(r"Measured resource $T_{\mathrm{exact}}$ (s)")
+    plt.ylabel(r"Predicted resource $\hat{T}_{\mathrm{exact}}$ (s)")
+    plt.title(f"Exact-resource model: {best_model}")
+    plt.grid(alpha=0.25)
+    plt.legend()
+    save_current_plot(filename, plot_dir)
+    plt.show()
+
+
+def _prepare_parameter_curve(
+    df: pd.DataFrame,
+    *,
+    resource_col: str,
+    parameter_cols: tuple[str, ...],
+) -> pd.DataFrame:
+    """Collapse duplicate resource rows for parameter-prescription plotting."""
+    required = {resource_col, *parameter_cols}
+    if df.empty or not required.issubset(df.columns):
+        return pd.DataFrame(columns=[resource_col, *parameter_cols])
+    curve = df.loc[:, [resource_col, *parameter_cols]].copy()
+    curve[resource_col] = pd.to_numeric(curve[resource_col], errors="coerce")
+    for col in parameter_cols:
+        curve[col] = pd.to_numeric(curve[col], errors="coerce")
+    curve = curve.dropna(subset=[resource_col, *parameter_cols])
+    curve = curve[curve[resource_col] > 0]
+    if curve.empty:
+        return curve
+    return (
+        curve.groupby(resource_col, as_index=False)
+        .median(numeric_only=True)
+        .sort_values(resource_col)
+        .reset_index(drop=True)
+    )
+
+
+def map_resource_to_log_range(
+    df: pd.DataFrame,
+    *,
+    source_col: str,
+    target_col: str,
+    source_range: tuple[float, float],
+    target_range: tuple[float, float],
+) -> pd.DataFrame:
+    """Map a positive resource coordinate onto another positive range in log-space."""
+    mapped = df.copy()
+    if mapped.empty or source_col not in mapped.columns:
+        return mapped
+
+    source_min, source_max = [float(value) for value in source_range]
+    target_min, target_max = [float(value) for value in target_range]
+    if source_min <= 0 or source_max <= 0 or target_min <= 0 or target_max <= 0:
+        raise ValueError("source_range and target_range must be positive.")
+    if np.isclose(np.log(source_min), np.log(source_max)):
+        raise ValueError("source_range must span more than one positive value.")
+
+    values = pd.to_numeric(mapped[source_col], errors="coerce").to_numpy(dtype=float)
+    transformed = np.full(len(mapped), np.nan, dtype=float)
+    mask = np.isfinite(values) & (values > 0)
+    if mask.any():
+        normalized = (np.log(values[mask]) - np.log(source_min)) / (np.log(source_max) - np.log(source_min))
+        transformed[mask] = np.exp(np.log(target_min) + normalized * (np.log(target_max) - np.log(target_min)))
+    mapped[target_col] = transformed
+    return mapped
+
+
+def plot_parameter_prescriptions_by_resource(
+    *,
+    candidate_df: pd.DataFrame,
+    virtual_best_df: pd.DataFrame,
+    actionable_df: pd.DataFrame,
+    plot_dir: str | Path,
+    filename: str,
+    title: str,
+    xlabel: str,
+    lookup_df: pd.DataFrame | None = None,
+    candidate_resource_col: str = "T",
+    curve_resource_col: str = "resource",
+    parameter_cols: tuple[str, ...] = ("N", "M", "Q"),
+    parameter_ylims: dict[str, tuple[float, float]] | None = None,
+    connect_points: bool = True,
+    show_virtual_best: bool = True,
+    show_lookup: bool = True,
+    actionable_marker: str | None = "s",
+) -> None:
+    """Plot N/M/Q prescriptions against a resource axis."""
+    parameter_ylims = parameter_ylims or {}
+    required_candidate = {candidate_resource_col, *parameter_cols}
+    if candidate_df.empty or not required_candidate.issubset(candidate_df.columns):
+        print(f"Skipping {title}: candidate parameter data not found.")
+        return
+
+    candidates = candidate_df.loc[:, [candidate_resource_col, *parameter_cols]].copy()
+    candidates[candidate_resource_col] = pd.to_numeric(candidates[candidate_resource_col], errors="coerce")
+    for col in parameter_cols:
+        candidates[col] = pd.to_numeric(candidates[col], errors="coerce")
+    candidates = candidates.dropna(subset=[candidate_resource_col, *parameter_cols])
+    candidates = candidates[candidates[candidate_resource_col] > 0].drop_duplicates()
+    if candidates.empty:
+        print(f"Skipping {title}: no positive candidate resource values.")
+        return
+
+    curves = {}
+    if show_virtual_best:
+        curves["Average virtual-best winner"] = (
+            _prepare_parameter_curve(
+                virtual_best_df,
+                resource_col=curve_resource_col,
+                parameter_cols=parameter_cols,
+            ),
+            {"color": "tab:blue", "marker": "o", "linewidth": 2.1, "linestyle": "-"},
+        )
+    if show_lookup and lookup_df is not None:
+        curves["Lookup prescription"] = (
+            _prepare_parameter_curve(
+                lookup_df,
+                resource_col=curve_resource_col,
+                parameter_cols=parameter_cols,
+            ),
+            {"color": "tab:green", "marker": "^", "linewidth": 1.8, "linestyle": "--"},
+        )
+    curves["Actionable prescription"] = (
+        _prepare_parameter_curve(
+            actionable_df,
+            resource_col=curve_resource_col,
+            parameter_cols=parameter_cols,
+        ),
+        {"color": "tab:orange", "marker": actionable_marker, "linewidth": 2.1, "linestyle": "-"},
+    )
+
+    fig, axes = plt.subplots(
+        len(parameter_cols),
+        1,
+        figsize=(13.5, 10),
+        sharex=True,
+        constrained_layout=True,
+    )
+    if len(parameter_cols) == 1:
+        axes = [axes]
+
+    for ax, parameter in zip(axes, parameter_cols):
+        ax.scatter(
+            candidates[candidate_resource_col],
+            candidates[parameter],
+            s=24,
+            color="0.55",
+            alpha=0.45,
+            linewidths=0,
+            label="Candidate settings",
+            zorder=1,
+        )
+        for label, (curve, style) in curves.items():
+            if curve.empty:
+                continue
+            if connect_points:
+                ax.plot(
+                    curve[curve_resource_col],
+                    curve[parameter],
+                    label=label,
+                    markersize=6,
+                    zorder=3,
+                    **style,
+                )
+            else:
+                ax.scatter(
+                    curve[curve_resource_col],
+                    curve[parameter],
+                    label=label,
+                    s=42,
+                    color=style["color"],
+                    marker=style["marker"] or "o",
+                    alpha=0.95,
+                    zorder=3,
+                )
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_ylabel(parameter, fontsize=13)
+        if parameter in parameter_ylims:
+            ax.set_ylim(*parameter_ylims[parameter])
+        ax.grid(alpha=0.35, which="major", linestyle="-.")
+        ax.grid(alpha=0.12, which="minor", linestyle=":")
+
+    axes[-1].set_xlabel(xlabel, fontsize=13)
+    fig.suptitle(title, fontsize=17)
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.02),
+        ncol=4,
+        frameon=True,
+    )
     save_current_plot(filename, plot_dir)
     plt.show()

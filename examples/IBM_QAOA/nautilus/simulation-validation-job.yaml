@@ -1,0 +1,106 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ibm-qaoa-simulation-validation
+  namespace: usra-expedetions
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: runner
+          image: python:3.11-bookworm
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -lc
+          args:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends git build-essential
+              rm -rf /var/lib/apt/lists/*
+
+              mkdir -p /workspace/repos
+              cd /workspace/repos
+              if [[ -d stochastic-benchmark/.git ]]; then
+                git -C stochastic-benchmark fetch origin "${STOCHASTIC_BENCHMARK_BRANCH}"
+                git -C stochastic-benchmark checkout "${STOCHASTIC_BENCHMARK_BRANCH}"
+                git -C stochastic-benchmark pull --ff-only origin "${STOCHASTIC_BENCHMARK_BRANCH}"
+              else
+                git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 "${STOCHASTIC_BENCHMARK_REPO}" stochastic-benchmark
+              fi
+
+              if [[ -f stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh ]]; then
+                bash stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh
+              else
+                git clone --branch "${QPS_BRANCH}" --depth 1 "${QPS_REPO_URL}" QAOA-Parameter-Setting
+                git clone --branch "${QAOA_PIPELINE_BRANCH}" --depth 1 "${QAOA_PIPELINE_REPO_URL}" qaoa_training_pipeline
+
+                python -m pip install --upgrade pip setuptools wheel
+                python -m pip install -r stochastic-benchmark/requirements.txt -r stochastic-benchmark/requirements-examples.txt
+                python -m pip install -e qaoa_training_pipeline qiskit-aer
+                python -m pip install -e QAOA-Parameter-Setting
+                python -m pip install -e stochastic-benchmark
+
+                export MPLCONFIGDIR=/tmp/matplotlib
+                export NUMBA_CACHE_DIR=/tmp/numba-cache
+                export QAOA_PARAMETER_SETTING_ROOT=/workspace/repos/QAOA-Parameter-Setting
+                export QAOA_TRAINING_PIPELINE_ROOT=/workspace/repos/qaoa_training_pipeline
+                export IBM_QAOA_INSTANCE_CACHE_ROOT=/workspace/data/generated_instances
+                export PYTHONPATH=/workspace/repos/stochastic-benchmark/src:${PYTHONPATH:-}
+                mkdir -p "${MPLCONFIGDIR}" "${NUMBA_CACHE_DIR}" /workspace/data /workspace/results
+
+                cd /workspace/repos/stochastic-benchmark
+                python examples/IBM_QAOA/run_prepare_pss_campaign.py \
+                  --main-repo "${QAOA_PARAMETER_SETTING_ROOT}" \
+                  --pipeline-repo "${QAOA_TRAINING_PIPELINE_ROOT}" \
+                  --instance-cache-root "${IBM_QAOA_INSTANCE_CACHE_ROOT}" \
+                  --output-root /workspace/results/pss_window_sticker/heavy_hex_144_small \
+                  --graph-type heavy_hex \
+                  --num-nodes 144 \
+                  --p-values 5 \
+                  --train-count 10 \
+                  --test-count 5 \
+                  --start-train-index 100 \
+                  --fa-method-name FA_PP_opt \
+                  --pt-method-name "" \
+                  --fa-n-values 10,20,50,75,100 \
+                  --fa-m-values 10,50,100,200 \
+                  --q-values 100,500,1000,5000 \
+                  --t-grid-points 500 \
+                  --t-grid-scale log \
+                  --mps-chi 20 \
+                  --max-parallel-threads 4
+              fi
+          env:
+            - name: WORKDIR
+              value: /workspace
+            - name: STOCHASTIC_BENCHMARK_REPO
+              value: https://github.com/usra-riacs/stochastic-benchmark.git
+            - name: STOCHASTIC_BENCHMARK_BRANCH
+              value: QAOA_Parameter_Setting_IBM
+            - name: QPS_REPO_URL
+              value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
+            - name: QPS_BRANCH
+              value: main
+            - name: QAOA_PIPELINE_REPO_URL
+              value: https://github.com/qiskit-community/qaoa_training_pipeline.git
+            - name: QAOA_PIPELINE_BRANCH
+              value: main
+          resources:
+            requests:
+              cpu: "8"
+              memory: 32Gi
+            limits:
+              cpu: "16"
+              memory: 64Gi
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: ibm-qaoa-workspace

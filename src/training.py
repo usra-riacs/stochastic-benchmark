@@ -191,7 +191,7 @@ def best_recommended(
         Dataframe containing best recommended parameters for each instance
     """
 
-    br = vb.groupby(resource_col).mean()
+    br = vb.groupby(resource_col).mean(numeric_only=True)
     return br[parameter_names + additional_cols]
 
 

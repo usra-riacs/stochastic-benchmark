@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ibm-qaoa-dev
+  namespace: usra-expedetions
+spec:
+  restartPolicy: Never
+  containers:
+    - name: dev
+      image: python:3.11-bookworm
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/bash
+        - -lc
+      args:
+        - |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends git build-essential openssh-client
+          rm -rf /var/lib/apt/lists/*
+          mkdir -p /workspace/repos /workspace/data /workspace/results
+
+          if [[ -d /workspace/repos/stochastic-benchmark/.git ]]; then
+            git -C /workspace/repos/stochastic-benchmark fetch origin "${STOCHASTIC_BENCHMARK_BRANCH}"
+            git -C /workspace/repos/stochastic-benchmark checkout "${STOCHASTIC_BENCHMARK_BRANCH}"
+            git -C /workspace/repos/stochastic-benchmark pull --ff-only origin "${STOCHASTIC_BENCHMARK_BRANCH}"
+          else
+            git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" "${STOCHASTIC_BENCHMARK_REPO}" /workspace/repos/stochastic-benchmark
+          fi
+
+          sleep infinity
+      env:
+        - name: STOCHASTIC_BENCHMARK_REPO
+          value: https://github.com/usra-riacs/stochastic-benchmark.git
+        - name: STOCHASTIC_BENCHMARK_BRANCH
+          value: QAOA_Parameter_Setting_IBM
+      resources:
+        requests:
+          cpu: "4"
+          memory: 16Gi
+        limits:
+          cpu: "8"
+          memory: 32Gi
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+  volumes:
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: ibm-qaoa-workspace

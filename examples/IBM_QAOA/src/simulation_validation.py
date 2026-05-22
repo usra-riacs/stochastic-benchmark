@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 import networkx as nx
@@ -2750,6 +2751,213 @@ def build_budget_frontier(
     )
 
 
+def attach_ws_codebook_columns(
+    frontier_df: pd.DataFrame,
+    codebooks: dict[str, dict[int, Any]],
+) -> pd.DataFrame:
+    """Attach stochastic-benchmark code columns expected by the WS workflow."""
+    if frontier_df.empty:
+        return frontier_df
+
+    out = frontier_df.copy()
+    strategy_reverse = {str(value): int(code) for code, value in codebooks.get("strategy", {}).items()}
+    simulation_reverse = {str(value): int(code) for code, value in codebooks.get("simulation", {}).items()}
+    out["strategy_code"] = out["strategy"].astype(str).map(strategy_reverse).astype(float)
+    out["simulation_code"] = out["simulation_method"].astype(str).map(simulation_reverse).astype(float)
+    out["train"] = out["split"].astype(str).map({"train": 1, "test": 0}).astype(int)
+    return out
+
+
+def build_resource_frontier_from_exact_points(
+    exact_df: pd.DataFrame,
+    *,
+    codebooks: dict[str, dict[int, Any]],
+    budget_col: str,
+    num_bins: int = 1000,
+    scale: str = "log",
+) -> pd.DataFrame:
+    """Build a binned frontier using a measured or proxy resource column."""
+    frontier_df = build_binned_budget_dataset(
+        exact_df,
+        num_bins=num_bins,
+        budget_col=budget_col,
+        scale=scale,
+    )
+    return attach_ws_codebook_columns(frontier_df, codebooks)
+
+
+def _positive_numeric_frame(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for col in columns:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+    out = out.replace([np.inf, -np.inf], np.nan)
+    return out.dropna(subset=columns)
+
+
+def _fit_exact_resource_model(
+    train_df: pd.DataFrame,
+    model: str,
+    *,
+    target_col: str,
+) -> dict[str, Any]:
+    n = train_df["N"].to_numpy(dtype=float)
+    m = train_df["M"].to_numpy(dtype=float)
+    q = train_df["Q"].to_numpy(dtype=float)
+    y = train_df[target_col].to_numpy(dtype=float)
+
+    if model == "proxy_like_nm_q":
+        x = np.column_stack([n * m, q])
+        beta = np.linalg.lstsq(x, y, rcond=None)[0]
+        expression = f"T_exact = {beta[0]:.6g} N M + {beta[1]:.6g} Q"
+    elif model == "linear_n_m_q":
+        x = np.column_stack([np.ones(len(train_df)), n, m, q])
+        beta = np.linalg.lstsq(x, y, rcond=None)[0]
+        expression = f"T_exact = {beta[0]:.6g} + {beta[1]:.6g} N + {beta[2]:.6g} M + {beta[3]:.6g} Q"
+    elif model == "linear_n_m_q_nm":
+        x = np.column_stack([np.ones(len(train_df)), n, m, q, n * m])
+        beta = np.linalg.lstsq(x, y, rcond=None)[0]
+        expression = (
+            f"T_exact = {beta[0]:.6g} + {beta[1]:.6g} N + {beta[2]:.6g} M "
+            f"+ {beta[3]:.6g} Q + {beta[4]:.6g} N M"
+        )
+    elif model == "interaction_n_m_q":
+        x = np.column_stack([np.ones(len(train_df)), n, m, q, n * m, n * q, m * q])
+        beta = np.linalg.lstsq(x, y, rcond=None)[0]
+        expression = (
+            f"T_exact = {beta[0]:.6g} + {beta[1]:.6g} N + {beta[2]:.6g} M + {beta[3]:.6g} Q "
+            f"+ {beta[4]:.6g} N M + {beta[5]:.6g} N Q + {beta[6]:.6g} M Q"
+        )
+    elif model == "power_law_n_m_q":
+        x = np.column_stack([np.ones(len(train_df)), np.log(n), np.log(m), np.log(q)])
+        beta = np.linalg.lstsq(x, np.log(y), rcond=None)[0]
+        expression = f"T_exact = {np.exp(beta[0]):.6g} N^{beta[1]:.6g} M^{beta[2]:.6g} Q^{beta[3]:.6g}"
+    else:
+        raise ValueError(f"Unknown exact-resource model: {model}")
+
+    return {"model": model, "beta": beta, "expression": expression}
+
+
+def _predict_exact_resource_model(df: pd.DataFrame, fit: dict[str, Any]) -> np.ndarray:
+    model = str(fit["model"])
+    beta = np.asarray(fit["beta"], dtype=float)
+    n = df["N"].to_numpy(dtype=float)
+    m = df["M"].to_numpy(dtype=float)
+    q = df["Q"].to_numpy(dtype=float)
+
+    if model == "proxy_like_nm_q":
+        pred = beta[0] * n * m + beta[1] * q
+    elif model == "linear_n_m_q":
+        pred = beta[0] + beta[1] * n + beta[2] * m + beta[3] * q
+    elif model == "linear_n_m_q_nm":
+        pred = beta[0] + beta[1] * n + beta[2] * m + beta[3] * q + beta[4] * n * m
+    elif model == "interaction_n_m_q":
+        pred = beta[0] + beta[1] * n + beta[2] * m + beta[3] * q + beta[4] * n * m + beta[5] * n * q + beta[6] * m * q
+    elif model == "power_law_n_m_q":
+        pred = np.exp(beta[0] + beta[1] * np.log(n) + beta[2] * np.log(m) + beta[3] * np.log(q))
+    else:
+        raise ValueError(f"Unknown exact-resource model: {model}")
+
+    return np.maximum(pred, 1e-12)
+
+
+def _exact_resource_model_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
+    mask = np.isfinite(y_true) & np.isfinite(y_pred) & (y_true > 0) & (y_pred > 0)
+    if not mask.any():
+        return {
+            "log10_rmse": np.nan,
+            "median_factor_error": np.nan,
+            "p90_factor_error": np.nan,
+            "log_r2": np.nan,
+        }
+
+    y = y_true[mask]
+    pred = y_pred[mask]
+    log_y = np.log(y)
+    log_pred = np.log(pred)
+    factor = np.maximum(pred / y, y / pred)
+    denom = np.sum((log_y - np.mean(log_y)) ** 2)
+    log_r2 = np.nan if denom <= 0 else 1.0 - float(np.sum((log_y - log_pred) ** 2) / denom)
+    return {
+        "log10_rmse": float(np.sqrt(np.mean((np.log10(pred) - np.log10(y)) ** 2))),
+        "median_factor_error": float(np.median(factor)),
+        "p90_factor_error": float(np.quantile(factor, 0.9)),
+        "log_r2": log_r2,
+    }
+
+
+def fit_exact_resource_models(
+    exact_df: pd.DataFrame,
+    *,
+    target_col: str = "T_exact",
+    model_names: tuple[str, ...] = (
+        "proxy_like_nm_q",
+        "linear_n_m_q",
+        "linear_n_m_q_nm",
+        "interaction_n_m_q",
+        "power_law_n_m_q",
+    ),
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fit compact models that predict measured resource from N, M, and Q."""
+    required = ["N", "M", "Q", target_col]
+    if "split" not in exact_df.columns:
+        raise KeyError("fit_exact_resource_models requires a 'split' column.")
+
+    data = _positive_numeric_frame(exact_df, required)
+    data = data[(data["N"] > 0) & (data["M"] > 0) & (data["Q"] > 0) & (data[target_col] > 0)].copy()
+    if data.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    group_cols = [col for col in ["split", "N", "M", "Q"] if col in data.columns]
+    data = (
+        data.groupby(group_cols, as_index=False)
+        .agg(**{target_col: (target_col, "median")})
+        .sort_values(group_cols)
+        .reset_index(drop=True)
+    )
+    train_df = data[data["split"].astype(str).eq("train")].copy()
+    test_df = data[data["split"].astype(str).eq("test")].copy()
+    if train_df.empty:
+        train_df = data.copy()
+    if test_df.empty:
+        test_df = data.copy()
+
+    summary_rows: list[dict[str, Any]] = []
+    prediction_frames: list[pd.DataFrame] = []
+    for model in model_names:
+        fit = _fit_exact_resource_model(train_df, model, target_col=target_col)
+        model_predictions = data.copy()
+        model_predictions["model"] = model
+        model_predictions["expression"] = fit["expression"]
+        model_predictions["T_exact_pred"] = _predict_exact_resource_model(model_predictions, fit)
+        model_predictions["factor_error"] = np.maximum(
+            model_predictions["T_exact_pred"] / model_predictions[target_col],
+            model_predictions[target_col] / model_predictions["T_exact_pred"],
+        )
+        prediction_frames.append(model_predictions)
+
+        train_pred = _predict_exact_resource_model(train_df, fit)
+        test_pred = _predict_exact_resource_model(test_df, fit)
+        train_metrics = _exact_resource_model_metrics(train_df[target_col].to_numpy(dtype=float), train_pred)
+        test_metrics = _exact_resource_model_metrics(test_df[target_col].to_numpy(dtype=float), test_pred)
+        summary_rows.append(
+            {
+                "model": model,
+                "expression": fit["expression"],
+                "n_train": int(len(train_df)),
+                "n_test": int(len(test_df)),
+                **{f"train_{key}": value for key, value in train_metrics.items()},
+                **{f"test_{key}": value for key, value in test_metrics.items()},
+            }
+        )
+
+    summary_df = pd.DataFrame(summary_rows).sort_values(
+        ["test_log10_rmse", "test_median_factor_error"],
+        ascending=[True, True],
+    ).reset_index(drop=True)
+    prediction_df = pd.concat(prediction_frames, ignore_index=True) if prediction_frames else pd.DataFrame()
+    return summary_df, prediction_df
+
+
 def _exact_group_filter(
     df: pd.DataFrame,
     *,
@@ -3457,6 +3665,8 @@ def run_stochastic_benchmark_pss(
     sb.populate_training_stats()
     shared_grid = sorted(exp_raw_df[resource_col].astype(float).dropna().unique())
     align_projection_resources(sb, shared_grid=shared_grid, resource_col="resource")
+    if not hasattr(sb, "baseline"):
+        sb.baseline = SimpleNamespace(recalibrate=lambda _df: None)
     sb.run_baseline()
     sb.run_ProjectionExperiment("TrainingResults", None, None)
 

@@ -1,0 +1,98 @@
+# Nautilus IBM QAOA Run
+
+These manifests run the IBM QAOA simulation-validation campaign on Nautilus in
+the `usra-expedetions` namespace. VS Code remains the control surface, but the
+code executes inside a Kubernetes pod. The pod clones the full
+`stochastic-benchmark` repository into `/workspace/repos/stochastic-benchmark`;
+the Nautilus helper files are only launch instructions.
+
+## Files
+
+- `pvc.yaml` creates a shared PVC mounted at `/workspace`.
+- `simulation-validation-job.yaml` launches the batch run.
+- `dev-pod.yaml` launches an idle pod you can attach to from VS Code.
+- `run_simulation_validation.sh` clones/updates the repos, installs Python
+  dependencies, and runs `examples/IBM_QAOA/run_prepare_pss_campaign.py`.
+
+## Before Running
+
+Commit and push the branch that Nautilus should execute:
+
+```bash
+git push upstream QAOA_Parameter_Setting_IBM
+```
+
+If your namespace spelling differs from `usra-expedetions`, update the
+`metadata.namespace` field in the YAML files.
+
+## Create Storage
+
+```bash
+kubectl apply -f examples/IBM_QAOA/nautilus/pvc.yaml
+kubectl get pvc -n usra-expedetions
+```
+
+The default storage class is `rook-cephfs`. If Nautilus reports that this class
+does not exist, replace it with the storage class available in your namespace.
+
+## Submit The Batch Job
+
+```bash
+kubectl apply -f examples/IBM_QAOA/nautilus/simulation-validation-job.yaml
+kubectl get pods -n usra-expedetions -w
+```
+
+Follow logs:
+
+```bash
+kubectl logs -n usra-expedetions -f job/ibm-qaoa-simulation-validation
+```
+
+Results are written under:
+
+```text
+/workspace/results/pss_window_sticker/heavy_hex_144_small
+```
+
+The generated instance/minmax cache is stored under:
+
+```text
+/workspace/data/generated_instances
+```
+
+## VS Code Interactive Pod
+
+Start the dev pod:
+
+```bash
+kubectl apply -f examples/IBM_QAOA/nautilus/dev-pod.yaml
+```
+
+Then attach VS Code to `ibm-qaoa-dev` using the Kubernetes extension or exec
+into it:
+
+```bash
+kubectl exec -n usra-expedetions -it pod/ibm-qaoa-dev -- bash
+```
+
+Inside the pod, you can run:
+
+```bash
+cd /workspace/repos/stochastic-benchmark
+bash examples/IBM_QAOA/nautilus/run_simulation_validation.sh
+```
+
+## Cleanup
+
+Delete the job or dev pod when finished:
+
+```bash
+kubectl delete -f examples/IBM_QAOA/nautilus/simulation-validation-job.yaml
+kubectl delete -f examples/IBM_QAOA/nautilus/dev-pod.yaml
+```
+
+Do not delete the PVC unless you want to remove cached instances and results:
+
+```bash
+kubectl delete -f examples/IBM_QAOA/nautilus/pvc.yaml
+```

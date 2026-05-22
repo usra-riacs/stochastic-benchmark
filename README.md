@@ -1,7 +1,7 @@
 # Window Sticker - Stochastic Benchmark
 
 [![CI](https://github.com/bernalde/stochastic-benchmark/actions/workflows/ci.yml/badge.svg)](https://github.com/bernalde/stochastic-benchmark/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/bernalde/stochastic-benchmark/branch/main/graph/badge.svg)](https://codecov.io/gh/bernalde/stochastic-benchmark)
+[![codecov](https://codecov.io/gh/usra-riacs/stochastic-benchmark/branch/main/graph/badge.svg)](https://codecov.io/gh/usra-riacs/stochastic-benchmark)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 [![License](https://img.shields.io/github/license/bernalde/stochastic-benchmark)](LICENSE)
 

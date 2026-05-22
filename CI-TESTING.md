@@ -110,6 +110,10 @@ After running tests, coverage reports are generated:
   ```
 - **XML**: `coverage.xml` (for tools like codecov)
 
+## Codecov Setup
+
+GitHub Actions uploads `coverage.xml` with `codecov/codecov-action@v5`. For reliable upstream uploads and PR comments, install the Codecov GitHub App for `usra-riacs/stochastic-benchmark`. If Codecov requires authenticated uploads for protected branches, add `CODECOV_TOKEN` as a repository secret and wire it into the upload step.
+
 ## Troubleshooting
 
 ### Import Errors

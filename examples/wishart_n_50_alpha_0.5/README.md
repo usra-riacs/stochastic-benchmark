@@ -10,18 +10,21 @@ This example has different dependencies depending on what you want to do:
 
 #### For Running Analysis Only (using pre-generated data):
 ```bash
+pip install -r ../../requirements.txt
 pip install -r ../../requirements-examples.txt
 ```
 
-This installs:
+This installs the core stochastic-benchmark dependencies plus:
 - **scikit-learn** - Required for polynomial regression models in parameter recommendation
 
 #### For Generating New Experimental Data:
 If you want to generate new data (not just analyze existing results), you also need:
 - **pysa** - For running simulated annealing experiments
-- Note: `wishart_runs.py` handles missing pysa gracefully with a try/except
+- **hyperopt** - For running the Hyperopt-driven parameter search
 
-The analysis notebook (`wishart_n_50_alpha_0.50.ipynb`) only requires scikit-learn and works with pre-generated data files.
+These generation-only dependencies are imported lazily by `wishart_runs.py`, so importing the analysis helpers in `wishart_ws.py` does not require them.
+
+The analysis notebook (`wishart_n_50_alpha_0.50.ipynb`) requires the core stochastic-benchmark dependencies and scikit-learn, and works with pre-generated data files without importing PySA-only generation paths.
 
 ### Data Files
 
@@ -46,6 +49,7 @@ wishart_n_50_alpha_0.5/
 
 2. **Install dependencies**:
    ```bash
+   pip install -r ../../requirements.txt
    pip install -r ../../requirements-examples.txt
    ```
 
@@ -67,6 +71,7 @@ wishart_n_50_alpha_0.5/
 
 - **wishart_ws.py**: Contains `stoch_bench_setup()` which initializes the benchmarking framework with Wishart-specific configuration
 - **wishart_runs.py**: Functions for running QAOA/simulated annealing experiments on Wishart instances
+- **wishart_paths.py**: Shared path and filename helpers used by both analysis and generation code
 - **wishart_n_50_alpha_0.50.ipynb**: Main analysis notebook with visualization
 
 ## Notes

@@ -129,3 +129,35 @@ def test_run_tutorials_returns_nbconvert_failure(tmp_path, monkeypatch):
     )
 
     assert exit_code == 11
+
+
+def test_run_tutorials_executes_copied_workspace(tmp_path, monkeypatch):
+    run_notebook = make_notebook(tmp_path, "examples/demo/demo.ipynb")
+    source_data = tmp_path / "examples" / "demo" / "input.txt"
+    source_data.write_text("source data", encoding="utf-8")
+    output_dir = tmp_path / "executed"
+    tutorials = [verify_tutorials.Tutorial(run_notebook, "self_contained")]
+    calls = []
+
+    def record_nbconvert(command, **kwargs):
+        calls.append((command, kwargs))
+        cwd = Path(kwargs["cwd"])
+        (cwd / "side-effect.txt").write_text("generated", encoding="utf-8")
+        return subprocess.CompletedProcess(args=command, returncode=0)
+
+    monkeypatch.setattr(verify_tutorials.subprocess, "run", record_nbconvert)
+
+    exit_code = verify_tutorials.run_tutorials(
+        tutorials=tutorials,
+        root=tmp_path,
+        output_dir=output_dir,
+        timeout=30,
+    )
+
+    workspace = output_dir / "examples" / "demo"
+    assert exit_code == 0
+    assert calls[0][0][7] == str(workspace / "demo.ipynb")
+    assert calls[0][1]["cwd"] == workspace
+    assert (workspace / "input.txt").read_text(encoding="utf-8") == "source data"
+    assert (workspace / "side-effect.txt").is_file()
+    assert not (tmp_path / "examples" / "demo" / "side-effect.txt").exists()

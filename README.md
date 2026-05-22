@@ -138,6 +138,7 @@ python scripts/verify_tutorials.py --output-dir executed-notebooks
 ```
 
 The manifest at `examples/tutorials.json` lists runnable notebooks and documents notebooks that are intentionally skipped because they require external setup or are too slow for the lightweight CI smoke job.
+The smoke check executes copied notebook directories under the output directory, so generated plots, summaries, and caches are kept with the executed notebooks instead of modifying the source examples.
 
 ## Documentation
 

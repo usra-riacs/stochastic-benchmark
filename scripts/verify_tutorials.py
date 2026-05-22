@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import shlex
 import subprocess
 import sys
@@ -107,6 +108,36 @@ def build_nbconvert_command(
     ]
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _prepare_tutorial_workspace(tutorial: Tutorial, root: Path, output_dir: Path) -> Path:
+    rel_path = tutorial.path.relative_to(root)
+    source_dir = tutorial.path.parent
+    workspace_dir = output_dir / rel_path.parent
+
+    resolved_workspace = workspace_dir.resolve()
+    resolved_source = source_dir.resolve()
+    if resolved_workspace == resolved_source or _is_relative_to(resolved_workspace, resolved_source):
+        raise ManifestError(
+            f"output workspace for {rel_path} must not be inside the source notebook directory"
+        )
+
+    if workspace_dir.exists():
+        shutil.rmtree(workspace_dir)
+    shutil.copytree(
+        source_dir,
+        workspace_dir,
+        ignore=shutil.ignore_patterns("__pycache__", ".ipynb_checkpoints"),
+    )
+    return workspace_dir / tutorial.path.name
+
+
 def _env_with_src_path(root: Path) -> dict[str, str]:
     env = os.environ.copy()
     src_path = str(root / "src")
@@ -131,16 +162,24 @@ def run_tutorials(
             print(f"SKIP {rel_path} ({tutorial.category}): {tutorial.reason}", flush=True)
             continue
 
-        tutorial_output_dir = output_dir / rel_path.parent
-        tutorial_output_dir.mkdir(parents=True, exist_ok=True)
-        command = build_nbconvert_command(tutorial.path, tutorial_output_dir, timeout)
-
         print(f"EXECUTE {rel_path}", flush=True)
         if dry_run:
+            tutorial_output_dir = output_dir / rel_path.parent
+            command = build_nbconvert_command(
+                tutorial_output_dir / tutorial.path.name,
+                tutorial_output_dir,
+                timeout,
+            )
             print(f"DRY-RUN {shlex.join(command)}", flush=True)
             continue
 
-        result = subprocess.run(command, cwd=root, env=env, check=False)
+        workspace_notebook = _prepare_tutorial_workspace(tutorial, root, output_dir)
+        command = build_nbconvert_command(
+            workspace_notebook,
+            workspace_notebook.parent,
+            timeout,
+        )
+        result = subprocess.run(command, cwd=workspace_notebook.parent, env=env, check=False)
         if result.returncode != 0:
             print(f"FAILED {rel_path} with exit code {result.returncode}", file=sys.stderr)
             return result.returncode
@@ -187,13 +226,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    return run_tutorials(
-        tutorials=tutorials,
-        root=root,
-        output_dir=args.output_dir,
-        timeout=args.timeout,
-        dry_run=args.dry_run,
-    )
+    try:
+        return run_tutorials(
+            tutorials=tutorials,
+            root=root,
+            output_dir=args.output_dir,
+            timeout=args.timeout,
+            dry_run=args.dry_run,
+        )
+    except ManifestError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

@@ -21,9 +21,9 @@ spec:
           rm -rf /var/lib/apt/lists/*
           mkdir -p /workspace/repos /workspace/data /workspace/results
           if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-            AUTH_STOCHASTIC_BENCHMARK_REPO="https://x-access-token:${GITHUB_TOKEN}@${STOCHASTIC_BENCHMARK_REPO#https://}"
-          else
-            AUTH_STOCHASTIC_BENCHMARK_REPO="${STOCHASTIC_BENCHMARK_REPO}"
+            git config --global credential.helper "store --file=/tmp/git-credentials"
+            printf 'https://x-access-token:%s@github.com\n' "${GITHUB_TOKEN}" > /tmp/git-credentials
+            chmod 0600 /tmp/git-credentials
           fi
 
           if [[ -d /workspace/repos/stochastic-benchmark/.git ]]; then
@@ -31,8 +31,7 @@ spec:
             git -C /workspace/repos/stochastic-benchmark checkout "${STOCHASTIC_BENCHMARK_BRANCH}"
             git -C /workspace/repos/stochastic-benchmark pull --ff-only origin "${STOCHASTIC_BENCHMARK_BRANCH}"
           else
-            git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" "${AUTH_STOCHASTIC_BENCHMARK_REPO}" /workspace/repos/stochastic-benchmark
-            git -C /workspace/repos/stochastic-benchmark remote set-url origin "${STOCHASTIC_BENCHMARK_REPO}"
+            git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" "${STOCHASTIC_BENCHMARK_REPO}" /workspace/repos/stochastic-benchmark
           fi
 
           sleep infinity

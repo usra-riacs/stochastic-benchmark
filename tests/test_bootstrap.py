@@ -37,6 +37,19 @@ def dummy_update_rule(self, df):
     pass
 
 
+class InlinePool:
+    """Small Pool stand-in that executes map calls in process for unit tests."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def map(self, func, iterable):
+        return [func(item) for item in iterable]
+
+
 class TestBootstrapParameters:
     """Test class for BootstrapParameters dataclass."""
     
@@ -818,6 +831,47 @@ class TestBootstrap:
                 result = Bootstrap([df1, df2], ['group'], [params])
         
         assert isinstance(result, pd.DataFrame)
+
+    def test_bootstrap_with_list_of_pickle_paths(self):
+        """Test Bootstrap function with a list of serialized DataFrames."""
+        with tempfile.NamedTemporaryFile(suffix='.pkl', delete=False) as tmp_file1:
+            df1 = pd.DataFrame({
+                'energy': [100, 80],
+                'time': [10, 15],
+                'group': ['A', 'A']
+            })
+            df1.to_pickle(tmp_file1.name)
+
+        with tempfile.NamedTemporaryFile(suffix='.pkl', delete=False) as tmp_file2:
+            df2 = pd.DataFrame({
+                'energy': [120, 90],
+                'time': [8, 12],
+                'group': ['B', 'B']
+            })
+            df2.to_pickle(tmp_file2.name)
+
+        shared_args = {'response_col': 'energy', 'resource_col': 'time'}
+        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule, downsample=1)
+
+        try:
+            with patch('bootstrap.Pool') as mock_pool:
+                mock_result = pd.DataFrame({'result': [1], 'group': ['A'], 'boots': [1]})
+                mock_pool.return_value.__enter__.return_value.map.return_value = [mock_result]
+
+                result = Bootstrap([tmp_file1.name, tmp_file2.name], ['group'], [params])
+        finally:
+            os.unlink(tmp_file1.name)
+            os.unlink(tmp_file2.name)
+
+        assert isinstance(result, pd.DataFrame)
+
+    def test_bootstrap_rejects_unsupported_input_type(self):
+        """Test Bootstrap fails clearly for unsupported input objects."""
+        shared_args = {'response_col': 'energy', 'resource_col': 'time'}
+        params = BootstrapParameters(shared_args=shared_args, update_rule=dummy_update_rule)
+
+        with pytest.raises(TypeError, match="Expected DataFrame"):
+            Bootstrap(42, ['group'], [params])
     
     def test_bootstrap_with_progress_dir(self):
         """Test Bootstrap function with progress directory."""
@@ -842,6 +896,69 @@ class TestBootstrap:
                 result = Bootstrap(df, ['group'], [params], progress_dir=temp_dir)
             
             assert isinstance(result, pd.DataFrame)
+
+    def test_bootstrap_executes_grouped_work_in_process(self, monkeypatch):
+        """Test Bootstrap's grouped apply path without multiprocessing."""
+        from pandas.core.groupby.generic import DataFrameGroupBy
+
+        monkeypatch.setattr(
+            DataFrameGroupBy,
+            'progress_apply',
+            DataFrameGroupBy.apply,
+        )
+
+        df = pd.DataFrame({
+            'energy': [100, 80, 120, 90],
+            'time': [10, 15, 8, 12],
+            'group': ['A', 'A', 'B', 'B']
+        })
+
+        shared_args = {'response_col': 'energy', 'resource_col': 'time'}
+        params = BootstrapParameters(
+            shared_args=shared_args,
+            update_rule=dummy_update_rule,
+            downsample=3,
+        )
+
+        def grouped_result(group_df, bs_params):
+            return pd.DataFrame({'rows_seen': [len(group_df)]})
+
+        with patch('bootstrap.Pool', InlinePool), patch(
+            'bootstrap.BootstrapSingle', side_effect=grouped_result
+        ):
+            result = Bootstrap(df, ['group'], [params])
+
+        assert set(result['group']) == {'A', 'B'}
+        assert result['rows_seen'].tolist() == [2, 2]
+        assert result['boots'].eq(3).all()
+
+    def test_bootstrap_uses_progress_file_without_recomputing(self):
+        """Test Bootstrap loads cached progress files before grouped work."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            df = pd.DataFrame({
+                'energy': [100, 80],
+                'time': [10, 15],
+                'group': ['A', 'A']
+            })
+            shared_args = {'response_col': 'energy', 'resource_col': 'time'}
+            params = BootstrapParameters(
+                shared_args=shared_args,
+                update_rule=dummy_update_rule,
+                downsample=4,
+            )
+            cached = pd.DataFrame({'loaded': [True], 'boots': [4]})
+            cached.to_pickle(
+                os.path.join(temp_dir, 'bootstrapped_results_boots=4.pkl')
+            )
+
+            with patch('bootstrap.Pool', InlinePool), patch(
+                'bootstrap.BootstrapSingle'
+            ) as mock_bootstrap_single:
+                result = Bootstrap(df, ['group'], [params], progress_dir=temp_dir)
+
+        mock_bootstrap_single.assert_not_called()
+        assert result['loaded'].tolist() == [True]
+        assert result['boots'].tolist() == [4]
 
 
 class TestBootstrapReduceMem:

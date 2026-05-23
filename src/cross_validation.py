@@ -452,8 +452,8 @@ def seq_search_evaluate(eval_test, parameter_names, response_col):
             "TotalBudget": "resource",
             response_col: "response",
             # base :'response',
-            "ConfInt=upper_" + response_col: "response_lower",
-            "ConfInt=lower_" + response_col: "response_upper",
+            "ConfInt=lower_" + response_col: "response_lower",
+            "ConfInt=upper_" + response_col: "response_upper",
         },
         inplace=True,
     )

@@ -49,7 +49,7 @@ clone_or_update_sparse() {
     else
         git clone --branch "${branch}" --depth 1 --filter=blob:none --sparse "${url}" "${dest}"
     fi
-    git -C "${dest}" sparse-checkout set "${paths[@]}"
+    git -C "${dest}" sparse-checkout set --no-cone "${paths[@]}"
 }
 
 clone_or_update "${STOCHASTIC_BENCHMARK_REPO}" "${STOCHASTIC_BENCHMARK_BRANCH}" "${REPOS_DIR}/stochastic-benchmark"

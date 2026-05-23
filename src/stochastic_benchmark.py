@@ -280,18 +280,10 @@ class stochastic_benchmark:
 
         logger.info("Loading and bootstrapping experimental data...")
         if self.reduce_mem:
-            found_bs_results = self._bootstrap_checkpoint_files()
-            if len(found_bs_results) >= 1 and self.recover:
-                logger.info(
-                    "Found %s bootstrapped results files in checkpoints: reading results.",
-                    len(found_bs_results),
-                )
-                self.bs_results = found_bs_results
-                return
-
             self.raw_data = glob.glob(os.path.join(self.here.raw_data, "*.pkl"))
 
             if len(self.raw_data) == 0:
+                found_bs_results = self._bootstrap_checkpoint_files()
                 if len(found_bs_results) >= 1:
                     logger.info(
                         "Found %s bootstrapped results files and no raw data: reading results.",
@@ -322,7 +314,6 @@ class stochastic_benchmark:
 
                 if (
                     all([os.path.exists(bs_name) for bs_name in bs_names])
-                    and len(bs_names) > 1
                     and self.recover
                 ):
                     logger.info(

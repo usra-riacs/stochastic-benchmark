@@ -15,17 +15,29 @@ QAOA_PIPELINE_BRANCH="${QAOA_PIPELINE_BRANCH:-main}"
 
 mkdir -p "${REPOS_DIR}" "${DATA_DIR}" "${RESULTS_DIR}" /tmp/matplotlib /tmp/numba-cache
 
+github_clone_url() {
+    local url="$1"
+    if [[ -n "${GITHUB_TOKEN:-}" && "${url}" == https://github.com/* ]]; then
+        printf 'https://x-access-token:%s@%s\n' "${GITHUB_TOKEN}" "${url#https://}"
+    else
+        printf '%s\n' "${url}"
+    fi
+}
+
 clone_or_update() {
     local url="$1"
     local branch="$2"
     local dest="$3"
+    local clone_url
+    clone_url="$(github_clone_url "${url}")"
 
     if [[ -d "${dest}/.git" ]]; then
         git -C "${dest}" fetch origin "${branch}"
         git -C "${dest}" checkout "${branch}"
         git -C "${dest}" pull --ff-only origin "${branch}"
     else
-        git clone --branch "${branch}" --depth 1 "${url}" "${dest}"
+        git clone --branch "${branch}" --depth 1 "${clone_url}" "${dest}"
+        git -C "${dest}" remote set-url origin "${url}"
     fi
 }
 

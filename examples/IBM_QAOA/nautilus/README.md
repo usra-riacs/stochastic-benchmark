@@ -1,7 +1,7 @@
 # Nautilus IBM QAOA Run
 
 These manifests run the IBM QAOA simulation-validation campaign on Nautilus in
-the `usra-expedetions` namespace. VS Code remains the control surface, but the
+the `usra-expedition` namespace. VS Code remains the control surface, but the
 code executes inside a Kubernetes pod. The pod clones the full
 `stochastic-benchmark` repository into `/workspace/repos/stochastic-benchmark`;
 the Nautilus helper files are only launch instructions.
@@ -22,14 +22,32 @@ Commit and push the branch that Nautilus should execute:
 git push upstream QAOA_Parameter_Setting_IBM
 ```
 
-If your namespace spelling differs from `usra-expedetions`, update the
+If your namespace spelling differs from `usra-expedition`, update the
 `metadata.namespace` field in the YAML files.
+
+If any dependency repo is private, create a GitHub token secret in Nautilus.
+Use a fine-grained token with read access to:
+
+- `usra-riacs/stochastic-benchmark`
+- `Quantum-Working-Groups/QAOA-Parameter-Setting`
+- `qiskit-community/qaoa_training_pipeline`
+
+Create the secret without echoing the token:
+
+```bash
+read -rsp "GitHub token: " GITHUB_TOKEN
+kubectl create secret generic github-credentials \
+  -n usra-expedition \
+  --from-literal=token="${GITHUB_TOKEN}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+unset GITHUB_TOKEN
+```
 
 ## Create Storage
 
 ```bash
 kubectl apply -f examples/IBM_QAOA/nautilus/pvc.yaml
-kubectl get pvc -n usra-expedetions
+kubectl get pvc -n usra-expedition
 ```
 
 The default storage class is `rook-cephfs`. If Nautilus reports that this class
@@ -39,13 +57,13 @@ does not exist, replace it with the storage class available in your namespace.
 
 ```bash
 kubectl apply -f examples/IBM_QAOA/nautilus/simulation-validation-job.yaml
-kubectl get pods -n usra-expedetions -w
+kubectl get pods -n usra-expedition -w
 ```
 
 Follow logs:
 
 ```bash
-kubectl logs -n usra-expedetions -f job/ibm-qaoa-simulation-validation
+kubectl logs -n usra-expedition -f job/ibm-qaoa-simulation-validation
 ```
 
 Results are written under:
@@ -72,7 +90,7 @@ Then attach VS Code to `ibm-qaoa-dev` using the Kubernetes extension or exec
 into it:
 
 ```bash
-kubectl exec -n usra-expedetions -it pod/ibm-qaoa-dev -- bash
+kubectl exec -n usra-expedition -it pod/ibm-qaoa-dev -- bash
 ```
 
 Inside the pod, you can run:

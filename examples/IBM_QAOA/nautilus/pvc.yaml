@@ -2,7 +2,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: ibm-qaoa-workspace
-  namespace: usra-expedetions
+  namespace: usra-expedition
 spec:
   accessModes:
     - ReadWriteMany

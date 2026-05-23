@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: ibm-qaoa-simulation-validation
-  namespace: usra-expedetions
+  namespace: usra-expedition
 spec:
   backoffLimit: 0
   template:
@@ -23,6 +23,15 @@ spec:
               apt-get install -y --no-install-recommends git build-essential
               rm -rf /var/lib/apt/lists/*
 
+              github_clone_url() {
+                local url="$1"
+                if [[ -n "${GITHUB_TOKEN:-}" && "${url}" == https://github.com/* ]]; then
+                  printf 'https://x-access-token:%s@%s\n' "${GITHUB_TOKEN}" "${url#https://}"
+                else
+                  printf '%s\n' "${url}"
+                fi
+              }
+
               mkdir -p /workspace/repos
               cd /workspace/repos
               if [[ -d stochastic-benchmark/.git ]]; then
@@ -30,14 +39,17 @@ spec:
                 git -C stochastic-benchmark checkout "${STOCHASTIC_BENCHMARK_BRANCH}"
                 git -C stochastic-benchmark pull --ff-only origin "${STOCHASTIC_BENCHMARK_BRANCH}"
               else
-                git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 "${STOCHASTIC_BENCHMARK_REPO}" stochastic-benchmark
+                git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 "$(github_clone_url "${STOCHASTIC_BENCHMARK_REPO}")" stochastic-benchmark
+                git -C stochastic-benchmark remote set-url origin "${STOCHASTIC_BENCHMARK_REPO}"
               fi
 
               if [[ -f stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh ]]; then
                 bash stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh
               else
-                git clone --branch "${QPS_BRANCH}" --depth 1 "${QPS_REPO_URL}" QAOA-Parameter-Setting
-                git clone --branch "${QAOA_PIPELINE_BRANCH}" --depth 1 "${QAOA_PIPELINE_REPO_URL}" qaoa_training_pipeline
+                git clone --branch "${QPS_BRANCH}" --depth 1 "$(github_clone_url "${QPS_REPO_URL}")" QAOA-Parameter-Setting
+                git -C QAOA-Parameter-Setting remote set-url origin "${QPS_REPO_URL}"
+                git clone --branch "${QAOA_PIPELINE_BRANCH}" --depth 1 "$(github_clone_url "${QAOA_PIPELINE_REPO_URL}")" qaoa_training_pipeline
+                git -C qaoa_training_pipeline remote set-url origin "${QAOA_PIPELINE_REPO_URL}"
 
                 python -m pip install --upgrade pip setuptools wheel
                 python -m pip install -r stochastic-benchmark/requirements.txt -r stochastic-benchmark/requirements-examples.txt
@@ -90,6 +102,12 @@ spec:
               value: https://github.com/qiskit-community/qaoa_training_pipeline.git
             - name: QAOA_PIPELINE_BRANCH
               value: main
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-credentials
+                  key: token
+                  optional: true
           resources:
             requests:
               cpu: "8"

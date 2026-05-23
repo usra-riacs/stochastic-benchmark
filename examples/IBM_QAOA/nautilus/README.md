@@ -11,8 +11,10 @@ the Nautilus helper files are only launch instructions.
 - `pvc.yaml` creates a shared PVC mounted at `/workspace`.
 - `simulation-validation-job.yaml` launches the batch run.
 - `dev-pod.yaml` launches an idle pod you can attach to from VS Code.
-- `run_simulation_validation.sh` clones/updates the repos, installs Python
-  dependencies, and runs `examples/IBM_QAOA/run_prepare_pss_campaign.py`.
+- `run_simulation_validation.sh` clones/updates the full `stochastic-benchmark`
+  repo, sparse-checks out the large `QAOA-Parameter-Setting` dependency paths
+  needed by the run, installs Python dependencies, and runs
+  `examples/IBM_QAOA/run_prepare_pss_campaign.py`.
 
 ## Before Running
 

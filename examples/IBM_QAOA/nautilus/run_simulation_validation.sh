@@ -35,8 +35,32 @@ clone_or_update() {
     fi
 }
 
+clone_or_update_sparse() {
+    local url="$1"
+    local branch="$2"
+    local dest="$3"
+    shift 3
+    local paths=("$@")
+
+    if [[ -d "${dest}/.git" ]]; then
+        git -C "${dest}" fetch origin "${branch}"
+        git -C "${dest}" checkout "${branch}"
+        git -C "${dest}" pull --ff-only origin "${branch}"
+    else
+        git clone --branch "${branch}" --depth 1 --filter=blob:none --sparse "${url}" "${dest}"
+    fi
+    git -C "${dest}" sparse-checkout set "${paths[@]}"
+}
+
 clone_or_update "${STOCHASTIC_BENCHMARK_REPO}" "${STOCHASTIC_BENCHMARK_BRANCH}" "${REPOS_DIR}/stochastic-benchmark"
-clone_or_update "${QPS_REPO_URL}" "${QPS_BRANCH}" "${REPOS_DIR}/QAOA-Parameter-Setting"
+clone_or_update_sparse "${QPS_REPO_URL}" "${QPS_BRANCH}" "${REPOS_DIR}/QAOA-Parameter-Setting" \
+  qaoa_parameter_setting \
+  methods \
+  data/evaluation_times \
+  setup.py \
+  requirements.txt \
+  VERSION.txt \
+  README.md
 clone_or_update "${QAOA_PIPELINE_REPO_URL}" "${QAOA_PIPELINE_BRANCH}" "${REPOS_DIR}/qaoa_training_pipeline"
 
 SB_REPO="${REPOS_DIR}/stochastic-benchmark"

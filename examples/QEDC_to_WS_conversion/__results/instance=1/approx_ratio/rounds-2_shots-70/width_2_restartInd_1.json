@@ -1,0 +1,47 @@
+{
+  "converged_thetas_list": [0.3, 0.4],
+  "final_size_dist": {
+    "cumul_counts": [21, 70],
+    "unique_counts": [21, 49],
+    "unique_sizes": [1, 2]
+  },
+  "general_properties": {
+    "backend_id": "sample_qedc_fixture",
+    "max_circuits": 1,
+    "max_iter": 2,
+    "method": 2,
+    "min_qubits": 2,
+    "num_shots": 70,
+    "objective_func_type": "approx_ratio",
+    "rounds": 2,
+    "save_final_counts": false
+  },
+  "iterations": {
+    "1000": {
+      "approx_ratio": 0.51,
+      "bestcut_ratio": 0.5,
+      "create_time": 0.001,
+      "cvar_ratio": 0.48,
+      "elapsed_time": 0.011,
+      "exec_time": 0.007,
+      "gibbs_ratio": 0.46,
+      "opt_exec_time": 0.002
+    },
+    "1001": {
+      "approx_ratio": 0.63,
+      "bestcut_ratio": 0.62,
+      "create_time": 0.001,
+      "cvar_ratio": 0.59,
+      "elapsed_time": 0.022,
+      "exec_time": 0.014,
+      "gibbs_ratio": 0.55,
+      "opt_exec_time": 0.004
+    }
+  },
+  "optimal_value": 2,
+  "unif_dict": {
+    "cumul_counts_unif": [35, 70],
+    "unique_counts_unif": [35, 35],
+    "unique_sizes_unif": [1, 2]
+  }
+}

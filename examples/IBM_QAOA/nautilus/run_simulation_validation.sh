@@ -56,7 +56,9 @@ clone_or_update "${STOCHASTIC_BENCHMARK_REPO}" "${STOCHASTIC_BENCHMARK_BRANCH}" 
 clone_or_update_sparse "${QPS_REPO_URL}" "${QPS_BRANCH}" "${REPOS_DIR}/QAOA-Parameter-Setting" \
   qaoa_parameter_setting \
   methods \
+  instances/heavy_hex \
   data/evaluation_times \
+  data/minmax_cuts/heavy_hex \
   setup.py \
   requirements.txt \
   VERSION.txt \

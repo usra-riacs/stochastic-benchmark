@@ -1524,7 +1524,7 @@ def plot_ibm_qaoa_training_bricks(
 
     max_total = float(positive_bounds[-1]) if len(positive_bounds) else main_ymax
     if len(positive_bounds):
-        main_ymax = max(main_ymax, float(positive_bounds[0]) * 1.12, 1.0)
+        main_ymax = max(main_ymax, float(positive_bounds[0]) * 1.12, 1_000.0)
     main_ymax = min(main_ymax, max_total * 0.9)
 
     overflow_methods = sorted(
@@ -1547,9 +1547,9 @@ def plot_ibm_qaoa_training_bricks(
         inset_top_needed = (
             agg_overflow["brick_total"] + agg_overflow["sem_total"].fillna(0)
         ).max()
-        inset_ymax = max(float(inset_ymin) * 1.15, float(inset_top_needed) * 1.08)
+        inset_ymax = max(float(inset_ymin) * 1.4, float(inset_top_needed) * 1.15)
     else:
-        inset_ymax = max(float(inset_ymin) * 1.15, float(max_total) * 1.08)
+        inset_ymax = max(float(inset_ymin) * 1.4, float(max_total) * 1.15)
 
     fig = plt.figure(figsize=(20, 7))
     gs = gridspec.GridSpec(1, 2, figure=fig, width_ratios=[2.5, 1.5], wspace=0.35)
@@ -1631,14 +1631,18 @@ def plot_ibm_qaoa_training_bricks(
         edge_lw,
         method_subset=overflow_methods,
     )
+    inset_ax.set_yscale("log")
     inset_ax.set_ylim(inset_ymin, inset_ymax)
     inset_ax.set_xticks(x)
     inset_ax.set_xticklabels([int(d) for d in depths], fontsize=fs_tick)
     inset_ax.tick_params(axis="y", labelsize=fs_tick)
     inset_ax.set_xlabel("QAOA depth p", fontsize=fs_label)
-    inset_ax.set_ylabel("Mean training duration (s)", fontsize=fs_label)
+    inset_ax.set_ylabel("Mean training duration (s, log scale)", fontsize=fs_label)
     inset_ax.set_xlim(-0.5, x[-1] + 0.5)
-    inset_ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{int(v):,}"))
+    inset_ax.yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,)))
+    inset_ax.yaxis.set_major_formatter(LogFormatterMathtext(base=10.0))
+    inset_ax.grid(True, which="major", axis="y", alpha=0.45)
+    inset_ax.grid(True, which="minor", axis="y", alpha=0.18)
 
     kw_inset = dict(transform=inset_ax.transAxes, color="k", clip_on=False, lw=1.6)
     inset_ax.plot((-d, +d), (-d, +d), **kw_inset)

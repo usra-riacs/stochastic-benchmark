@@ -96,11 +96,11 @@ avoid reducing project-wide coverage.
 - ✅ **success_metrics.py** (353 lines) - Success metric calculations (Response, PerfRatio, etc.)
 - ✅ **bootstrap.py** (441 lines) - Bootstrap sampling and statistical methods
 - ✅ **training.py** (328 lines) - Training algorithms and parameter optimization
+- ✅ **utils_ws.py** (534 lines) - Workspace utility interpolation and progress processing
 
 ### Modules Needing Tests
 - 🔄 **plotting.py** (611 lines) - Plotting and visualization
 - 🔄 **stochastic_benchmark.py** (1796 lines) - Main benchmark class
-- 🔄 **utils_ws.py** (533 lines) - Utility functions
 - 🔄 **cross_validation.py** (534 lines) - Cross-validation methods
 - 🔄 **sequential_exploration.py** (388 lines) - Sequential exploration strategies
 - 🔄 **random_exploration.py** (315 lines) - Random exploration methods

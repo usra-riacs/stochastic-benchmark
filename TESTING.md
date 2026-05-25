@@ -73,11 +73,21 @@ The repository includes automated testing via GitHub Actions:
 
 - **Matrix Testing**: Tests across Python versions 3.10, 3.11, 3.12
 - **Linting**: Code quality checks with flake8
-- **Coverage**: Automated coverage reporting via Codecov
+- **Coverage**: Automated coverage reporting via Codecov, including patch
+  coverage reporting for pull requests
 - **Integration Tests**: Cross-module functionality verification
 - **Tutorial Smoke Tests**: Self-contained notebooks execute on Python 3.10 and upload executed notebooks as artifacts
 
 ## Test Coverage
+
+### Coverage Policy
+
+CI enforces that the test suite completes, coverage reports are generated, and
+project-wide coverage stays at or above 80%. Codecov also reports patch coverage
+for pull requests.
+
+Contributors should keep new or changed behavior covered by focused tests and
+avoid reducing project-wide coverage.
 
 ### Current Coverage Status
 - ✅ **names.py** (103 lines) - Path management, parameter/filename conversion
@@ -120,7 +130,7 @@ When adding new functionality:
 2. Include edge cases and error conditions
 3. Update integration tests if the change affects module interactions
 4. Ensure tests pass locally before submitting PR
-5. Maintain test coverage above 80%
+5. Cover new or changed behavior and keep project-wide coverage at or above 80%
 
 ### Test Naming Convention
 - Test files: `test_<module_name>.py`

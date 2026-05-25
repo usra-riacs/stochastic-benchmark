@@ -8,6 +8,7 @@ from tqdm import tqdm
 from typing import List, Tuple, Union, DefaultDict
 import warnings
 
+import df_utils
 import names
 
 EPSILON = 1e-10
@@ -428,7 +429,11 @@ class Quantile(StatsMeasure):
             return "Type of interval not found!"
 
 
-def StatsSingle(df_single: pd.DataFrame, stat_params: StatsParameters):
+def StatsSingle(
+    df_single: pd.DataFrame,
+    stat_params: StatsParameters,
+    drop_singletons: bool = True,
+):
     """
     Compute statistics for a single column
 
@@ -438,13 +443,15 @@ def StatsSingle(df_single: pd.DataFrame, stat_params: StatsParameters):
         Dataframe with the metric to be analyzed
     stat_params: StatsParameters
         Parameters for the statistics
+    drop_singletons: bool
+        Whether to return an empty result for groups with one row
 
     Returns
     -------
     pd.DataFrame
         Dataframe with the statistics
     """
-    if len(df_single) == 1:
+    if drop_singletons and len(df_single) == 1:
         return pd.DataFrame()
     df_dict = {}
     for sm in stat_params.stats_measures:
@@ -526,7 +533,12 @@ def applyBounds(df: pd.DataFrame, stat_params: StatsParameters):
     return
 
 
-def Stats(df: pd.DataFrame, stats_params: StatsParameters, group_on):
+def Stats(
+    df: pd.DataFrame,
+    stats_params: StatsParameters,
+    group_on,
+    drop_singletons: bool = True,
+):
     """
     Compute statistics for a dataframe
 
@@ -538,6 +550,8 @@ def Stats(df: pd.DataFrame, stats_params: StatsParameters, group_on):
         Parameters for the statistics
     group_on: list
         List of columns to group on
+    drop_singletons: bool
+        Whether to omit groups with one row
 
     Returns
     -------
@@ -546,8 +560,12 @@ def Stats(df: pd.DataFrame, stats_params: StatsParameters, group_on):
     """
 
     def dfSS(df):
-        return StatsSingle(df, stats_params)
-    df_stats = df.groupby(group_on).progress_apply(dfSS).reset_index()
+        return StatsSingle(df, stats_params, drop_singletons=drop_singletons)
+
+    df_stats = df_utils.progress_apply_or_apply(
+        df.groupby(group_on), dfSS, include_groups=False
+    ).reset_index()
+
     df_stats.drop("level_{}".format(len(group_on)), axis=1, inplace=True)
     applyBounds(df_stats, stats_params)
 

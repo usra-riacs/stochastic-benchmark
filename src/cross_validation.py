@@ -5,6 +5,7 @@ import os
 import stats
 import interpolate
 import utils_ws
+import df_utils
 import warnings
 
 parameters_dict = dict()
@@ -267,8 +268,10 @@ def interpolate_raw_performance(
     )
 
     # For each split_ind, do interpolation separately over the resource grid
-    temp_df_interp = df_many_splits_performance_raw.groupby(group_on).progress_apply(
-        lambda df: interpolate.InterpolateSingle(df, iParams, group_on), include_groups=False
+    temp_df_interp = df_utils.progress_apply_or_apply(
+        df_many_splits_performance_raw.groupby(group_on),
+        lambda df: interpolate.InterpolateSingle(df, iParams, group_on),
+        include_groups=False,
     )
     temp_df_interp.reset_index(inplace=True)
     return temp_df_interp
@@ -452,8 +455,8 @@ def seq_search_evaluate(eval_test, parameter_names, response_col):
             "TotalBudget": "resource",
             response_col: "response",
             # base :'response',
-            "ConfInt=upper_" + response_col: "response_lower",
-            "ConfInt=lower_" + response_col: "response_upper",
+            "ConfInt=lower_" + response_col: "response_lower",
+            "ConfInt=upper_" + response_col: "response_upper",
         },
         inplace=True,
     )

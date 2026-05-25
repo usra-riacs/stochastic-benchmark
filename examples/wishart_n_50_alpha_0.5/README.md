@@ -10,18 +10,30 @@ This example has different dependencies depending on what you want to do:
 
 #### For Running Analysis Only (using pre-generated data):
 ```bash
+pip install -r ../../requirements.txt
 pip install -r ../../requirements-examples.txt
 ```
 
-This installs:
+This installs the core stochastic-benchmark dependencies plus:
 - **scikit-learn** - Required for polynomial regression models in parameter recommendation
+- **nbconvert** and **ipykernel** - Required for reproducible command-line notebook execution
 
 #### For Generating New Experimental Data:
 If you want to generate new data (not just analyze existing results), you also need:
-- **pysa** - For running simulated annealing experiments
-- Note: `wishart_runs.py` handles missing pysa gracefully with a try/except
+- **Hyperopt** - Required for `wishart_runs.run_hyperopt()`
+- **PySA** - For running simulated annealing experiments
 
-The analysis notebook (`wishart_n_50_alpha_0.50.ipynb`) only requires scikit-learn and works with pre-generated data files.
+Install the generation dependencies from this directory with:
+
+```bash
+pip install -r ../../requirements-generation.txt
+```
+
+`requirements-generation.txt` includes a temporary `setuptools<81` compatibility pin for Hyperopt 0.2.7, which imports `pkg_resources`. This pin is only for generation workflows and is not required to run analysis notebooks.
+
+These generation-only dependencies are imported lazily by `wishart_runs.py`, so importing the analysis helpers in `wishart_ws.py` does not require them.
+
+The analysis notebooks (`wishart_n_50_alpha_0.50.ipynb` and `wishart_n_50_alpha_0.50_split.ipynb`) require the core stochastic-benchmark dependencies and the example dependency set, and work with pre-generated data files without Hyperopt or PySA.
 
 ### Data Files
 
@@ -46,13 +58,16 @@ wishart_n_50_alpha_0.5/
 
 2. **Install dependencies**:
    ```bash
+   pip install -r ../../requirements.txt
    pip install -r ../../requirements-examples.txt
    ```
 
-3. **Open and run the Jupyter notebook**:
+3. **Run the Jupyter notebook from the command line**:
    ```bash
-   jupyter notebook wishart_n_50_alpha_0.50.ipynb
+   python -m jupyter nbconvert --to notebook --execute --inplace wishart_n_50_alpha_0.50.ipynb
    ```
+
+   You can also open the notebook in a Jupyter UI if you have one installed.
 
 ## What This Example Demonstrates
 
@@ -67,6 +82,7 @@ wishart_n_50_alpha_0.5/
 
 - **wishart_ws.py**: Contains `stoch_bench_setup()` which initializes the benchmarking framework with Wishart-specific configuration
 - **wishart_runs.py**: Functions for running QAOA/simulated annealing experiments on Wishart instances
+- **wishart_paths.py**: Shared path and filename helpers used by both analysis and generation code
 - **wishart_n_50_alpha_0.50.ipynb**: Main analysis notebook with visualization
 
 ## Notes
@@ -74,3 +90,4 @@ wishart_n_50_alpha_0.5/
 - The paths in `wishart_ws.py` and `wishart_runs.py` have been configured to use relative paths for portability
 - If you encounter permission errors, ensure you're running the notebook from the correct directory
 - The example uses polynomial regression models (via scikit-learn) for parameter recommendation strategies
+- Hyperopt is only needed when generating new data through `wishart_runs.run_hyperopt()`

@@ -6,13 +6,10 @@ from multiprocess import Pool
 import numpy as np
 import os
 import pandas as pd
-from sklearn.compose import TransformedTargetRegressor
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.pipeline import make_pipeline
 import sys
 from tqdm import tqdm
 import warnings
+from wishart_paths import logname
 
 # Filter known third-party warnings
 warnings.filterwarnings('ignore', message='pkg_resources is deprecated')
@@ -28,13 +25,25 @@ import stochastic_benchmark
 import success_metrics
 from utils_ws import *
 
-import wishart_runs #TODO I need to find the file I sent previous -> add to path if necessary
-
 alpha = '0.50'
 # Set datadir relative to the current file location
 # This assumes the data is in rerun_data/ subdirectory of the example folder
 script_dir = os.path.dirname(os.path.abspath(__file__))
 datadir = os.path.join(script_dir, 'rerun_data')  # Use relative path for portability
+
+
+def _load_sklearn_tools():
+    try:
+        from sklearn.compose import TransformedTargetRegressor
+        from sklearn.linear_model import LinearRegression
+        from sklearn.preprocessing import PolynomialFeatures
+        from sklearn.pipeline import make_pipeline
+    except ImportError as exc:
+        raise ImportError(
+            'scikit-learn is required for Wishart parameter post-processing. '
+            'Install the example dependencies with `pip install -r ../../requirements-examples.txt`.'
+        ) from exc
+    return TransformedTargetRegressor, LinearRegression, PolynomialFeatures, make_pipeline
 
 
 def compress_order(df_single):
@@ -73,7 +82,7 @@ def instance_df(instance_num):
                 phot = np.maximum(0.1, np.round(hpoTrial.vals['phot'][idx], decimals=1))
                 
                 order = idx if idx >= hpo_offset else np.nan
-                df_filename, obj_filename = wishart_runs.logname(instance_num, sweeps, replicas, pcold, phot)
+                df_filename, obj_filename = logname(instance_num, sweeps, replicas, pcold, phot)
                 temp_df = pd.read_pickle(df_filename)
                 with open(obj_filename, 'rb') as f:
                     obj = dill.load(f)
@@ -109,6 +118,7 @@ def random_values(instance_num):
     return rv
 
 def postprocess_linear(recipe):
+    _, LinearRegression, _, _ = _load_sklearn_tools()
     x_range = (10**3, 10**6)
     post_recipe_dict = {}
     
@@ -128,6 +138,7 @@ def postprocess_linear(recipe):
     return pred_recipe
 
 def postprocess_polynomial(recipe, deg):
+    _, LinearRegression, PolynomialFeatures, make_pipeline = _load_sklearn_tools()
     post_recipe_dict = {}
     post_recipe_dict['resource'] = np.array(recipe['resource'].copy())
     parameter_names = ['sweeps', 'replicas', 'pcold', 'phot']
@@ -141,6 +152,7 @@ def postprocess_polynomial(recipe, deg):
     return pred_recipe
         
 def postprocess_custom(recipe):
+    TransformedTargetRegressor, LinearRegression, _, _ = _load_sklearn_tools()
     post_recipe_dict = {}
     post_recipe_dict['resource'] = np.array(recipe['resource'].copy())
     parameter_names = ['sweeps', 'replicas', 'pcold', 'phot']
@@ -354,6 +366,8 @@ def compress_experiments(parameters_list):
     return parameters_dict
 
 def run_experiments(parameters_list, testing_instances):
+    import wishart_runs
+
     parameters_dict = compress_experiments(parameters_list)
     results_dict = {k:experiment_results(v) for k, v, in parameters_dict.items()}
 
@@ -458,4 +472,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -110,6 +110,10 @@ After running tests, coverage reports are generated:
   ```
 - **XML**: `coverage.xml` (for tools like codecov)
 
+## Codecov Setup
+
+GitHub Actions uploads `coverage.xml` with `codecov/codecov-action@v5`. For reliable upstream uploads and PR comments, install the Codecov GitHub App for `usra-riacs/stochastic-benchmark`. If Codecov requires authenticated uploads for protected branches, add `CODECOV_TOKEN` as a repository secret and wire it into the upload step.
+
 ## Troubleshooting
 
 ### Import Errors
@@ -160,12 +164,21 @@ The CI environment includes:
 - networkx >= 3.0
 - tqdm >= 4.66
 
-**Additional Dependencies:**
+**Additional Core Dependencies:**
 - cloudpickle >= 2.2
 - dill >= 0.3.5
-- hyperopt >= 0.2.7
 - multiprocess >= 0.70.18
 - munkres >= 1.1.4
+
+**Optional Example Notebook Dependencies:**
+- scikit-learn >= 1.3.0
+- dimod >= 0.12
+- nbconvert >= 7
+- ipykernel >= 6
+
+**Optional Data-Generation Dependencies:**
+- hyperopt >= 0.2.7
+- setuptools < 81 (temporary Hyperopt 0.2.7 compatibility workaround)
 
 **Testing Tools:**
 - pytest

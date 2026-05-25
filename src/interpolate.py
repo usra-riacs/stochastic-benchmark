@@ -5,6 +5,7 @@ import warnings
 from tqdm import tqdm
 from typing import Callable
 import itertools
+import df_utils
 from utils_ws import *
 
 tqdm.pandas()
@@ -162,7 +163,9 @@ def Interpolate(df: pd.DataFrame, interp_params: InterpolationParameters, group_
     def dfInterp(df):
         return InterpolateSingle(df, interp_params, group_on)
 
-    df_interp = df.groupby(group_on).progress_apply(dfInterp, include_groups=False)
+    df_interp = df_utils.progress_apply_or_apply(
+        df.groupby(group_on), dfInterp, include_groups=False
+    )
     return df_interp
 
 
@@ -190,7 +193,8 @@ def Interpolate_reduce_mem(
     for df_name in df_list:
         df = pd.read_pickle(df_name)
         generateResourceColumn(df, interp_params)
-        temp_df_interp = df.groupby(group_on).progress_apply(
+        temp_df_interp = df_utils.progress_apply_or_apply(
+            df.groupby(group_on),
             lambda df: InterpolateSingle(df, interp_params, group_on),
             include_groups=False,
         )

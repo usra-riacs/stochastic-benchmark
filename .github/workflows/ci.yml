@@ -53,9 +53,9 @@ jobs:
         pytest tests/ -v --cov=src --cov-report=xml --cov-report=html --cov-report=term
     
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v5
       with:
-        file: ./coverage.xml
+        files: ./coverage.xml
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
@@ -107,6 +107,38 @@ jobs:
         else
           echo "No integration tests found"
         fi
+
+  tutorial-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+        pip install -r requirements-examples.txt
+        pip install -e .
+
+    - name: Execute self-contained tutorial notebooks
+      run: |
+        export PYTHONPATH="${PYTHONPATH}:${PWD}/src"
+        python scripts/verify_tutorials.py --output-dir executed-notebooks
+
+    - name: Upload executed tutorial notebooks
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: executed-tutorial-notebooks
+        path: executed-notebooks/
+        retention-days: 30
 
   coverage-summary:
     runs-on: ubuntu-latest

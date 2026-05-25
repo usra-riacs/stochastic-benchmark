@@ -1,0 +1,8 @@
+# Optional dependencies for data-generation workflows
+# These are NOT required for core stochastic-benchmark analysis or examples
+hyperopt>=0.2.7
+
+# Temporary Hyperopt compatibility workaround:
+# Hyperopt 0.2.7 imports pkg_resources, which is not available in setuptools 81+.
+# Keep this generation-specific until Hyperopt no longer needs pkg_resources.
+setuptools<81

@@ -1,5 +1,6 @@
 from collections import defaultdict
 import glob
+import json
 import numpy as np
 import os
 import pandas as pd
@@ -10,6 +11,7 @@ import logging
 import bootstrap
 import df_utils
 import interpolate
+import plotting as plotting_module
 from plotting import *
 import stats
 import success_metrics
@@ -251,6 +253,11 @@ class stochastic_benchmark:
             self.populate_interp_results()
 
     def get_experiment_parameters(self) -> ExperimentParameters:
+        def baseline_recalibrate(df):
+            baseline = getattr(self, "baseline", None)
+            if baseline is not None:
+                baseline.recalibrate(df)
+
         return ExperimentParameters(
             parameter_names=self.parameter_names,
             instance_cols=self.instance_cols,
@@ -263,7 +270,7 @@ class stochastic_benchmark:
             training_stats=self.training_stats,
             testing_stats=self.testing_stats,
             evaluate_without_bootstrap=self.evaluate_without_bootstrap,
-            baseline_recalibrate=self.baseline.recalibrate,
+            baseline_recalibrate=baseline_recalibrate,
         )
 
     def run_Bootstrap(self, bsParams_iter, group_name_fcn=None):
@@ -276,9 +283,7 @@ class stochastic_benchmark:
             self.raw_data = glob.glob(os.path.join(self.here.raw_data, "*.pkl"))
 
             if len(self.raw_data) == 0:
-                found_bs_results = glob.glob(
-                    os.path.join(self.here.checkpoints, "bootstrapped_results*.pkl")
-                )
+                found_bs_results = self._bootstrap_checkpoint_files()
                 if len(found_bs_results) >= 1:
                     logger.info(
                         "Found %s bootstrapped results files and no raw data: reading results.",
@@ -309,7 +314,6 @@ class stochastic_benchmark:
 
                 if (
                     all([os.path.exists(bs_name) for bs_name in bs_names])
-                    and len(bs_names) > 1
                     and self.recover
                 ):
                     logger.info(
@@ -363,6 +367,24 @@ class stochastic_benchmark:
             )
             if isinstance(self.bs_results, pd.DataFrame):
                 self.bs_results.to_pickle(self.here.bootstrap)
+
+    def _bootstrap_checkpoint_files(self):
+        """
+        Return reusable bootstrapped result pickle files from checkpoints.
+
+        Reduced-memory runs write one file per group. If those files are present,
+        they should be used instead of deriving expected checkpoint names from
+        exp_raw. A single aggregate bootstrap file can also be reused by the
+        interpolation path as a one-item list.
+        """
+        segmented_results = sorted(
+            glob.glob(os.path.join(self.here.checkpoints, "bootstrapped_results_*.pkl"))
+        )
+        if len(segmented_results) >= 1:
+            return segmented_results
+        if os.path.exists(self.here.bootstrap):
+            return [self.here.bootstrap]
+        return []
 
     def set_Bootstrap(self, bs_results):
         """
@@ -736,10 +758,212 @@ class stochastic_benchmark:
             Experiment object
         """
         logger.info("Running static recommendation experiment")
-        self.experiments.append(StaticRecommendationExperiment(self.get_experiment_parameters(), init_from))
+        self.experiments.append(
+            StaticRecommendationExperiment(self.get_experiment_parameters(), init_from)
+        )
 
-    def initPlotting(self):
+    @staticmethod
+    def _plotting_csv_frame(
+        df,
+        required_columns=None,
+        optional_columns=None,
+        resource_column="resource",
+    ):
+        result = df.copy()
+        if resource_column not in result.columns:
+            result = result.reset_index()
+            if resource_column not in result.columns and "index" in result.columns:
+                result.rename(columns={"index": resource_column}, inplace=True)
+
+        drop_cols = [
+            col
+            for col in result.columns
+            if col.startswith("Unnamed:")
+            or col == "level_0"
+            or (col == "index" and resource_column in result.columns)
+        ]
+        if drop_cols:
+            result.drop(columns=drop_cols, inplace=True)
+
+        required_columns = required_columns or []
+        optional_columns = optional_columns or []
+        missing = [col for col in required_columns if col not in result.columns]
+        if missing:
+            raise ValueError(
+                "Cannot export plotting CSV; missing columns: {}".format(missing)
+            )
+
+        columns = list(required_columns)
+        columns.extend(
+            col
+            for col in optional_columns
+            if col in result.columns and col not in columns
+        )
+        if columns:
+            result = result.loc[:, columns]
+        return result
+
+    def _write_plotting_csv(
+        self,
+        df,
+        path,
+        required_columns=None,
+        optional_columns=None,
+        resource_column="resource",
+    ):
+        csv_df = self._plotting_csv_frame(
+            df,
+            required_columns=required_columns,
+            optional_columns=optional_columns,
+            resource_column=resource_column,
+        )
+        csv_df.to_csv(path, index=False)
+
+    def export_plot_csvs(self, monotone=None):
         """
-        Sets up plotting - this should be run after all experiments are run
+        Export the CSV files used by the plotting module.
+
+        This separates plot rendering from in-memory benchmark objects. After this
+        method runs, ``plotting.Plotting`` can recreate plots from the checkpoint
+        directory alone.
+
+        Parameters
+        ----------
+        monotone : bool, optional
+            If provided, controls whether experiment CSVs are exported from
+            ``evaluate_monotone()`` when available. If omitted, this preserves the
+            legacy ``plotting.monotone`` module-level switch.
         """
-        self.plots = Plotting(self)
+        if not hasattr(self, "baseline"):
+            raise AttributeError("run_baseline() must be called before exporting plots")
+        if monotone is None:
+            monotone = plotting_module.monotone
+
+        params_dir = os.path.join(self.here.checkpoints, "params_plotting")
+        perf_dir = os.path.join(self.here.checkpoints, "performance_plotting")
+        meta_dir = os.path.join(self.here.checkpoints, "meta_params_plotting")
+        for directory in [params_dir, perf_dir, meta_dir]:
+            os.makedirs(directory, exist_ok=True)
+
+        parameter_columns = ["resource"] + self.parameter_names
+        performance_columns = [
+            "resource",
+            "response",
+            "response_lower",
+            "response_upper",
+        ]
+        performance_optional_columns = ["count"]
+
+        manifest = {
+            "baseline_name": self.baseline.name,
+            "parameter_names": list(self.parameter_names),
+            "response_key": self.response_key,
+            "experiments": [],
+        }
+
+        params_df, eval_df = self.baseline.evaluate()
+        self._write_plotting_csv(
+            params_df,
+            os.path.join(params_dir, "baseline.csv"),
+            required_columns=parameter_columns,
+        )
+        self._write_plotting_csv(
+            eval_df,
+            os.path.join(perf_dir, "baseline.csv"),
+            required_columns=performance_columns,
+            optional_columns=performance_optional_columns,
+        )
+
+        for experiment in self.experiments:
+            if monotone and hasattr(experiment, "evaluate_monotone"):
+                res = experiment.evaluate_monotone()
+            else:
+                res = experiment.evaluate()
+
+            params_df = res[0]
+            eval_df = res[1]
+            self._write_plotting_csv(
+                params_df,
+                os.path.join(params_dir, f"{experiment.name}.csv"),
+                required_columns=parameter_columns,
+            )
+            if len(res) == 3:
+                self._write_plotting_csv(
+                    res[2],
+                    os.path.join(params_dir, f"{experiment.name}_preproc.csv"),
+                    required_columns=parameter_columns,
+                )
+
+            self._write_plotting_csv(
+                eval_df,
+                os.path.join(perf_dir, f"{experiment.name}.csv"),
+                required_columns=performance_columns,
+                optional_columns=performance_optional_columns,
+            )
+
+            experiment_manifest = {
+                "name": experiment.name,
+                "has_preprocessed_params": len(res) == 3,
+                "has_meta": hasattr(experiment, "meta_params"),
+                "meta_parameter_names": list(
+                    getattr(experiment, "meta_parameter_names", [])
+                ),
+                "meta_resource": getattr(experiment, "resource", "TotalBudget"),
+                "has_preprocessed_meta": hasattr(experiment, "preproc_meta_params"),
+            }
+
+            if hasattr(experiment, "meta_params"):
+                meta_resource = experiment_manifest["meta_resource"]
+                meta_columns = [meta_resource] + experiment_manifest[
+                    "meta_parameter_names"
+                ]
+                meta_params = experiment.meta_params.copy()
+                if meta_resource in meta_params.columns:
+                    meta_params.sort_values(by=meta_resource, inplace=True)
+                self._write_plotting_csv(
+                    meta_params,
+                    os.path.join(meta_dir, f"{experiment.name}.csv"),
+                    required_columns=meta_columns,
+                    resource_column=meta_resource,
+                )
+
+            if hasattr(experiment, "preproc_meta_params"):
+                meta_resource = experiment_manifest["meta_resource"]
+                meta_columns = [meta_resource] + experiment_manifest[
+                    "meta_parameter_names"
+                ]
+                preproc_meta_params = experiment.preproc_meta_params.copy()
+                if meta_resource in preproc_meta_params.columns:
+                    preproc_meta_params.sort_values(by=meta_resource, inplace=True)
+                self._write_plotting_csv(
+                    preproc_meta_params,
+                    os.path.join(meta_dir, f"{experiment.name}_preproc.csv"),
+                    required_columns=meta_columns,
+                    resource_column=meta_resource,
+                )
+
+            manifest["experiments"].append(experiment_manifest)
+
+        manifest_path = os.path.join(self.here.checkpoints, "plotting_manifest.json")
+        with open(manifest_path, "w", encoding="utf-8") as fh:
+            json.dump(manifest, fh, indent=2)
+
+        return manifest
+
+    def initPlotting(self, export_csvs=True, monotone=None):
+        """
+        Sets up plotting - this should be run after all experiments are run.
+
+        Parameters
+        ----------
+        export_csvs : bool, optional
+            Whether to export plotting CSVs before constructing the plotting
+            helper.
+        monotone : bool, optional
+            If provided, controls whether exported experiment curves use
+            ``evaluate_monotone()`` when available. If omitted, this preserves
+            the legacy ``plotting.monotone`` module-level switch.
+        """
+        if export_csvs:
+            self.export_plot_csvs(monotone=monotone)
+        self.plots = Plotting(self.here.checkpoints)

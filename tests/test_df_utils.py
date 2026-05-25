@@ -14,6 +14,7 @@ sys.path.insert(0, SRC_PATH)
 
 from df_utils import (
     applyParallel,
+    progress_apply_or_apply,
     monotone_df,
     eval_cumm,
     read_exp_raw,
@@ -92,6 +93,71 @@ class TestApplyParallel:
         x_results = result[result.index == 0]  # First group result
         if len(x_results) > 0:
             assert x_results['count'].iloc[0] == 2
+
+
+class TestProgressApplyOrApply:
+    """Test class for progress_apply_or_apply compatibility helper."""
+
+    class DummyGrouped:
+        def __init__(self, progress_result=None, progress_exc=None):
+            self.progress_result = progress_result
+            self.progress_exc = progress_exc
+            self.progress_called = False
+            self.apply_called = False
+            self.progress_kwargs = None
+            self.apply_kwargs = None
+
+        def progress_apply(self, func, **kwargs):
+            self.progress_called = True
+            self.progress_kwargs = kwargs
+            if self.progress_exc is not None:
+                raise self.progress_exc
+            return self.progress_result
+
+        def apply(self, func, **kwargs):
+            self.apply_called = True
+            self.apply_kwargs = kwargs
+            return func("fallback-group")
+
+    def test_uses_progress_apply_when_available(self):
+        """progress_apply result should be returned unchanged when it succeeds."""
+        grouped = self.DummyGrouped(progress_result="progress-result")
+
+        result = progress_apply_or_apply(
+            grouped, lambda df: "fallback-result", include_groups=False
+        )
+
+        assert result == "progress-result"
+        assert grouped.progress_called is True
+        assert grouped.apply_called is False
+        assert grouped.progress_kwargs == {"include_groups": False}
+
+    def test_falls_back_for_tqdm_builtin_func_attribute_error(self):
+        """Known pandas/tqdm _is_builtin_func AttributeError should use apply."""
+        grouped = self.DummyGrouped(
+            progress_exc=AttributeError(
+                "'DataFrameGroupBy' object has no attribute '_is_builtin_func'"
+            )
+        )
+
+        result = progress_apply_or_apply(
+            grouped, lambda df: f"handled {df}", include_groups=False
+        )
+
+        assert result == "handled fallback-group"
+        assert grouped.progress_called is True
+        assert grouped.apply_called is True
+        assert grouped.apply_kwargs == {"include_groups": False}
+
+    def test_reraises_other_attribute_errors(self):
+        """Unrelated AttributeErrors should not be hidden by the fallback."""
+        grouped = self.DummyGrouped(progress_exc=AttributeError("different failure"))
+
+        with pytest.raises(AttributeError, match="different failure"):
+            progress_apply_or_apply(grouped, lambda df: df)
+
+        assert grouped.progress_called is True
+        assert grouped.apply_called is False
 
 
 class TestMonotoneDf:

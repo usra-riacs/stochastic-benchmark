@@ -1,7 +1,88 @@
 import pytest
 import pandas as pd
 import numpy as np
-from stats import StatsParameters, Mean, Median, StatsSingle, applyBounds, Stats
+import stats as stats_module
+from stats import (
+    Percentile,
+    Quantile,
+    StatsMeasure,
+    StatsParameters,
+    Mean,
+    Median,
+    StatsSingle,
+    applyBounds,
+    Stats,
+)
+
+
+def test_stats_measure_initializes_name():
+    assert StatsMeasure().name is None
+
+
+def test_mean_supports_inverse_variance_weighting(monkeypatch):
+    base = pd.Series([1.0, 2.0, 5.0])
+    lower = pd.Series([0.5, 1.0, 3.0])
+    upper = pd.Series([1.5, 3.0, 7.0])
+    monkeypatch.setattr(stats_module, "mean_median_method", "inverse_variance_weighing")
+
+    mean = Mean()
+    center = mean.center(base, lower, upper)
+
+    weights = np.array(4 / (upper - lower) ** 2)
+    assert center == pytest.approx(np.sum(weights * base) / np.sum(weights))
+    assert mean.weights == pytest.approx(weights)
+
+
+def test_mean_rejects_unknown_weighting_method(monkeypatch):
+    monkeypatch.setattr(stats_module, "mean_median_method", "unsupported")
+    with pytest.raises(ValueError, match="mean_method can only be"):
+        Mean().compute_weights(pd.Series([1.0]), pd.Series([0.0]))
+
+
+def test_percentile_confints_bootstraps_interval():
+    np.random.seed(0)
+    percentile = Percentile(q=50, nboots=5, confidence_level=68)
+    base = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+    lower = base - 0.1
+    upper = base + 0.1
+
+    center, ci_lower, ci_upper = percentile.ConfInts(base, lower, upper)
+
+    assert center == pytest.approx(3.0)
+    assert ci_lower <= ci_upper
+
+
+@pytest.mark.parametrize("style", ["HD", "kernel", "normal_binomial"])
+def test_quantile_confints_supported_styles(style):
+    quantile = Quantile(q=50, nboots=10, style=style)
+    base = pd.DataFrame({"x": np.arange(1.0, 21.0)})
+    lower = base - 0.1
+    upper = base + 0.1
+
+    center, ci_lower, ci_upper = quantile.ConfInts(base, lower, upper)
+
+    assert center["x"] == pytest.approx(10.5)
+    assert ci_lower < center["x"] < ci_upper
+
+
+def test_quantile_mj_style_returns_center():
+    quantile = Quantile(q=50, nboots=10, style="MJ")
+    base = pd.DataFrame({"x": np.arange(1.0, 21.0)})
+    lower = base - 0.1
+    upper = base + 0.1
+
+    with np.errstate(invalid="ignore"):
+        center, ci_lower, ci_upper = quantile.ConfInts(base, lower, upper)
+
+    assert center["x"] == pytest.approx(10.5)
+    assert np.isnan(ci_lower) == np.isnan(ci_upper)
+
+
+def test_quantile_unknown_interval_style_returns_message():
+    quantile = Quantile(q=50, nboots=10, style="unknown")
+    base = pd.DataFrame({"x": np.arange(1.0, 6.0)})
+    result = quantile.ConfInts(base, base - 0.1, base + 0.1)
+    assert result == "Type of interval not found!"
 
 
 def test_StatsSingle():
@@ -30,6 +111,30 @@ def test_StatsSingle():
         "ConfInt=upper_Key=A_Metric=median",
         "count",
     }, "The DataFrame should have the correct columns"
+
+
+def test_Stats_keeps_singleton_groups_when_requested():
+    df = pd.DataFrame(
+        {
+            "Key=A": [1.0, 2.0, 4.0],
+            "ConfInt=lower_Key=A": [0.8, 1.8, 3.8],
+            "ConfInt=upper_Key=A": [1.2, 2.2, 4.2],
+            "C": ["x", "y", "y"],
+        }
+    )
+    stats_params = StatsParameters(metrics=["A"], stats_measures=[Mean()])
+
+    default_result = Stats(df, stats_params, ["C"])
+    assert set(default_result["C"]) == {"y"}
+
+    result = Stats(df, stats_params, ["C"], drop_singletons=False)
+    result = result.set_index("C")
+
+    assert set(result.index) == {"x", "y"}
+    assert result.loc["x", "count"] == 1
+    assert result.loc["x", "Key=A_Metric=mean"] == pytest.approx(1.0)
+    assert result.loc["x", "ConfInt=lower_Key=A_Metric=mean"] == pytest.approx(0.8)
+    assert result.loc["x", "ConfInt=upper_Key=A_Metric=mean"] == pytest.approx(1.2)
 
 
 def test_applyBounds():

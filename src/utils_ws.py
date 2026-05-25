@@ -286,7 +286,7 @@ def interpolate_df(
                 if all_datapoints:
                     # Create a dataframe with the interesting reads as index and all the columns
                     dummy_df = pd.DataFrame(
-                        np.NaN, index=interpolate_resource, columns=df_index.columns
+                        np.nan, index=interpolate_resource, columns=df_index.columns
                     )
                     dummy_df.drop(columns=resource_column, inplace=True)
                     # Fill out the values that we have certain

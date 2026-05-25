@@ -1,7 +1,7 @@
 # Window Sticker - Stochastic Benchmark
 
 [![CI](https://github.com/bernalde/stochastic-benchmark/actions/workflows/ci.yml/badge.svg)](https://github.com/bernalde/stochastic-benchmark/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/bernalde/stochastic-benchmark/branch/main/graph/badge.svg)](https://codecov.io/gh/bernalde/stochastic-benchmark)
+[![codecov](https://codecov.io/gh/usra-riacs/stochastic-benchmark/branch/main/graph/badge.svg)](https://codecov.io/gh/usra-riacs/stochastic-benchmark)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 [![License](https://img.shields.io/github/license/bernalde/stochastic-benchmark)](LICENSE)
 
@@ -36,7 +36,7 @@ The current package implements the following functionality:
 - Through bootstrapping and downsampling, simulate the lower data performance for such solvers.
 - Compute best-recommended parameters based on aggregated statistics and individual results for each parameter setting.
 - Compute optimistic bound performance, known as virtual best performance, based on the provided experiments.
-- Perform an exploration-exploitation parameter setting strategy, where the fraction of the allocated resources used in the exploration round is optimized. The exploration procedure is implemented as a random search in the seen parameter settings or a Bayesian-based method known as the tree of parzen and implemented in the package [Hyperopt](https://hyperopt.github.io/hyperopt/).
+- Perform an exploration-exploitation parameter setting strategy, where the fraction of the allocated resources used in the exploration round is optimized. The exploration procedure is implemented as a random search in the seen parameter settings or a Bayesian-based method known as the tree of parzen and implemented in the package [Hyperopt](https://hyperopt.github.io/hyperopt/) when generation dependencies are installed.
 - Plot the Window sticker, comparing the performance curves corresponding to the virtual best, recommended parameters, and exploration-exploitation parameter setting strategies.
 - Plots the values of the parameters and their best values with respect to the resource considered, a plot we call the Strategy plot. These plots can show the actual solver parameter values or the meta-parameters associated with parameter-setting strategies.
 
@@ -61,9 +61,14 @@ The current package implements the following functionality:
     pip install -r requirements.txt
     ```
 
-4. **Optional: Install Example Dependencies** (needed for some example notebooks):
+4. **Optional: Install Example and Notebook Dependencies** (needed for self-contained runnable example notebooks):
     ```bash
     pip install -r requirements-examples.txt
+    ```
+
+5. **Optional: Install Data-Generation Dependencies** (needed for workflows that run Hyperopt-based data generation):
+    ```bash
+    pip install -r requirements-generation.txt
     ```
 
 ### Method 2: Downloading as a Zip Archive
@@ -85,10 +90,32 @@ The current package implements the following functionality:
     pip install -r requirements.txt
     ```
 
-4. **Optional: Install Example Dependencies** (needed for some example notebooks):
+4. **Optional: Install Example and Notebook Dependencies** (needed for self-contained runnable example notebooks):
     ```bash
     pip install -r requirements-examples.txt
     ```
+
+5. **Optional: Install Data-Generation Dependencies** (needed for workflows that run Hyperopt-based data generation):
+    ```bash
+    pip install -r requirements-generation.txt
+    ```
+
+### Optional Dependency Sets
+
+Core installs use `requirements.txt` and do not include notebook-only or data-generation-only packages. Use these optional sets as needed:
+
+- Example analysis notebooks: `pip install -r requirements-examples.txt`
+- Command-line notebook execution tools: included in `requirements-examples.txt` via `nbconvert` and `ipykernel`
+- Hyperopt-based data generation: `pip install -r requirements-generation.txt`
+
+When installing the package in editable mode, the equivalent extras are:
+
+```bash
+pip install -e ".[examples,notebooks]"
+pip install -e ".[generation]"
+```
+
+The generation requirements include a temporary `setuptools<81` compatibility pin because Hyperopt 0.2.7 imports `pkg_resources`. This workaround is generation-specific and is not needed for analysis-only notebooks.
 
 <!-- the following `pip` command can install this package -->
 
@@ -97,6 +124,21 @@ The current package implements the following functionality:
 ## Examples
 
 For a full demonstration of the stochastic-benchmark analysis in action, refer to the example notebooks located in the `examples` folder of this repository.
+
+After installing `requirements-examples.txt`, a notebook can be checked from the command line with:
+
+```bash
+python -m jupyter nbconvert --to notebook --execute --inplace path/to/notebook.ipynb
+```
+
+To run the same self-contained tutorial notebook smoke check used in CI:
+
+```bash
+python scripts/verify_tutorials.py --output-dir executed-notebooks
+```
+
+The manifest at `examples/tutorials.json` lists runnable notebooks and documents notebooks that are intentionally skipped because they require external setup or are too slow for the lightweight CI smoke job.
+The smoke check executes copied notebook directories under the output directory, so generated plots, summaries, and caches are kept with the executed notebooks instead of modifying the source examples.
 
 ## Documentation
 

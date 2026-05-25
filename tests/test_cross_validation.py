@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 
 import stats
+import cross_validation as cv
 
 from cross_validation import (
     baseline_evaluate,
@@ -15,6 +16,19 @@ from cross_validation import (
     random_exp_evaluate,
     seq_search_evaluate,
 )
+
+
+@pytest.fixture(autouse=True)
+def clear_cross_validation_globals():
+    cv.parameters_dict.clear()
+    cv.performance_dict.clear()
+    cv.parameters_summarized_dict.clear()
+    cv.performance_summarized_dict.clear()
+    yield
+    cv.parameters_dict.clear()
+    cv.performance_dict.clear()
+    cv.parameters_summarized_dict.clear()
+    cv.performance_summarized_dict.clear()
 
 
 class TestBaselineEvaluate:
@@ -102,5 +116,104 @@ class TestEvaluateFuncs:
         params_df, eval_df = seq_search_evaluate(df, ['param1'], 'Resp')
         assert 'resource' in params_df.columns
         assert len(eval_df) == 2
+        assert eval_df.loc[0, "response_lower"] == 10
+        assert eval_df.loc[0, "response_upper"] == 12
 
+
+class TestCrossValidationFileWorkflows:
+    def test_load_parameters_concatenates_splits_and_warns_for_missing_files(self, tmp_path):
+        folders = [tmp_path / "split0", tmp_path / "split1"]
+        for folder in folders:
+            (folder / "params_plotting").mkdir(parents=True)
+
+        pd.DataFrame({
+            "Unnamed: 0": [0],
+            "resource": [1],
+            "param1": [0.1],
+        }).to_csv(folders[0] / "params_plotting" / "baseline.csv", index=False)
+        pd.DataFrame({
+            "resource": [1],
+            "param1": [0.2],
+        }).to_csv(folders[1] / "params_plotting" / "baseline.csv", index=False)
+        pd.DataFrame({
+            "resource": [1],
+            "param1": [0.4],
+        }).to_csv(folders[0] / "params_plotting" / "experiment.csv", index=False)
+
+        with pytest.warns(UserWarning, match="experiment.csv not found"):
+            cv.load_parameters([str(folder) for folder in folders], ["experiment"])
+
+        baseline = cv.parameters_dict["baseline"]
+        experiment = cv.parameters_dict["experiment"]
+        assert "Unnamed: 0" not in baseline.columns
+        assert baseline["split_ind"].tolist() == [0, 1]
+        assert experiment["split_ind"].tolist() == [0]
+
+    def test_process_params_across_splits_summarizes_each_experiment(self):
+        cv.parameters_dict["baseline"] = pd.DataFrame({
+            "resource": [1, 1, 2, 2],
+            "param1": [0.0, 2.0, 4.0, 6.0],
+        })
+
+        cv.process_params_across_splits(["param1"], confidence_level=68)
+
+        summary = cv.parameters_summarized_dict["baseline"]["param1"]
+        assert summary["resource"].tolist() == [1, 2]
+        assert summary.loc[summary["resource"] == 1, "mean"].iloc[0] == pytest.approx(1.0)
+        assert {"CI_l", "CI_u"} <= set(summary.columns)
+
+    def test_load_and_process_performance_across_splits(self, tmp_path):
+        folders = [tmp_path / "split0", tmp_path / "split1"]
+        for idx, folder in enumerate(folders):
+            (folder / "performance_plotting").mkdir(parents=True)
+            pd.DataFrame({
+                "Unnamed: 0": [0],
+                "resource": [1],
+                "response": [0.5 + idx],
+            }).to_csv(folder / "performance_plotting" / "baseline.csv", index=False)
+            pd.DataFrame({
+                "resource": [1],
+                "response": [0.7 + idx],
+                "response_lower": [0.6 + idx],
+                "response_upper": [0.8 + idx],
+            }).to_csv(folder / "performance_plotting" / "experiment.csv", index=False)
+
+        cv.load_performance(
+            [str(folder) for folder in folders],
+            ["experiment"],
+            interpolate_flag=False,
+        )
+        assert "Unnamed: 0" not in cv.performance_dict["baseline"].columns
+
+        cv.process_performance_across_splits(stats_measure="mean")
+
+        baseline = cv.performance_summarized_dict["baseline"]
+        experiment = cv.performance_summarized_dict["experiment"]
+        assert baseline.loc[0, "mean"] == pytest.approx(1.0)
+        assert {"mean", "CI_l", "CI_u"} <= set(experiment.columns)
+
+    def test_create_eval_params_dfs_dispatches_projection_evaluator(self, tmp_path):
+        response_col = "Resp"
+        folders = [tmp_path / "split0", tmp_path / "split1"]
+        for idx, folder in enumerate(folders):
+            folder.mkdir()
+            pd.DataFrame({
+                "resource": [1],
+                "param1": [idx + 0.5],
+                response_col: [idx + 1.0],
+                "ConfInt=lower_" + response_col: [idx + 0.8],
+                "ConfInt=upper_" + response_col: [idx + 1.2],
+            }).to_pickle(folder / "projection.pkl")
+
+        raw, params, perf = cv.create_eval_params_dfs(
+            "projection.pkl",
+            [str(folder) for folder in folders],
+            ["param1"],
+            "proj_expt_evaluate",
+            response_col,
+        )
+
+        assert raw["split"].tolist() == [1, 2]
+        assert params["split"].tolist() == [1, 2]
+        assert perf["response_lower"].tolist() == [0.8, 1.8]
 

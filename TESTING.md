@@ -50,16 +50,44 @@ pytest tests/test_names.py -v
 pytest tests/ --cov=src --cov-report=html
 ```
 
+### Tutorial notebook smoke checks
+
+The CI tutorial smoke job executes the self-contained notebooks listed in
+`examples/tutorials.json` and writes executed copies to `executed-notebooks/`.
+Run the same check locally with:
+
+```bash
+python scripts/verify_tutorials.py --output-dir executed-notebooks
+```
+
+The manifest also lists notebooks that are intentionally skipped with a visible
+reason, such as tutorials that require external repositories, external data, or
+more runtime than the lightweight CI smoke job should use.
+Runnable notebooks are executed from copied notebook directories under the
+output directory, keeping generated plots, summaries, caches, and executed
+notebooks together without modifying the source `examples/` tree.
+
 ## GitHub Actions CI/CD
 
 The repository includes automated testing via GitHub Actions:
 
 - **Matrix Testing**: Tests across Python versions 3.10, 3.11, 3.12
 - **Linting**: Code quality checks with flake8
-- **Coverage**: Automated coverage reporting via Codecov
+- **Coverage**: Automated coverage reporting via Codecov, including patch
+  coverage reporting for pull requests
 - **Integration Tests**: Cross-module functionality verification
+- **Tutorial Smoke Tests**: Self-contained notebooks execute on Python 3.10 and upload executed notebooks as artifacts
 
 ## Test Coverage
+
+### Coverage Policy
+
+CI enforces that the test suite completes, coverage reports are generated, and
+project-wide coverage stays at or above 80%. Codecov also reports patch coverage
+for pull requests.
+
+Contributors should keep new or changed behavior covered by focused tests and
+avoid reducing project-wide coverage.
 
 ### Current Coverage Status
 - ✅ **names.py** (103 lines) - Path management, parameter/filename conversion
@@ -68,11 +96,11 @@ The repository includes automated testing via GitHub Actions:
 - ✅ **success_metrics.py** (353 lines) - Success metric calculations (Response, PerfRatio, etc.)
 - ✅ **bootstrap.py** (441 lines) - Bootstrap sampling and statistical methods
 - ✅ **training.py** (328 lines) - Training algorithms and parameter optimization
+- ✅ **utils_ws.py** (534 lines) - Workspace utility interpolation and progress processing
 
 ### Modules Needing Tests
 - 🔄 **plotting.py** (611 lines) - Plotting and visualization
 - 🔄 **stochastic_benchmark.py** (1796 lines) - Main benchmark class
-- 🔄 **utils_ws.py** (533 lines) - Utility functions
 - 🔄 **cross_validation.py** (534 lines) - Cross-validation methods
 - 🔄 **sequential_exploration.py** (388 lines) - Sequential exploration strategies
 - 🔄 **random_exploration.py** (315 lines) - Random exploration methods
@@ -102,7 +130,7 @@ When adding new functionality:
 2. Include edge cases and error conditions
 3. Update integration tests if the change affects module interactions
 4. Ensure tests pass locally before submitting PR
-5. Maintain test coverage above 80%
+5. Cover new or changed behavior and keep project-wide coverage at or above 80%
 
 ### Test Naming Convention
 - Test files: `test_<module_name>.py`

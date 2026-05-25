@@ -307,11 +307,9 @@ def Bootstrap(df, group_on, bs_params_list, progress_dir=None):
                 temp_df = pd.read_pickle(filename)
                 return temp_df
 
-        temp_df = (
-            df.groupby(group_on)
-            .progress_apply(lambda df: BootstrapSingle(df, bs_params))
-            .reset_index()
-        )
+        temp_df = df_utils.progress_apply_or_apply(
+            df.groupby(group_on), lambda df: BootstrapSingle(df, bs_params)
+        ).reset_index()
         temp_df.drop("level_{}".format(len(group_on)), axis=1, inplace=True)
         temp_df["boots"] = bs_params.downsample
         return temp_df
@@ -371,11 +369,10 @@ def Bootstrap_reduce_mem(df, group_on, bs_params_list, bootstrap_dir, name_fcn=N
                     return BootstrapSingle(lower_group_df[1], bs_params)
 
                 def bs_params_eval(bs_params):
-                    temp_df = (
-                        df_group.groupby(group_on)
-                        .progress_apply(lambda df: BootstrapSingle(df, bs_params))
-                        .reset_index()
-                    )
+                    temp_df = df_utils.progress_apply_or_apply(
+                        df_group.groupby(group_on),
+                        lambda df: BootstrapSingle(df, bs_params),
+                    ).reset_index()
                     temp_df.drop("level_{}".format(len(group_on)), axis=1, inplace=True)
                     temp_df["boots"] = bs_params.downsample
                     return temp_df
@@ -412,11 +409,10 @@ def Bootstrap_reduce_mem(df, group_on, bs_params_list, bootstrap_dir, name_fcn=N
                         return BootstrapSingle(lower_group_df[1], bs_params)
 
                     def bs_params_eval(bs_params):
-                        temp_df = (
-                            df_group.groupby(group_on)
-                            .progress_apply(lambda df: BootstrapSingle(df, bs_params))
-                            .reset_index()
-                        )
+                        temp_df = df_utils.progress_apply_or_apply(
+                            df_group.groupby(group_on),
+                            lambda df: BootstrapSingle(df, bs_params),
+                        ).reset_index()
                         temp_df.drop(
                             "level_{}".format(len(group_on)), axis=1, inplace=True
                         )
@@ -451,11 +447,10 @@ def Bootstrap_reduce_mem(df, group_on, bs_params_list, bootstrap_dir, name_fcn=N
                         return BootstrapSingle(lower_group_df[1], bs_params)
 
                     def bs_params_eval(bs_params):
-                        temp_df = (
-                            df_group.groupby(group_on)
-                            .progress_apply(lambda df: BootstrapSingle(df, bs_params))
-                            .reset_index()
-                        )
+                        temp_df = df_utils.progress_apply_or_apply(
+                            df_group.groupby(group_on),
+                            lambda df: BootstrapSingle(df, bs_params),
+                        ).reset_index()
                         temp_df.drop(
                             "level_{}".format(len(group_on)), axis=1, inplace=True
                         )

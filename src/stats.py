@@ -8,6 +8,7 @@ from tqdm import tqdm
 from typing import List, Tuple, Union, DefaultDict
 import warnings
 
+import df_utils
 import names
 
 EPSILON = 1e-10
@@ -561,13 +562,9 @@ def Stats(
     def dfSS(df):
         return StatsSingle(df, stats_params, drop_singletons=drop_singletons)
 
-    grouped = df.groupby(group_on)
-    try:
-        df_stats = grouped.progress_apply(dfSS, include_groups=False).reset_index()
-    except AttributeError as exc:
-        if "_is_builtin_func" not in str(exc):
-            raise
-        df_stats = grouped.apply(dfSS, include_groups=False).reset_index()
+    df_stats = df_utils.progress_apply_or_apply(
+        df.groupby(group_on), dfSS, include_groups=False
+    ).reset_index()
 
     df_stats.drop("level_{}".format(len(group_on)), axis=1, inplace=True)
     applyBounds(df_stats, stats_params)

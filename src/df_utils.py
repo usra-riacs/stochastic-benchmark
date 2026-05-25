@@ -36,6 +36,22 @@ def applyParallel(dfGrouped, func):
     return pd.concat(ret_list)
 
 
+def progress_apply_or_apply(grouped, func, **kwargs):
+    """
+    Apply a function to a pandas groupby object with a tqdm/pandas fallback.
+
+    Some pandas/tqdm combinations raise an AttributeError for the internal
+    ``_is_builtin_func`` lookup when using progress_apply. In that compatibility
+    case, fall back to pandas apply while preserving the same arguments.
+    """
+    try:
+        return grouped.progress_apply(func, **kwargs)
+    except AttributeError as exc:
+        if "_is_builtin_func" not in str(exc):
+            raise
+        return grouped.apply(func, **kwargs)
+
+
 def monotone_df(
     df, resource_col, response_col, opt_sense, extrapolate_from=None, match_on=None
 ):

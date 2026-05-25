@@ -162,7 +162,7 @@ def Interpolate(df: pd.DataFrame, interp_params: InterpolationParameters, group_
     def dfInterp(df):
         return InterpolateSingle(df, interp_params, group_on)
 
-    df_interp = df.groupby(group_on).progress_apply(dfInterp)
+    df_interp = df.groupby(group_on).progress_apply(dfInterp, include_groups=False)
     return df_interp
 
 
@@ -192,7 +192,7 @@ def Interpolate_reduce_mem(
         generateResourceColumn(df, interp_params)
         temp_df_interp = df.groupby(group_on).progress_apply(
             lambda df: InterpolateSingle(df, interp_params, group_on),
-            # include_groups=False # Pandas version error
+            include_groups=False,
         )
         temp_df_interp.reset_index(inplace=True)
         df_interp_list.append(temp_df_interp)

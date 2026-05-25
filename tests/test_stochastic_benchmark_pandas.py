@@ -5,7 +5,7 @@ from stats import StatsParameters, Median
 import names
 
 @pytest.fixture
-def stochastic_benchmark_instance():
+def stochastic_benchmark_instance(tmp_path):
     sb = stochastic_benchmark(
         parameter_names=['param1'],
         instance_cols=['instance'],
@@ -27,9 +27,16 @@ def stochastic_benchmark_instance():
     })
     sb.stat_params = StatsParameters(metrics=['response'], stats_measures=[Median()])
     
-    # RESTORED: Global setup for 'here'
-    sb.here = type('obj', (object,), {'checkpoints': '/tmp'})
+    # The experiment classes consume the ExperimentParameters contract produced
+    # by stochastic_benchmark.get_experiment_parameters().
+    sb.here = type('obj', (object,), {'checkpoints': str(tmp_path)})
+    sb.baseline = type('obj', (object,), {'recalibrate': lambda _df: None})()
     return sb
+
+
+@pytest.fixture
+def experiment_parameters(stochastic_benchmark_instance):
+    return stochastic_benchmark_instance.get_experiment_parameters()
 
 # stochastic_benchmark tests
 def test_groupby_apply_returns_expected_shape(stochastic_benchmark_instance):
@@ -44,12 +51,12 @@ def test_groupby_apply_returns_expected_shape(stochastic_benchmark_instance):
 # VirtualBestBaseline tests
 def test_virtual_best_baseline_populate(stochastic_benchmark_instance):
     sb = stochastic_benchmark_instance
-    vb = VirtualBestBaseline(sb)
+    vb = VirtualBestBaseline(sb.get_experiment_parameters())
     assert hasattr(vb, 'rec_params')
     assert all(col in vb.rec_params.columns for col in ['resource', 'param1'])
 
-def test_virtual_best_baseline_evaluate(stochastic_benchmark_instance):
-    vb = VirtualBestBaseline(stochastic_benchmark_instance)
+def test_virtual_best_baseline_evaluate(experiment_parameters):
+    vb = VirtualBestBaseline(experiment_parameters)
     params_df, eval_df = vb.evaluate()
     response_col_name = 'response' # The output of evaluate is not using param2filename
     # The params_df should have 'resource' as a column after reset_index
@@ -60,7 +67,7 @@ def test_virtual_best_baseline_evaluate(stochastic_benchmark_instance):
     assert f'{response_col_name}_upper' in eval_df.columns
 
 def test_virtual_best_baseline_recalibrate(stochastic_benchmark_instance):
-    vb = VirtualBestBaseline(stochastic_benchmark_instance)
+    vb = VirtualBestBaseline(stochastic_benchmark_instance.get_experiment_parameters())
     new_df = vb.rec_params.sample(2)
     vb.recalibrate(new_df)
     expected_cols = ['resource'] + stochastic_benchmark_instance.parameter_names
@@ -77,7 +84,7 @@ def test_projection_experiment_evaluate(stochastic_benchmark_instance):
         'boots': [1, 1],
         response_metric_col_name: [0.5, 0.6]
     })
-    pe = ProjectionExperiment(stochastic_benchmark_instance, "TrainingStats")
+    pe = ProjectionExperiment(stochastic_benchmark_instance.get_experiment_parameters(), "TrainingStats")
     params_df, eval_df = pe.evaluate()
     response_col_name = 'response' 
     assert 'resource' in params_df.columns
@@ -104,7 +111,7 @@ def test_projection_experiment_evaluate_monotone(stochastic_benchmark_instance):
         response_metric_lower_col_name: [0.4, 0.5],
         response_metric_upper_col_name: [0.6, 0.7]
     })
-    pe = ProjectionExperiment(stochastic_benchmark_instance, "TrainingStats")
+    pe = ProjectionExperiment(stochastic_benchmark_instance.get_experiment_parameters(), "TrainingStats")
     params_df, eval_df = pe.evaluate_monotone()
     response_col_name = 'response'
     diffs = eval_df[response_col_name].diff().fillna(0)
@@ -118,6 +125,6 @@ def test_projection_experiment_recipe_path(stochastic_benchmark_instance):
         'boots': [1, 1],
         response_metric_col_name: [0.5, 0.6]
     })
-    pe = ProjectionExperiment(stochastic_benchmark_instance, "TrainingStats")
+    pe = ProjectionExperiment(stochastic_benchmark_instance.get_experiment_parameters(), "TrainingStats")
     pe.set_rec_path()
     assert pe.rec_path.endswith(".pkl")

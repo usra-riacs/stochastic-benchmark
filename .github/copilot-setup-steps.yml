@@ -63,7 +63,7 @@ setup_steps:
     4_quality_checks:
       - "flake8 src --max-line-length=120"
       - "pytest tests/ -v"
-      - "Coverage should be >80% for new code"
+      - "Coverage should stay at or above 80% project-wide and cover new or changed behavior"
 
   common_patterns:
     testing_multiprocess:
@@ -196,7 +196,8 @@ setup_steps:
         - "Smoke tests for all modules"
       
       coverage_requirements:
-        minimum_coverage: "80%"
+        enforced_minimum_coverage: "80%"
+        pull_request_expectation: "new or changed behavior should be covered"
         report_format: "xml, html, term"
         upload_to: "codecov"
 

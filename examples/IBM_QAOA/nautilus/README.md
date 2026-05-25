@@ -65,13 +65,13 @@ kubectl get pods -n usra-expedition -w
 Follow logs:
 
 ```bash
-kubectl logs -n usra-expedition -f job/ibm-qaoa-simulation-validation
+kubectl logs -n usra-expedition -f job/ibm-qaoa-fa-opt-p5
 ```
 
 Results are written under:
 
 ```text
-/workspace/results/pss_window_sticker/heavy_hex_144_small
+/workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_expanded
 ```
 
 The generated instance/minmax cache is stored under:

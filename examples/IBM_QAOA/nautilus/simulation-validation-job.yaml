@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ibm-qaoa-simulation-validation
+  name: ibm-qaoa-fa-opt-p5
   namespace: usra-expedition
 spec:
   backoffLimit: 0
@@ -42,7 +42,7 @@ spec:
 
               if [[ -f stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh ]]; then
                 bash stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh \
-                  --output-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_PP_opt_p5_expanded \
+                  --output-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_expanded \
                   --reuse-output-root /workspace/results/pss_window_sticker/heavy_hex_144 \
                   --reuse-output-root /workspace/results/pss_window_sticker/heavy_hex_144_small \
                   --graph-type heavy_hex \
@@ -83,7 +83,7 @@ spec:
                   --main-repo "${QAOA_PARAMETER_SETTING_ROOT}" \
                   --pipeline-repo "${QAOA_TRAINING_PIPELINE_ROOT}" \
                   --instance-cache-root "${IBM_QAOA_INSTANCE_CACHE_ROOT}" \
-                  --output-root /workspace/results/pss_window_sticker/heavy_hex_144_small \
+                  --output-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_small \
                   --graph-type heavy_hex \
                   --num-nodes 144 \
                   --p-values 5 \

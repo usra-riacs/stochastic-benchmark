@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt 
 import matplotlib.gridspec as gridspec
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch, Rectangle
 import matplotlib.colors as mcolors
 from matplotlib.ticker import (
     FixedLocator,
@@ -15,8 +16,10 @@ from matplotlib.ticker import (
     FuncFormatter,
     LogFormatterMathtext,
     LogLocator,
+    MaxNLocator,
     MultipleLocator,
 )
+from matplotlib.transforms import Bbox
 
 try:
     from qaoa_parameter_setting.utils.labels import (
@@ -330,20 +333,6 @@ def make_asof_per_file(inner: pd.DataFrame) -> Callable[[pd.DataFrame], pd.DataF
     return asof_per_file
 
 
-_HW_COLORS = [
-    "#e41a1c", "#377eb8", "#4daf4a", "#984ea3",
-    "#ff7f00", "#ffff33", "#a65628", "#f781bf",
-    "#999999", "#00c0ff", "#ff00aa", "#00ff80",
-]
-
-_HW_MARKERS = [
-    "o", "s", "^", "D", "P", "X", "*", "v",
-    "<", "h", "H", "d", "+", "x", "|", "_", ">",
-]
-
-_PREFIX_IDX = {"F": 0, "FA": 1, "I": 2, "TQA": 3, "PT": 4, "LR": 5}
-_EVALUATOR_IDX = {"MPS": 0, "MPSAer": 0, "PP": 1}
-_N_METHODS = len(_PREFIX_IDX)
 _METHOD_NAMES = {
     "FA": "fixed angles",
     "F": "Fourier",
@@ -353,8 +342,6 @@ _METHOD_NAMES = {
     "RTS": "recursive transition states",
     "TQA": "TQA",
 }
-_REOPT_METHODS = {"FA", "TQA"}
-_PURE_FIXED_ANGLE_COLOR = "#6a3d9a"
 _QPS_METHOD_LABELS = {
     "F.json": "Fourier*",
     "FAer.json": "Fourier*",
@@ -363,7 +350,9 @@ _QPS_METHOD_LABELS = {
     "FAAer_opt.json": "Fixed Angles*",
     "FAAer_no_opt.json": "Fixed Angles†",
     "I.json": "Interp.*",
+    "I_opt.json": "Interp.*",
     "IAer.json": "Interp.*",
+    "IAer_opt.json": "Interp.*",
     "I_no_opt.json": "Interp.",
     "IAer_no_opt.json": "Interp.",
     "LR_opt.json": "Linear Ramp",
@@ -372,9 +361,9 @@ _QPS_METHOD_LABELS = {
     "LRAer_no_opt.json": "Linear Ramp†",
     "LR_angle_opt.json": "Linear Ramp*",
     "LRAer_angle_opt.json": "Linear Ramp*",
-    "RTS.json": "Recursive TS",
-    "RTSAer.json": "Recursive TS",
-    "TS.json": "Recursive TS",
+    "RTS.json": "Recursive TS*",
+    "RTSAer.json": "Recursive TS*",
+    "TS.json": "Recursive TS*",
     "TQA_no_opt.json": "TQA",
     "TQA_opt.json": "TQA*",
     "TQAAer_opt.json": "TQA*",
@@ -389,25 +378,41 @@ _QPS_METHOD_PREFIXES = tuple(
         reverse=True,
     )
 )
-
-
-def _is_pure_fixed_angle_label(color_label: str) -> bool:
-    """Return True for fixed-angle methods without the reoptimization suffix."""
-    parts = color_label.split("_")
-    if not parts or parts[0] != "FA":
-        return False
-    has_reopt_suffix = "angleOpt" in parts or ("opt" in parts and "no" not in parts)
-    return not has_reopt_suffix
-
-
-def _hw_style_ind(color_label: str) -> int | None:
-    """Return the hardware-style marker/color index for a method label."""
-    parts = color_label.split("_")
-    method_idx = _PREFIX_IDX.get(parts[0])
-    evaluator_idx = _EVALUATOR_IDX.get(parts[1]) if len(parts) > 1 else None
-    if method_idx is None or evaluator_idx is None:
-        return None
-    return evaluator_idx * _N_METHODS + method_idx - 1
+QPS_METHOD_COLORS = {
+    "Fixed Angles*": "#4477AA",
+    "Fixed Angles": "#4477AA",
+    "Fixed Angles†": "#4477AA",
+    "Fourier*": "#EE6677",
+    "Interp.*": "#228833",
+    "Interp.": "#228833",
+    "Linear Ramp*": "#CCBB44",
+    "Linear Ramp": "#CCBB44",
+    "Linear Ramp†": "#CCBB44",
+    "Recursive TS*": "#66CCEE",
+    "TQA*": "#AA3377",
+    "TQA": "#AA3377",
+    "TQA†": "#AA3377",
+    "Param. Transfer": "#BBBBBB",
+    "Parameter Transfer": "#BBBBBB",
+}
+QPS_EVALUATOR_MARKERS = {
+    "SV": "o",
+    "MPS (Quimb)": "P",
+    "MPS (Aer)": "^",
+    "PP": "s",
+}
+QPS_EVALUATOR_HATCHES = {
+    "SV": "\\\\\\",
+    "MPS (Quimb)": None,
+    "MPS (Aer)": "...",
+    "PP": "///",
+}
+_STYLE_FALLBACK_COLORS = list(QPS_METHOD_COLORS.values()) + [
+    "#44AA99",
+    "#999933",
+    "#882255",
+    "#117733",
+]
 
 
 def _compact_method_label(label: str) -> str:
@@ -415,6 +420,70 @@ def _compact_method_label(label: str) -> str:
     method_label = _method_label_from_training_method(label, format="latex")
     evaluator = _evaluation_label_from_training_method(label)
     return f"{method_label} with {evaluator}" if evaluator else method_label
+
+
+def _plain_method_label_from_training_method(label: str) -> str:
+    """Return the unformatted QPS method label used as a style lookup key."""
+    config_name = _normalise_training_method_to_config(label)
+    if _qps_external_trainer_config_to_method_label is not None:
+        try:
+            return _qps_external_trainer_config_to_method_label(config_name)
+        except Exception:
+            pass
+
+    method_name = _method_config_to_method(config_name)
+    method_label = _QPS_METHOD_LABELS.get(method_name)
+    if method_label is None:
+        parts = method_name.removesuffix(".json").split("_")
+        method_key = parts[0] if parts else method_name.removesuffix(".json")
+        method_label = _METHOD_NAMES.get(method_key, method_key)
+    return method_label
+
+
+def _method_color_from_training_method(label: str) -> str:
+    """Return paper-style color keyed only by angle-setting method."""
+    method_label = _plain_method_label_from_training_method(label)
+    if method_label in QPS_METHOD_COLORS:
+        return QPS_METHOD_COLORS[method_label]
+    base_label = method_label.replace("*", "").replace("†", "")
+    return QPS_METHOD_COLORS.get(
+        base_label,
+        _STYLE_FALLBACK_COLORS[abs(hash(base_label)) % len(_STYLE_FALLBACK_COLORS)],
+    )
+
+
+def _marker_from_training_method(label: str) -> str:
+    """Return paper-style marker keyed only by evaluator."""
+    evaluator = _evaluation_label_from_training_method(label)
+    return QPS_EVALUATOR_MARKERS.get(evaluator, "o")
+
+
+def _hatch_from_training_method(label: str) -> str | None:
+    """Return paper-style hatch keyed only by evaluator for bar plots."""
+    evaluator = _evaluation_label_from_training_method(label)
+    return QPS_EVALUATOR_HATCHES.get(evaluator)
+
+
+def _style_plot_kwargs(label: str) -> dict[str, object]:
+    """Return guide-compliant kwargs for line/point plots."""
+    method_label = _plain_method_label_from_training_method(label)
+    color = _method_color_from_training_method(label)
+    marker = _marker_from_training_method(label)
+    if "†" in method_label:
+        return {
+            "color": color,
+            "marker": marker,
+            "markerfacecolor": "white",
+            "markeredgecolor": color,
+            "markeredgewidth": 1.2,
+        }
+    return {
+        "color": color,
+        "marker": marker,
+        "markerfacecolor": color,
+        "markeredgecolor": "k" if "*" in method_label else "none",
+        "markeredgewidth": 1.0 if "*" in method_label else 0.0,
+    }
 
 
 def _optimization_level(label: str) -> int:
@@ -425,6 +494,23 @@ def _optimization_level(label: str) -> int:
     if "†" in method_label:
         return 0
     return 1
+
+
+def _optimization_alpha(label: str) -> float:
+    """Return opacity keyed by optimization level for bar plots."""
+    return {0: 0.55, 1: 0.78, 2: 1.0}[_optimization_level(label)]
+
+
+def _evaluator_edge_width(label: str, base_lw: float = 0.9) -> float:
+    """Return solid bar edge thickness keyed by evaluator."""
+    evaluator = _evaluation_label_from_training_method(label)
+    if evaluator == "PP":
+        return base_lw * 3.4
+    if evaluator == "MPS (Aer)":
+        return base_lw
+    if evaluator == "MPS (Quimb)":
+        return base_lw * 2.1
+    return base_lw
 
 
 def _qps_format_method_label(label: str, format: str = "latex") -> str:
@@ -459,7 +545,7 @@ def _normalise_training_method_to_config(label: str) -> str:
 
 def _method_config_to_method(config_name: str) -> str:
     """Drop the evaluator token from a canonical trainer config name."""
-    return re.sub(r"_(?:MPSAer|MPS|PP|SV)(?=_)", "", config_name)
+    return re.sub(r"_(?:MPSAer|MPS|PP|SV)(?=_|\.json$)", "", config_name)
 
 
 def _method_label_from_training_method(label: str, format: str = "latex") -> str:
@@ -491,13 +577,13 @@ def _method_label_from_training_method(label: str, format: str = "latex") -> str
 def _evaluation_label_from_training_method(label: str) -> str:
     """Return the canonical evaluator label used by QPS plots."""
     config_name = _normalise_training_method_to_config(label)
-    if "_MPSAer_" in config_name:
+    if re.search(r"_MPSAer(?=_|\.json$)", config_name):
         return "MPS (Aer)"
-    if "_MPS_" in config_name:
+    if re.search(r"_MPS(?=_|\.json$)", config_name):
         return "MPS (Quimb)"
-    if "_PP_" in config_name:
+    if re.search(r"_PP(?=_|\.json$)", config_name):
         return "PP"
-    if "_SV_" in config_name:
+    if re.search(r"_SV(?=_|\.json$)", config_name):
         return "SV"
     return ""
 
@@ -578,7 +664,18 @@ def _draw_training_bars(
     for i, method in enumerate(draw_methods):
         sub = agg[agg["method_base"] == method].set_index("job_p").reindex(depths)
         xpos = x - n * bw / 2 + bw * (i + 0.5)
-        base = color_map.get(method, plt.get_cmap("tab10")(methods.index(method) % 10))
+        base = color_map.get(
+            method,
+            QPS_METHOD_COLORS.get(
+                method,
+                QPS_METHOD_COLORS.get(
+                    method.replace("*", "").replace("†", ""),
+                    plt.get_cmap("tab10")(methods.index(method) % 10),
+                ),
+            ),
+        )
+        alpha = _optimization_alpha(method)
+        bar_edge_lw = _evaluator_edge_width(method, edge_lw)
         bottom = np.zeros(len(depths))
 
         outer_vals = sub["outer_init"].to_numpy()
@@ -589,7 +686,8 @@ def _draw_training_bars(
             bottom=bottom,
             color=base,
             edgecolor="black",
-            linewidth=edge_lw,
+            linewidth=bar_edge_lw,
+            alpha=alpha,
         )
         bottom += outer_vals
 
@@ -603,7 +701,8 @@ def _draw_training_bars(
                 bottom=bottom,
                 color=color,
                 edgecolor="black",
-                linewidth=edge_lw,
+                linewidth=bar_edge_lw,
+                alpha=alpha,
             )
             bottom += vals
 
@@ -715,19 +814,10 @@ def prepare_ibm_qaoa_plot_data(
     color_labels_all = sorted(df_points["color_label"].unique())
     color_map = {}
     shape_map = {}
-    fallback_idx = 11
 
     for label in color_labels_all:
-        ind = _hw_style_ind(label)
-        if ind is not None:
-            color_map[label] = _HW_COLORS[ind % len(_HW_COLORS)]
-            shape_map[label] = _HW_MARKERS[ind % len(_HW_MARKERS)]
-        else:
-            color_map[label] = _HW_COLORS[fallback_idx % len(_HW_COLORS)]
-            shape_map[label] = _HW_MARKERS[fallback_idx % len(_HW_MARKERS)]
-            fallback_idx += 1
-        if _is_pure_fixed_angle_label(label):
-            color_map[label] = _PURE_FIXED_ANGLE_COLOR
+        color_map[label] = _method_color_from_training_method(label)
+        shape_map[label] = _marker_from_training_method(label)
 
     label_map = {label: _compact_method_label(label) for label in color_labels_all}
 
@@ -774,10 +864,12 @@ def plot_ibm_qaoa_performance_panels(
     fs_label = 20
     fs_title = 28
     fs_legend = 18
-    raw_ms_map, centroid_ms_map = _optimization_size_maps()
+    raw_marker_size = 8.0
+    centroid_marker_size = 18.0
+    legend_marker_size = 9.0
     y_scale = 100.0
     y_cushion = 3.0
-    eb_opts = {"mec": "k", "ecolor": "k", "capsize": 3, "elinewidth": 1.2}
+    eb_opts = {"ecolor": "k", "capsize": 3, "elinewidth": 1.2}
 
     _ensure_save_dir(save_dir)
 
@@ -831,7 +923,11 @@ def plot_ibm_qaoa_performance_panels(
     if n_panels == 1:
         axs = [axs]
 
-    legend_dict = {}
+    method_legend_dict = {}
+    evaluator_legend_dict = {}
+
+    def _visible_method_label(color_label: str) -> str:
+        return _method_label_from_training_method(color_label, format="latex")
 
     for ax_idx, (ax, p) in enumerate(zip(axs, p_vals)):
         d = df_points[df_points["job_p"] == p]
@@ -842,6 +938,7 @@ def plot_ibm_qaoa_performance_panels(
             color = color_map[color_label]
             marker = shape_map[color_label]
             opt_level = _optimization_level(color_label)
+            style_kwargs = _style_plot_kwargs(color_label)
 
             ax.errorbar(
                 x,
@@ -849,8 +946,11 @@ def plot_ibm_qaoa_performance_panels(
                 fmt=marker,
                 linestyle="none",
                 color=color,
+                mfc=style_kwargs["markerfacecolor"],
+                mec=style_kwargs["markeredgecolor"],
+                mew=style_kwargs["markeredgewidth"],
                 alpha=0.35,
-                ms=raw_ms_map[opt_level],
+                ms=raw_marker_size,
                 **eb_opts,
             )
 
@@ -867,24 +967,43 @@ def plot_ibm_qaoa_performance_panels(
                 xerr=x_err,
                 yerr=y_err,
                 fmt=marker,
-                ms=centroid_ms_map[opt_level],
+                ms=centroid_marker_size,
                 linestyle="none",
                 color=color,
+                mfc=style_kwargs["markerfacecolor"],
+                mec=style_kwargs["markeredgecolor"],
+                mew=style_kwargs["markeredgewidth"],
                 zorder=10,
                 **eb_opts,
             )
 
-            expanded = label_map[color_label]
-            if expanded not in legend_dict:
-                legend_dict[expanded] = Line2D(
+            method_label = _visible_method_label(color_label)
+            if method_label not in method_legend_dict:
+                method_style = _style_plot_kwargs(color_label)
+                method_legend_dict[method_label] = Line2D(
                     [0],
                     [0],
-                    marker=marker,
+                    marker="s",
                     color=color,
-                    markeredgecolor="k",
+                    markerfacecolor=method_style["markerfacecolor"],
+                    markeredgecolor=method_style["markeredgecolor"],
+                    markeredgewidth=max(float(method_style["markeredgewidth"]), 1.0),
                     lw=0,
-                    markersize=centroid_ms_map[opt_level],
-                    label=expanded,
+                    markersize=legend_marker_size,
+                    label=method_label,
+                )
+            evaluator_label = _evaluation_label_from_training_method(color_label)
+            if evaluator_label and evaluator_label not in evaluator_legend_dict:
+                evaluator_legend_dict[evaluator_label] = Line2D(
+                    [0],
+                    [0],
+                    marker=_marker_from_training_method(color_label),
+                    color="black",
+                    markerfacecolor="black",
+                    markeredgecolor="black",
+                    lw=0,
+                    markersize=legend_marker_size,
+                    label=evaluator_label,
                 )
 
         panel_label = f"({chr(ord('a') + ax_idx)})"
@@ -907,25 +1026,48 @@ def plot_ibm_qaoa_performance_panels(
         ax.yaxis.set_major_locator(MultipleLocator(y_major))
         ax.grid(True)
 
-    axs[0].set_ylabel("Hardware approximation ratio (%)", fontsize=fs_label)
+    axs[0].set_ylabel("Hardware approximation ratio (%)", fontsize=fs_label, labelpad=8)
 
-    sorted_items = sorted(legend_dict.items(), key=lambda x: x[0])
-    all_legend_handles = [handle for _, handle in sorted_items]
-    all_legend_handles.extend(
-        _optimization_legend_handles(marker="o", markerfacecolor="white", markeredgecolor="k")
-    )
-
-    fig.legend(
-        handles=all_legend_handles,
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0.02),
+    method_items = sorted(method_legend_dict.items(), key=lambda x: x[0])
+    evaluator_items = sorted(evaluator_legend_dict.items(), key=lambda x: x[0])
+    notation_handles = [
+        Line2D([0], [0], linestyle="", color="none", label="†: no optimization"),
+        Line2D(
+            [0],
+            [0],
+            linestyle="",
+            color="none",
+            label="no superscript: method-parameter optimization",
+        ),
+        Line2D([0], [0], linestyle="", color="none", label="*: full angle optimization"),
+    ]
+    method_legend = fig.legend(
+        handles=[handle for _, handle in method_items],
+        loc="upper left",
+        bbox_to_anchor=(0.04, 0.06),
         ncol=4,
         borderaxespad=0,
         frameon=True,
         fontsize=fs_legend,
+        handletextpad=0.7,
+        columnspacing=1.2,
     )
+    evaluator_legend = fig.legend(
+        handles=[handle for _, handle in evaluator_items] + notation_handles,
+        loc="upper left",
+        bbox_to_anchor=(0.62, 0.06),
+        ncol=1,
+        borderaxespad=0,
+        frameon=True,
+        fontsize=fs_legend,
+        handletextpad=0.7,
+        columnspacing=1.2,
+    )
+    fig.add_artist(method_legend)
+    fig.add_artist(evaluator_legend)
 
-    fig.tight_layout(rect=[0.035, 0.05, 1, 1])
+    fig.tight_layout(rect=[0.035, 0.20, 1, 0.90])
+    fig.subplots_adjust(left=0.08, bottom=0.28, top=0.88)
 
     if save_dir:
         fname = f"{graph_id}_performance"
@@ -958,6 +1100,7 @@ def plot_ibm_qaoa_overlay(
     fs_tick = 18
     fs_label = 20
     fs_legend = 15
+    legend_marker_size = 9.0
     raw_ms_map, centroid_ms_map = _optimization_size_maps(
         raw_small=8.0,
         raw_medium=10.0,
@@ -1016,15 +1159,18 @@ def plot_ibm_qaoa_overlay(
         if color_label not in valid_methods:
             continue
         opt_level = _optimization_level(color_label)
+        style_kwargs = _style_plot_kwargs(color_label)
         ax.errorbar(
             group["total_duration_s"],
             y_scale * group["approximation_ratio"],
             fmt=shape_map[color_label],
             linestyle="none",
             color=color_map[color_label],
+            mfc=style_kwargs["markerfacecolor"],
+            mec=style_kwargs["markeredgecolor"],
+            mew=style_kwargs["markeredgewidth"],
             alpha=0.28,
             ms=raw_ms_map[opt_level],
-            mec="k",
             ecolor="k",
             capsize=2,
             elinewidth=0.9,
@@ -1039,6 +1185,7 @@ def plot_ibm_qaoa_overlay(
         color = color_map[color_label]
         marker = shape_map[color_label]
         opt_level = _optimization_level(color_label)
+        style_kwargs = _style_plot_kwargs(color_label)
 
         for _, row in group.iterrows():
             p = int(row["job_p"])
@@ -1052,9 +1199,11 @@ def plot_ibm_qaoa_overlay(
                     ms=centroid_ms_map[opt_level],
                     linestyle="none",
                     color=color,
+                    mfc=style_kwargs["markerfacecolor"],
+                    mec=style_kwargs["markeredgecolor"],
+                    mew=style_kwargs["markeredgewidth"],
                     alpha=1.0,
                     zorder=11,
-                    mec="k",
                     ecolor="k",
                     capsize=3,
                     elinewidth=1.2,
@@ -1066,9 +1215,9 @@ def plot_ibm_qaoa_overlay(
                     marker=marker,
                     ms=raw_ms_map[opt_level],
                     linestyle="none",
-                    mfc=color,
-                    mec="k",
-                    mew=0.9,
+                    mfc=style_kwargs["markerfacecolor"],
+                    mec=style_kwargs["markeredgecolor"],
+                    mew=style_kwargs["markeredgewidth"],
                     alpha=0.90,
                     zorder=10,
                 )
@@ -1102,19 +1251,37 @@ def plot_ibm_qaoa_overlay(
     ax.set_ylabel("Hardware approximation ratio (%)", fontsize=fs_label)
     ax.tick_params(axis="both", labelsize=fs_tick)
 
-    method_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker=shape_map[color_label],
-            color=color_map[color_label],
-            markeredgecolor="k",
-            lw=0,
-            markersize=centroid_ms_map[_optimization_level(color_label)],
-            label=label_map[color_label],
-        )
-        for color_label in sorted(valid_methods)
-    ]
+    method_legend_dict = {}
+    evaluator_legend_dict = {}
+    for color_label in sorted(valid_methods):
+        method_label = _method_label_from_training_method(color_label, format="latex")
+        if method_label not in method_legend_dict:
+            style_kwargs = _style_plot_kwargs(color_label)
+            method_legend_dict[method_label] = Line2D(
+                [0],
+                [0],
+                marker="s",
+                color=color_map[color_label],
+                markerfacecolor=style_kwargs["markerfacecolor"],
+                markeredgecolor=style_kwargs["markeredgecolor"],
+                markeredgewidth=max(float(style_kwargs["markeredgewidth"]), 1.0),
+                lw=0,
+                markersize=legend_marker_size,
+                label=method_label,
+            )
+        evaluator_label = _evaluation_label_from_training_method(color_label)
+        if evaluator_label and evaluator_label not in evaluator_legend_dict:
+            evaluator_legend_dict[evaluator_label] = Line2D(
+                [0],
+                [0],
+                marker=_marker_from_training_method(color_label),
+                color="black",
+                markerfacecolor="black",
+                markeredgecolor="black",
+                lw=0,
+                markersize=legend_marker_size,
+                label=evaluator_label,
+            )
 
     if len(p_levels) == 2:
         p_sizes = [9, 14]
@@ -1150,23 +1317,58 @@ def plot_ibm_qaoa_overlay(
             label=f"p={int(p_max)} instances",
         ),
     ]
-    opt_handles = _optimization_legend_handles(
-        marker="o",
-        markerfacecolor="white",
-        markeredgecolor="k",
-    )
+    method_items = sorted(method_legend_dict.items(), key=lambda item: item[0])
+    evaluator_items = sorted(evaluator_legend_dict.items(), key=lambda item: item[0])
+    notation_handles = [
+        Line2D([0], [0], linestyle="", color="none", label="†: no optimization"),
+        Line2D(
+            [0],
+            [0],
+            linestyle="",
+            color="none",
+            label="no superscript: method-parameter optimization",
+        ),
+        Line2D([0], [0], linestyle="", color="none", label="*: full angle optimization"),
+    ]
 
-    ax.legend(
-        handles=method_handles + depth_handles + cue_handles + opt_handles,
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.22),
+    method_legend = fig.legend(
+        handles=[handle for _, handle in method_items],
+        loc="upper left",
+        bbox_to_anchor=(0.04, 0.11),
         ncol=4,
         borderaxespad=0,
         frameon=True,
         fontsize=fs_legend,
+        handletextpad=0.7,
+        columnspacing=1.2,
     )
+    evaluator_legend = fig.legend(
+        handles=[handle for _, handle in evaluator_items] + notation_handles,
+        loc="upper left",
+        bbox_to_anchor=(0.62, 0.11),
+        ncol=1,
+        borderaxespad=0,
+        frameon=True,
+        fontsize=fs_legend,
+        handletextpad=0.7,
+        columnspacing=1.2,
+    )
+    cue_legend = fig.legend(
+        handles=depth_handles + cue_handles,
+        loc="upper left",
+        bbox_to_anchor=(0.74, 0.11),
+        ncol=2,
+        borderaxespad=0,
+        frameon=True,
+        fontsize=fs_legend,
+        handletextpad=0.7,
+        columnspacing=1.2,
+    )
+    fig.add_artist(method_legend)
+    fig.add_artist(evaluator_legend)
+    fig.add_artist(cue_legend)
 
-    fig.subplots_adjust(left=0.12, right=0.99, top=0.96, bottom=0.33)
+    fig.subplots_adjust(left=0.12, right=0.99, top=0.96, bottom=0.38)
 
     if save_dir:
         fname_overlay = f"{graph_id}_performance_overlay"
@@ -1356,8 +1558,8 @@ def plot_ibm_qaoa_training_bricks(
     inset_ax = fig.add_subplot(gs[1])
 
     if shaded_idx is not None:
-        ax.axvspan(shaded_left, shaded_right, color="0.92", zorder=0)
-        inset_ax.axvspan(shaded_left, shaded_right, color="0.92", zorder=0)
+        ax.axvspan(shaded_left, shaded_right, color="0.86", zorder=0)
+        inset_ax.axvspan(shaded_left, shaded_right, color="0.86", zorder=0)
 
     _draw_training_bars(ax, agg, step_cols, methods, depths, color_map, edge_lw)
     ax.set_xticks(x)
@@ -1442,34 +1644,91 @@ def plot_ibm_qaoa_training_bricks(
     inset_ax.plot((-d, +d), (-d, +d), **kw_inset)
     inset_ax.plot((1 - d, 1 + d), (-d, +d), **kw_inset)
 
-    handles = [
-        plt.Rectangle(
+    method_legend_items = {}
+    for i, method in enumerate(methods):
+        method_label = _method_label_from_training_method(method, format="latex")
+        if method_label not in method_legend_items:
+            method_legend_items[method_label] = Rectangle(
+                (0, 0),
+                1,
+                1,
+                facecolor=color_map.get(
+                    method,
+                    QPS_METHOD_COLORS.get(
+                        method,
+                        QPS_METHOD_COLORS.get(
+                            method.replace("*", "").replace("†", ""),
+                            plt.get_cmap("tab10")(i % 10),
+                        ),
+                    ),
+                ),
+                edgecolor="black",
+                linewidth=_evaluator_edge_width(method, edge_lw),
+                alpha=_optimization_alpha(method),
+            )
+
+    evaluator_handles = [
+        Rectangle(
             (0, 0),
             1,
             1,
-            facecolor=color_map.get(method, plt.get_cmap("tab10")(i % 10)),
+            facecolor="white",
             edgecolor="black",
+            linewidth=_evaluator_edge_width(method, edge_lw),
+            label=_evaluation_label_from_training_method(method),
         )
-        for i, method in enumerate(methods)
+        for method in sorted(
+            {
+                method
+                for method in methods
+                if _evaluation_label_from_training_method(method)
+            },
+            key=_evaluation_label_from_training_method,
+        )
     ]
-    legend_labels = [label_map.get(method, method) for method in methods]
-    note_handles = [
-        Line2D([0], [0], linestyle="", color="none", label="no superscript: no optimization"),
-        Line2D([0], [0], linestyle="", color="none", label=r"$^{\dagger}$ method-parameter optimization"),
-        Line2D([0], [0], linestyle="", color="none", label=r"$^{*}$ QAOA angle optimization"),
+    deduped_evaluator_handles = {}
+    for handle in evaluator_handles:
+        deduped_evaluator_handles.setdefault(handle.get_label(), handle)
+
+    notation_handles = [
+        Line2D([0], [0], linestyle="", color="none", label="†: no optimization"),
+        Line2D(
+            [0],
+            [0],
+            linestyle="",
+            color="none",
+            label="no superscript: method-parameter optimization",
+        ),
+        Line2D([0], [0], linestyle="", color="none", label="*: full angle optimization"),
     ]
-    fig.legend(
-        handles + note_handles,
-        legend_labels + [handle.get_label() for handle in note_handles],
-        loc="upper center",
-        bbox_to_anchor=(0.5, 0.00),
+
+    method_legend = fig.legend(
+        handles=list(method_legend_items.values()),
+        labels=list(method_legend_items.keys()),
+        loc="upper left",
+        bbox_to_anchor=(0.04, 0.06),
         ncol=4,
         borderaxespad=0,
         frameon=True,
         fontsize=fs_legend,
+        handletextpad=0.7,
+        columnspacing=1.2,
     )
+    evaluator_legend = fig.legend(
+        handles=list(deduped_evaluator_handles.values()) + notation_handles,
+        loc="upper left",
+        bbox_to_anchor=(0.62, 0.06),
+        ncol=1,
+        borderaxespad=0,
+        frameon=True,
+        fontsize=fs_legend,
+        handletextpad=0.7,
+        columnspacing=1.2,
+    )
+    fig.add_artist(method_legend)
+    fig.add_artist(evaluator_legend)
 
-    fig.subplots_adjust(left=0.08, right=0.99, top=0.96, bottom=0.20)
+    fig.subplots_adjust(left=0.08, right=0.99, top=0.96, bottom=0.28)
 
     if save_dir:
         fname = f"{graph_id}_training_bricks"
@@ -1559,22 +1818,18 @@ def plot_ibm_qaoa_recommendation(
     """
     fs_tick = 18
     fs_label = 20
-    fs_legend = 16
+    fs_legend = 15
     y_scale = 100.0
     raw_alpha = 0.18
-    raw_ms_map = {0: 8, 1: 10, 2: 12}
-    frontier_ms_map = {0: 14, 1: 18, 2: 22}
+    raw_ms_map = {0: 8, 1: 8, 2: 8}
+    frontier_base_ms_map = {0: 22, 1: 22, 2: 22}
+    legend_marker_size = 11
     eb_opts = {"mec": "k", "ecolor": "k", "capsize": 3, "elinewidth": 1.2}
 
     _ensure_save_dir(save_dir)
 
     df_centroids, _ = build_recommendation_data(df_points)
     p_values = sorted(pd.to_numeric(df_points["job_p"], errors="coerce").dropna().astype(int).unique())
-    depth_palette = plt.get_cmap("tab10")
-    depth_color_map = {
-        int(p): depth_palette(idx % depth_palette.N)
-        for idx, p in enumerate(p_values)
-    }
 
     x_all = df_centroids["dur_mean"].dropna()
     x_left = max(x_all.min() / 3, 0.1)
@@ -1596,6 +1851,25 @@ def plot_ibm_qaoa_recommendation(
     else:
         x_right = float(x_all.max()) * 1.25 if not x_all.empty else 1e4
 
+    if not df_frontier.empty:
+        plotted_pairs = set(
+            df_frontier[["color_label", "job_p"]]
+            .drop_duplicates()
+            .itertuples(index=False, name=None)
+        )
+        scatter_df_for_xlim = df_points[
+            df_points[["color_label", "job_p"]]
+            .apply(tuple, axis=1)
+            .isin(plotted_pairs)
+        ]
+    else:
+        scatter_df_for_xlim = df_points
+    scatter_x = pd.to_numeric(scatter_df_for_xlim["total_duration_s"], errors="coerce").dropna()
+    if not scatter_x.empty:
+        jittered_scatter_right = float(scatter_x.max()) * (10 ** 0.06)
+        scatter_right = 10 ** (np.log10(max(jittered_scatter_right, 1e-12)) + 0.025)
+        x_right = max(x_right, scatter_right)
+
     fig, ax = plt.subplots(figsize=(18, 8))
 
     def _deterministic_log_jitter(values: pd.Series, width: float = 0.06) -> np.ndarray:
@@ -1609,7 +1883,7 @@ def plot_ibm_qaoa_recommendation(
     if not df_frontier.empty:
         for seg_idx in range(len(df_frontier)):
             row = df_frontier.iloc[seg_idx]
-            color_seg = depth_color_map[int(row["job_p"])]
+            color_seg = color_map[row["color_label"]]
             x_start = x_left if seg_idx == 0 else row["dur_mean"]
             x_end = (
                 df_frontier.iloc[seg_idx + 1]["dur_mean"]
@@ -1662,8 +1936,8 @@ def plot_ibm_qaoa_recommendation(
             linestyle="",
             marker=shape_map[color_label],
             ms=raw_ms_map[opt_level],
-            mfc=depth_color_map[p_val],
-            mec="k",
+            mfc=color_map[color_label],
+            mec="k" if "*" in _plain_method_label_from_training_method(color_label) else "none",
             mew=0.8,
             alpha=raw_alpha,
             zorder=6,
@@ -1712,9 +1986,11 @@ def plot_ibm_qaoa_recommendation(
         y_lo = 50.0
         y_hi = 100.0
 
+    frontier_annotation_points = []
     for _, row in df_frontier.iterrows():
         p = int(row["job_p"])
         opt_level = _optimization_level(row["color_label"])
+        style_kwargs = _style_plot_kwargs(row["color_label"])
         x_val = float(row["dur_mean"])
         y_val = y_scale * float(row["ar_mean"])
         xerr = None if pd.isna(row.get("dur_sem", np.nan)) else float(row["dur_sem"])
@@ -1733,12 +2009,22 @@ def plot_ibm_qaoa_recommendation(
             x_val,
             y_val,
             marker=shape_map[row["color_label"]],
-            ms=frontier_ms_map[opt_level],
-            mfc=depth_color_map[p],
-            mec="k",
-            mew=2.0,
+            ms=frontier_base_ms_map[opt_level],
+            mfc=style_kwargs["markerfacecolor"],
+            mec=style_kwargs["markeredgecolor"],
+            mew=max(float(style_kwargs["markeredgewidth"]), 1.2),
             linestyle="",
+            color=style_kwargs["color"],
             zorder=11,
+        )
+        frontier_annotation_points.append(
+            {
+                "x": x_val,
+                "y": y_val,
+                "p": p,
+                "marker_size": frontier_base_ms_map[opt_level],
+                "color_label": row["color_label"],
+            }
         )
 
     ax.set_ylim(y_lo, y_hi)
@@ -1761,6 +2047,283 @@ def plot_ibm_qaoa_recommendation(
     ax.tick_params(axis="both", which="major", labelsize=fs_tick, length=6)
     ax.grid(True)
 
+    def _frontier_line_bboxes(axis, x_min, x_max, pad=5.0):
+        bboxes = []
+        if df_frontier.empty:
+            return bboxes
+        for seg_idx in range(len(df_frontier)):
+            row = df_frontier.iloc[seg_idx]
+            x_start = x_min if seg_idx == 0 else float(row["dur_mean"])
+            x_end = (
+                float(df_frontier.iloc[seg_idx + 1]["dur_mean"])
+                if seg_idx < len(df_frontier) - 1
+                else x_max
+            )
+            y_this = y_scale * float(row["ar_mean"])
+            x0, y0 = axis.transData.transform((x_start, y_this))
+            x1, y1 = axis.transData.transform((x_end, y_this))
+            bboxes.append(
+                Bbox.from_extents(
+                    min(x0, x1) - pad,
+                    min(y0, y1) - pad,
+                    max(x0, x1) + pad,
+                    max(y0, y1) + pad,
+                )
+            )
+            if seg_idx > 0:
+                y_prev = y_scale * float(df_frontier.iloc[seg_idx - 1]["ar_mean"])
+                xv0, yv0 = axis.transData.transform((float(row["dur_mean"]), y_prev))
+                xv1, yv1 = axis.transData.transform((float(row["dur_mean"]), y_this))
+                bboxes.append(
+                    Bbox.from_extents(
+                        min(xv0, xv1) - pad,
+                        min(yv0, yv1) - pad,
+                        max(xv0, xv1) + pad,
+                        max(yv0, yv1) + pad,
+                    )
+                )
+        return bboxes
+
+    def _annotate_frontier_depths(
+        axis,
+        points,
+        offset_candidates,
+        fontsize=11,
+        color="0.15",
+        marker_pad=7.0,
+        avoid_frontier=True,
+        force_fallback=False,
+    ):
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        axis_bbox = axis.get_window_extent(renderer=renderer)
+        marker_bboxes = []
+        for point in points:
+            x_disp, y_disp = axis.transData.transform((point["x"], point["y"]))
+            half_px = 0.62 * point["marker_size"] * fig.dpi / 72.0 + marker_pad
+            marker_bboxes.append(
+                Bbox.from_extents(
+                    x_disp - half_px,
+                    y_disp - half_px,
+                    x_disp + half_px,
+                    y_disp + half_px,
+                )
+            )
+
+        x_min, x_max = axis.get_xlim()
+        frontier_line_bboxes = _frontier_line_bboxes(axis, x_min, x_max) if avoid_frontier else []
+        placed_label_bboxes = []
+        for point in points:
+            fallback_candidate = None
+            point_offsets = list(offset_candidates)
+            point_label = _plain_method_label_from_training_method(point.get("color_label", ""))
+            prefer_final_right = int(point["p"]) == 7 and point["x"] > 100.0
+            prefer_clear_right = (
+                int(point["p"]) == 7 and "Fixed Angles" in point_label
+            ) or prefer_final_right
+            if int(point["p"]) == 7 and "Param" in point_label:
+                point_offsets = [(26, 8), (32, 10), (22, -10)] + point_offsets
+            if int(point["p"]) == 5 and "Linear Ramp" in point_label:
+                point_offsets = [(-20, 12), (-26, 14), (-18, -14)] + point_offsets
+            if int(point["p"]) == 9 and "Linear Ramp" in point_label:
+                point_offsets = [(0, 22), (14, 22), (-14, 22), (22, 20), (-22, 20)]
+            if int(point["p"]) == 5 and "Fixed Angles" in point_label:
+                point_offsets = [(18, -14), (24, -16), (18, 12)] + point_offsets
+            if prefer_clear_right:
+                point_offsets = [(0, 22), (14, 22), (-14, 22), (22, 20), (-22, 20)]
+            for dx, dy in point_offsets:
+                candidate = axis.annotate(
+                    f"p={point['p']}",
+                    xy=(point["x"], point["y"]),
+                    xytext=(dx, dy),
+                    textcoords="offset points",
+                    ha="left" if dx >= 0 else "right",
+                    va="bottom" if dy >= 0 else "top",
+                    fontsize=fontsize,
+                    color=color,
+                    annotation_clip=True,
+                    zorder=12,
+                )
+                fig.canvas.draw()
+                bbox = candidate.get_window_extent(renderer=renderer).expanded(1.04, 1.12)
+                overlaps_marker = any(bbox.overlaps(marker_bbox) for marker_bbox in marker_bboxes)
+                overlaps_label = any(bbox.overlaps(label_bbox) for label_bbox in placed_label_bboxes)
+                overlaps_frontier = False if prefer_clear_right else any(
+                    bbox.overlaps(line_bbox) for line_bbox in frontier_line_bboxes
+                )
+                inside_axes = axis_bbox.contains(*bbox.get_points()[0]) and axis_bbox.contains(
+                    *bbox.get_points()[1]
+                )
+                if inside_axes and not overlaps_marker and not overlaps_label and not overlaps_frontier:
+                    if fallback_candidate is not None and fallback_candidate is not candidate:
+                        fallback_candidate.remove()
+                    placed_label_bboxes.append(bbox)
+                    fallback_candidate = None
+                    break
+                if fallback_candidate is None and inside_axes and not overlaps_marker:
+                    fallback_candidate = candidate
+                else:
+                    candidate.remove()
+            if fallback_candidate is not None:
+                if force_fallback:
+                    bbox = fallback_candidate.get_window_extent(renderer=renderer).expanded(1.04, 1.12)
+                    placed_label_bboxes.append(bbox)
+                else:
+                    fallback_candidate.remove()
+            elif force_fallback and offset_candidates:
+                dx, dy = offset_candidates[0]
+                candidate = axis.annotate(
+                    f"p={point['p']}",
+                    xy=(point["x"], point["y"]),
+                    xytext=(dx, dy),
+                    textcoords="offset points",
+                    ha="left" if dx >= 0 else "right",
+                    va="bottom" if dy >= 0 else "top",
+                    fontsize=fontsize,
+                    color=color,
+                    annotation_clip=True,
+                    zorder=12,
+                )
+                fig.canvas.draw()
+                placed_label_bboxes.append(
+                    candidate.get_window_extent(renderer=renderer).expanded(1.04, 1.12)
+                )
+
+    if frontier_annotation_points:
+        inset_cluster = [
+            point
+            for point in frontier_annotation_points
+            if point["x"] <= 18.0 and 81.0 <= point["y"] <= 83.2
+        ]
+        if len(inset_cluster) > 3:
+            inset_cluster = sorted(inset_cluster, key=lambda point: point["x"])
+            middle_start = max(0, (len(inset_cluster) - 3) // 2)
+            inset_cluster = inset_cluster[middle_start:middle_start + 3]
+        elif len(inset_cluster) < 3:
+            inset_cluster = []
+
+        main_annotation_points = [
+            point for point in frontier_annotation_points if point not in inset_cluster
+        ]
+        _annotate_frontier_depths(
+            ax,
+            main_annotation_points,
+            [
+                (12, 8),
+                (12, -10),
+                (-12, 8),
+                (-12, -10),
+                (0, 16),
+                (0, -18),
+                (18, 0),
+                (-18, 0),
+                (20, 10),
+                (-20, 10),
+                (20, -12),
+                (-20, -12),
+                (28, 0),
+                (-28, 0),
+            ],
+            fontsize=14,
+            color="#B00020",
+            marker_pad=5.0,
+            avoid_frontier=True,
+            force_fallback=False,
+        )
+
+        if inset_cluster:
+            inset_ax = ax.inset_axes([0.67, 0.12, 0.29, 0.30])
+            inset_ax.set_facecolor((1, 1, 1, 0.94))
+            inset_ax.set_xscale("log")
+            x_cluster = np.array([point["x"] for point in inset_cluster], dtype=float)
+            y_cluster = np.array([point["y"] for point in inset_cluster], dtype=float)
+            x_pad_decades = 0.11
+            inset_x0 = 10 ** (np.log10(x_cluster.min()) - x_pad_decades)
+            inset_x1 = 10 ** (np.log10(x_cluster.max()) + x_pad_decades)
+            y_cluster_span = max(float(y_cluster.max() - y_cluster.min()), 0.04)
+            y_cluster_pad = max(0.10, 0.65 * y_cluster_span)
+            inset_y0 = max(y_lo, float(y_cluster.min()) - y_cluster_pad)
+            inset_y1 = min(y_hi, float(y_cluster.max()) + y_cluster_pad)
+            inset_ax.set_xlim(inset_x0, inset_x1)
+            inset_ax.set_ylim(inset_y0, inset_y1)
+
+            for seg_idx in range(len(df_frontier)):
+                row = df_frontier.iloc[seg_idx]
+                color_seg = color_map[row["color_label"]]
+                x_start = x_left if seg_idx == 0 else float(row["dur_mean"])
+                x_end = (
+                    float(df_frontier.iloc[seg_idx + 1]["dur_mean"])
+                    if seg_idx < len(df_frontier) - 1
+                    else x_right
+                )
+                y_this = y_scale * float(row["ar_mean"])
+                inset_ax.plot(
+                    [x_start, x_end],
+                    [y_this, y_this],
+                    color=color_seg,
+                    linewidth=2.0,
+                    linestyle="--",
+                    alpha=0.85,
+                    zorder=9,
+                )
+                if seg_idx > 0:
+                    y_prev = y_scale * float(df_frontier.iloc[seg_idx - 1]["ar_mean"])
+                    inset_ax.plot(
+                        [float(row["dur_mean"]), float(row["dur_mean"])],
+                        [y_prev, y_this],
+                        color=color_seg,
+                        linewidth=2.0,
+                        linestyle="--",
+                        alpha=0.85,
+                        zorder=9,
+                    )
+
+            for point in inset_cluster:
+                opt_level = _optimization_level(point["color_label"])
+                style_kwargs = _style_plot_kwargs(point["color_label"])
+                inset_ax.plot(
+                    point["x"],
+                    point["y"],
+                    marker=shape_map[point["color_label"]],
+                    ms=frontier_base_ms_map[opt_level],
+                    mfc=style_kwargs["markerfacecolor"],
+                    mec=style_kwargs["markeredgecolor"],
+                    mew=max(float(style_kwargs["markeredgewidth"]), 1.0),
+                    linestyle="",
+                    color=style_kwargs["color"],
+                    zorder=11,
+                )
+
+            _annotate_frontier_depths(
+                inset_ax,
+                inset_cluster,
+                [
+                    (12, 8),
+                    (12, -10),
+                    (-12, 8),
+                    (-12, -10),
+                    (0, 16),
+                    (0, -18),
+                    (18, 0),
+                    (-18, 0),
+                    (22, 10),
+                    (-22, 10),
+                    (22, -12),
+                    (-22, -12),
+                ],
+                fontsize=14,
+                color="#B00020",
+                marker_pad=5.0,
+                avoid_frontier=True,
+                force_fallback=False,
+            )
+            inset_ax.xaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=3))
+            inset_ax.xaxis.set_major_formatter(LogFormatterMathtext(base=10.0, labelOnlyBase=False))
+            inset_ax.yaxis.set_major_locator(MaxNLocator(nbins=3))
+            inset_ax.tick_params(axis="both", which="major", labelsize=fs_tick, length=3)
+            inset_ax.grid(True, alpha=0.35)
+            inset_ax.minorticks_off()
+
     legend_pairs = (
         df_frontier[["color_label"]]
         .drop_duplicates()
@@ -1770,36 +2333,25 @@ def plot_ibm_qaoa_recommendation(
     for _, pair in legend_pairs.iterrows():
         color_label = pair["color_label"]
         opt_level = _optimization_level(color_label)
+        visible_label = (
+            label_map[color_label]
+            .replace(r"$^\star$", "*")
+            .replace(r"$^\dagger$", "†")
+        )
         method_handles.append(
             Line2D(
                 [0],
                 [0],
                 marker=shape_map[color_label],
-                color="black",
-                markerfacecolor="white",
-                markeredgecolor="k",
-                markeredgewidth=1.5,
-                markersize=frontier_ms_map[opt_level],
+                color=color_map[color_label],
+                markerfacecolor=_style_plot_kwargs(color_label)["markerfacecolor"],
+                markeredgecolor=_style_plot_kwargs(color_label)["markeredgecolor"],
+                markeredgewidth=max(float(_style_plot_kwargs(color_label)["markeredgewidth"]), 1.0),
+                markersize=legend_marker_size,
                 linestyle="",
-                label=label_map[color_label],
+                label=visible_label,
             )
         )
-
-    depth_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            color=depth_color_map[p],
-            markerfacecolor=depth_color_map[p],
-            markeredgecolor="k",
-            markeredgewidth=1.0,
-            markersize=10,
-            linestyle="",
-            label=f"p={p}",
-        )
-        for p in p_values
-    ]
 
     frontier_handle = Line2D(
         [0],
@@ -1814,49 +2366,40 @@ def plot_ibm_qaoa_recommendation(
         [0],
         linestyle="",
         color="none",
-        label="no superscript: no optimization",
+        label="†: no optimization",
     )
     dagger_note = Line2D(
         [0],
         [0],
         linestyle="",
         color="none",
-        label=r"$^{\dagger}$ method-parameter optimization",
+        label="no superscript: method-parameter optimization",
     )
     star_note = Line2D(
         [0],
         [0],
         linestyle="",
         color="none",
-        label=r"$^{*}$ QAOA angle optimization",
+        label="*: full angle optimization",
     )
 
-    method_legend = fig.legend(
-        handles=method_handles,
-        loc="upper center",
-        bbox_to_anchor=(0.24, 0.01),
-        ncol=min(3, max(1, len(method_handles))),
+    fig.legend(
+        handles=method_handles
+        + [frontier_handle, no_opt_note, dagger_note, star_note],
+        loc="upper left",
+        bbox_to_anchor=(0.08, -0.08, 0.91, 0.14),
+        ncol=4,
+        mode="expand",
         borderaxespad=0,
         fontsize=fs_legend,
         frameon=True,
-        title="Method",
-    )
-    depth_legend = fig.legend(
-        handles=depth_handles + [frontier_handle, no_opt_note, dagger_note, star_note],
-        loc="upper center",
-        bbox_to_anchor=(0.78, 0.01),
-        ncol=min(3, max(2, len(depth_handles) + 4)),
-        borderaxespad=0,
-        fontsize=fs_legend,
-        frameon=True,
-        title="Depth / Frontier",
         handlelength=2.0,
+        handletextpad=0.7,
+        columnspacing=1.2,
     )
-    fig.add_artist(method_legend)
-    fig.add_artist(depth_legend)
 
     fig.tight_layout()
-    fig.subplots_adjust(left=0.08, bottom=0.24)
+    fig.subplots_adjust(left=0.08, bottom=0.18)
 
     if save_dir:
         fname = f"{graph_id}_recommendation"

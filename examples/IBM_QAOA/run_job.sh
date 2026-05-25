@@ -57,15 +57,21 @@ echo "Using conda environment: QAOA"
 echo "Using Python interpreter: $PYTHON_BIN"
 
 DEFAULT_REUSE_ROOT="${SCRIPT_DIR}/results/pss_window_sticker/heavy_hex_144_small"
+METHOD_NAME="FA_PP_opt"
+METHOD_SLUG="${METHOD_NAME/_MPSAer/}"
+METHOD_SLUG="${METHOD_SLUG/_MPS/}"
+METHOD_SLUG="${METHOD_SLUG/_PP/}"
+METHOD_SLUG="${METHOD_SLUG/_SV/}"
+P_VALUES="5"
 
 "$PYTHON_BIN" examples/IBM_QAOA/run_prepare_pss_campaign.py \
   --graph-type heavy_hex \
   --num-nodes 144 \
-  --p-values 5 \
+  --p-values "$P_VALUES" \
   --train-count 20 \
   --test-count 10 \
   --start-train-index 100 \
-  --fa-method-name FA_PP_opt \
+  --fa-method-name "$METHOD_NAME" \
   --pt-method-name "" \
   --fa-n-values 10,20,40,60,80,100,150 \
   --fa-m-values 10,25,50,100,200,500,1000 \
@@ -74,7 +80,7 @@ DEFAULT_REUSE_ROOT="${SCRIPT_DIR}/results/pss_window_sticker/heavy_hex_144_small
   --t-grid-scale log \
   --mps-chi 20 \
   --max-parallel-threads 4 \
-  --output-root "${SCRIPT_DIR}/results/pss_window_sticker/heavy_hex_144_FA_PP_opt_p5_expanded" \
+  --output-root "${SCRIPT_DIR}/results/pss_window_sticker/heavy_hex_144_${METHOD_SLUG}_p${P_VALUES}_expanded" \
   --reuse-output-root "${SCRIPT_DIR}/results/pss_window_sticker/heavy_hex_144" \
   --reuse-output-root "$DEFAULT_REUSE_ROOT" \
   "$@"

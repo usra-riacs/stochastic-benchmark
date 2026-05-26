@@ -147,6 +147,7 @@ Use the root README as the entry point, then follow the focused documents for th
 - [examples/general_workflow.md](examples/general_workflow.md) for the end-to-end benchmark flow
 - [CI-TESTING.md](CI-TESTING.md) for local CI reproduction and environment setup
 - [TESTING.md](TESTING.md) for the test suite overview
+- [docs/noori_repeat_reliability_validation.md](docs/noori_repeat_reliability_validation.md) for validation of Noori et al. repeat-reliability formulas
 - [examples/wishart_n_50_alpha_0.5/README.md](examples/wishart_n_50_alpha_0.5/README.md) for the Wishart example details
 
 ## Testing

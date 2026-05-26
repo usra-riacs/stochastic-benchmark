@@ -45,7 +45,7 @@ Use `success_col` when the input already contains a pass/fail indicator. Otherwi
 - `success_rule="max"`: success means `response_col >= threshold`.
 - `success_rule="absolute"`: success means `abs(response_col - target_value) <= threshold`.
 - `success_rule="gap"`, `"gap_min"`, or `"gap_max"`: success means the observed optimality gap is within `gap`.
-- `success_rule="PerfRatio"`: success is derived from a performance-ratio column or from `best_value`, `random_value`, and `response_dir`.
+- `success_rule="PerfRatio"`: success means an existing performance-ratio column, selected with `perf_ratio_col` or `response_col`, is greater than or equal to `threshold`.
 
 All success rules are evaluated row by row before aggregation.
 
@@ -66,7 +66,7 @@ Lower `R_c`, `RTT`, and `CETS` values are better. For probability-like compariso
 
 ## Benchmark Wrapper
 
-`StochasticBenchmark.run_RepeatReliability` forwards keyword arguments to `repeat_reliability_report`:
+`stochastic_benchmark.run_RepeatReliability` forwards keyword arguments to `repeat_reliability_report`:
 
 ```python
 report = benchmark.run_RepeatReliability(

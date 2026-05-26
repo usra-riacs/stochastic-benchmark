@@ -85,6 +85,29 @@ def test_qedc_conversion_manifest_is_self_contained_with_fixture_docs():
     assert "__results" in setup_docs
 
 
+def test_simulated_annealing_manifest_runs_repeat_reliability_path():
+    root = Path(__file__).resolve().parents[1]
+    notebook_path = "examples/Simulated_Annealing/simulated_annealing.ipynb"
+    tutorials = verify_tutorials.load_manifest(root / "examples" / "tutorials.json", root)
+    tutorial = next(
+        tutorial
+        for tutorial in tutorials
+        if tutorial.path.relative_to(root).as_posix() == notebook_path
+    )
+
+    notebook = json.loads((root / notebook_path).read_text(encoding="utf-8"))
+    source = "\n".join(
+        line
+        for cell in notebook["cells"]
+        for line in cell.get("source", [])
+    )
+
+    assert tutorial.category == "self_contained"
+    assert "Repeat Reliability Diagnostics" in source
+    assert "load_selected_granular_runs" in source
+    assert "run_reliability_analysis" in source
+
+
 def test_load_manifest_requires_skip_reason(tmp_path):
     make_notebook(tmp_path, "examples/external.ipynb")
     manifest = tmp_path / "tutorials.json"

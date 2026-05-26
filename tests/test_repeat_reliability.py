@@ -1,9 +1,11 @@
 import math
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from repeat_reliability import (
+    IntervalEstimate,
     ProportionInterval,
     RepeatCountInterval,
     agresti_coull_interval,
@@ -11,11 +13,16 @@ from repeat_reliability import (
     cets_from_repeat_count,
     maximum_relative_error,
     normal_critical_value,
+    propagate_success_probability_interval,
+    relative_repeats_error,
     repeat_count,
     repeat_count_interval,
+    repeat_reliability_metrics,
+    repeats_to_solution,
     required_repeats_exact,
     required_repeats_for_probability_error,
     required_repeats_lower_bound,
+    required_trials_for_relative_error,
     rtt_from_repeat_count,
     scaled_repeat_count_interval,
     success_probability_margin,
@@ -86,6 +93,15 @@ def test_noori_reference_grid_matches_deterministic_fixtures(
         assert max_error == pytest.approx(expected_error, abs=5e-12)
 
 
+def test_public_agresti_coull_zero_trials_is_defined():
+    interval = agresti_coull_interval(0, 0)
+
+    assert interval.estimate == pytest.approx(0.5)
+    assert interval.lower == pytest.approx(0.0)
+    assert interval.upper == pytest.approx(1.0)
+    assert math.isnan(interval.raw_estimate)
+
+
 def test_rtt_and_cets_scaling_preserve_relative_error():
     repeat_estimate = repeat_count(0.25, target_confidence=0.99)
     repeat_interval = repeat_count_interval(0.22, 0.28, target_confidence=0.99)
@@ -114,6 +130,9 @@ def test_interval_width_properties_cover_zero_estimate():
     assert interval.width == pytest.approx(0.1)
     assert interval.relative_width == pytest.approx(0.4)
     assert math.isinf(zero_estimate_interval.relative_width)
+    assert interval.to_interval().estimate == pytest.approx(0.25)
+    assert interval.to_dict("")["estimate"] == pytest.approx(0.25)
+    assert IntervalEstimate(estimate=0.25, lower=0.2, upper=0.3).to_dict()["upper"] == pytest.approx(0.3)
 
 
 def test_required_repeats_probability_error_bound_matches_paper_equation():
@@ -132,18 +151,101 @@ def test_required_repeats_lower_bound_and_exact_search_are_deterministic():
     assert required_repeats_exact(1.0, 0.1) == 1
 
 
+def test_issue_73_dataframe_friendly_metrics_and_aliases():
+    metrics = repeat_reliability_metrics(
+        25,
+        100,
+        rtt_factor=3.0,
+        iterations=4,
+        effort_per_iteration=2.0,
+    )
+    df = pd.DataFrame([metrics.to_dict()])
+
+    assert repeats_to_solution(0.5) == pytest.approx(repeat_count(0.5))
+    assert "success_probability_estimate" in df.columns
+    assert "success_probability_successes" in df.columns
+    assert "r_c_relative_error" in df.columns
+    assert "rtt_estimate" in df.columns
+    assert "cets_estimate" in df.columns
+    assert df.loc[0, "success_probability_successes"] == 25
+    assert df.loc[0, "success_probability_trials"] == 100
+
+
+def test_issue_73_interval_propagation_and_relative_error():
+    metrics = propagate_success_probability_interval(
+        0.5,
+        0.4,
+        0.6,
+        rtt_factor=2.0,
+        iterations=10,
+        effort_per_iteration=0.5,
+    )
+
+    assert metrics.r_c.estimate == pytest.approx(repeat_count(0.5))
+    assert metrics.r_c.lower == pytest.approx(repeat_count(0.6))
+    assert metrics.r_c.upper == pytest.approx(repeat_count(0.4))
+    assert metrics.rtt.estimate == pytest.approx(metrics.r_c.estimate * 2.0)
+    assert metrics.cets.estimate == pytest.approx(metrics.r_c.estimate * 5.0)
+    assert relative_repeats_error(10.0, 8.0, 13.0) == pytest.approx(0.3)
+
+    with pytest.raises(ValueError):
+        relative_repeats_error(10.0, 11.0, 13.0)
+
+
+def test_issue_73_required_trials_wrapper_boundaries_and_methods():
+    exact = required_trials_for_relative_error(0.9, method="exact")
+    bound = required_trials_for_relative_error(0.9, method="bound")
+
+    assert exact > bound
+    assert required_trials_for_relative_error(0.1) > required_trials_for_relative_error(0.5)
+    assert math.isinf(required_trials_for_relative_error(0.0))
+    assert required_trials_for_relative_error(1.0) == 0
+
+    with pytest.raises(ValueError):
+        required_trials_for_relative_error(0.5, relative_error_threshold=0)
+    with pytest.raises(ValueError):
+        required_trials_for_relative_error(0.5, method="unsupported")
+    with pytest.raises(ValueError):
+        required_trials_for_relative_error(1.0, relative_error_threshold=0)
+    with pytest.raises(ValueError):
+        required_trials_for_relative_error(1.0, target_confidence=1.0)
+    with pytest.raises(ValueError):
+        required_trials_for_relative_error(0.5, method="bound", target_confidence=1.0)
+
+
 @pytest.mark.parametrize(
     "call",
     [
         lambda: normal_critical_value(1.0),
-        lambda: agresti_coull_interval(0, 0),
+        lambda: normal_critical_value("bad"),
+        lambda: agresti_coull_interval(0),
+        lambda: agresti_coull_interval(0, 10, trials=11),
+        lambda: agresti_coull_interval("bad", 10),
         lambda: agresti_coull_interval(-1, 10),
+        lambda: agresti_coull_interval(1.5, 10),
+        lambda: agresti_coull_interval(0, True),
+        lambda: agresti_coull_interval(0, "bad"),
+        lambda: agresti_coull_interval(0, 1.5),
+        lambda: agresti_coull_interval(0, -1),
+        lambda: agresti_coull_interval(0, 10, confidence_level="bad"),
+        lambda: agresti_coull_interval(0, 10, confidence_fraction="bad"),
         lambda: agresti_coull_interval_from_estimate(-0.1, 10),
         lambda: success_probability_margin(0.5, 0),
+        lambda: repeat_count("bad"),
         lambda: repeat_count(0.5, target_confidence=0.0),
         lambda: repeat_count(0.5, target_confidence=1.0),
         lambda: repeat_count_interval(0.8, 0.2),
         lambda: repeat_count_interval(0.1, 0.2, target_confidence=0.0),
+        lambda: propagate_success_probability_interval(0.5),
+        lambda: propagate_success_probability_interval(0.5, 0.6, 0.4),
+        lambda: propagate_success_probability_interval(
+            ProportionInterval(estimate=0.5, lower=0.4, upper=0.6, half_width=0.1),
+            0.4,
+            0.6,
+        ),
+        lambda: propagate_success_probability_interval(0.5, 0.4, 0.6, rtt_factor=-1),
+        lambda: propagate_success_probability_interval(0.5, 0.4, 0.6, iterations=-1),
+        lambda: propagate_success_probability_interval(0.5, 0.4, 0.6, effort_per_iteration=-1),
         lambda: cets_from_repeat_count(1.0, iterations=-1),
         lambda: cets_from_repeat_count(1.0, iterations=1, effort_per_iteration=-1),
         lambda: cets_from_repeat_count(math.inf, iterations=0),
@@ -155,6 +257,7 @@ def test_required_repeats_lower_bound_and_exact_search_are_deterministic():
         lambda: required_repeats_for_probability_error(0.1, min_repeats=-1),
         lambda: required_repeats_lower_bound(0.5, 0.1, min_repeats=-1),
         lambda: required_repeats_lower_bound(0.5, 1.0),
+        lambda: required_repeats_lower_bound(0.5, "bad"),
         lambda: required_repeats_exact(0.5, 0.1, target_confidence=0.0),
         lambda: required_repeats_exact(0.5, 0.1, target_confidence=1.0),
         lambda: required_repeats_exact(0.5, 0.1, min_repeats=0),

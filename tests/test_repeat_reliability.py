@@ -4,10 +4,13 @@ import numpy as np
 import pytest
 
 from repeat_reliability import (
+    ProportionInterval,
+    RepeatCountInterval,
     agresti_coull_interval,
     agresti_coull_interval_from_estimate,
     cets_from_repeat_count,
     maximum_relative_error,
+    normal_critical_value,
     repeat_count,
     repeat_count_interval,
     required_repeats_exact,
@@ -15,6 +18,7 @@ from repeat_reliability import (
     required_repeats_lower_bound,
     rtt_from_repeat_count,
     scaled_repeat_count_interval,
+    success_probability_margin,
 )
 
 
@@ -103,6 +107,15 @@ def test_rtt_and_cets_scaling_preserve_relative_error():
     assert maximum_relative_error(cets_estimate, cets_interval.lower, cets_interval.upper) == pytest.approx(repeat_error)
 
 
+def test_interval_width_properties_cover_zero_estimate():
+    interval = ProportionInterval(estimate=0.25, lower=0.2, upper=0.3, half_width=0.05)
+    zero_estimate_interval = ProportionInterval(estimate=0.0, lower=0.0, upper=0.1, half_width=0.05)
+
+    assert interval.width == pytest.approx(0.1)
+    assert interval.relative_width == pytest.approx(0.4)
+    assert math.isinf(zero_estimate_interval.relative_width)
+
+
 def test_required_repeats_probability_error_bound_matches_paper_equation():
     assert required_repeats_for_probability_error(0.01) == 9600
     assert required_repeats_for_probability_error(0.03) == 1064
@@ -113,6 +126,41 @@ def test_required_repeats_lower_bound_and_exact_search_are_deterministic():
     assert required_repeats_exact(0.1, 0.1) == 4605
     assert required_repeats_exact(0.01, 0.1) > required_repeats_exact(0.1, 0.1)
     assert required_repeats_exact(0.1, 0.1) > required_repeats_exact(0.5, 0.1)
+    assert math.isinf(required_repeats_lower_bound(0.0, 0.1))
+    assert math.isinf(required_repeats_exact(0.0, 0.1))
+    assert math.isinf(required_repeats_exact(0.01, 0.001, max_repeats=2))
+    assert required_repeats_exact(1.0, 0.1) == 1
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: normal_critical_value(1.0),
+        lambda: agresti_coull_interval(0, 0),
+        lambda: agresti_coull_interval(-1, 10),
+        lambda: agresti_coull_interval_from_estimate(-0.1, 10),
+        lambda: success_probability_margin(0.5, 0),
+        lambda: repeat_count_interval(0.8, 0.2),
+        lambda: cets_from_repeat_count(1.0, iterations=-1),
+        lambda: cets_from_repeat_count(1.0, iterations=1, effort_per_iteration=-1),
+        lambda: rtt_from_repeat_count(1.0, runtime_per_repeat=-1),
+        lambda: scaled_repeat_count_interval(RepeatCountInterval(1.0, 2.0), scale=-1),
+        lambda: required_repeats_for_probability_error(0.0),
+        lambda: required_repeats_for_probability_error(0.1, min_repeats=-1),
+        lambda: required_repeats_lower_bound(0.5, 0.1, min_repeats=-1),
+        lambda: required_repeats_lower_bound(0.5, 1.0),
+        lambda: required_repeats_exact(0.5, 0.1, min_repeats=0),
+        lambda: required_repeats_exact(0.5, 0.1, min_repeats=10, max_repeats=1),
+    ],
+)
+def test_validation_rejects_invalid_inputs(call):
+    with pytest.raises(ValueError):
+        call()
+
+
+def test_maximum_relative_error_rejects_nonfinite_estimates():
+    assert math.isinf(maximum_relative_error(0.0, 0.0, 1.0))
+    assert math.isinf(maximum_relative_error(1.0, 0.0, math.inf))
 
 
 def test_fixed_seed_bernoulli_rc_interval_is_asymmetric():

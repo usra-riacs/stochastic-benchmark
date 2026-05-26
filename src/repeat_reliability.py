@@ -299,16 +299,6 @@ def required_repeats_exact(
     else:
         return math.inf
 
-    if high == max_repeats and not _repeat_count_error_satisfies_threshold(
-        adjusted_success_probability,
-        estimate,
-        high,
-        relative_error_threshold,
-        confidence,
-        confidence_level,
-    ):
-        return math.inf
-
     while low < high:
         midpoint = (low + high) // 2
         if _repeat_count_error_satisfies_threshold(

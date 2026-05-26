@@ -5,10 +5,10 @@ formulas without an author reference implementation, executable code, or raw
 numerical data. The formulas are implemented as deterministic reference helpers
 in `src/repeat_reliability.py`; downstream production integrations should cite
 the same equation labels and reuse these tests when behavior is changed.
-The API uses `confidence_fraction` for statistical confidence-interval coverage
-and `target_confidence` for the `R_c` target probability, so callers do not
-confuse these fractional values with the percentage-style `confidence_level`
-arguments used elsewhere in the repository.
+The public API accepts percentage-style `confidence_level` values, matching the
+default conventions used elsewhere in this repository. Lower-level validation
+helpers retain `confidence_fraction` for equation-oriented tests. In both cases,
+`target_confidence` is the fractional `R_c` target probability.
 
 Paper reference:
 
@@ -31,6 +31,7 @@ optimizers: Avoiding unreliable conclusions." Physical Review Applied 25, no. 3
 | Eq. (13), maximum relative error in `R_c` | `maximum_relative_error` | Deterministic fixture grid checks exact relative-error values for finite intervals. |
 | Eq. (19), lower-bound repeats for target `R_c` relative error | `required_repeats_lower_bound` | Numeric checks and qualitative fixed-seed Bernoulli tests cover monotonic behavior for low vs. moderate success probabilities. |
 | Exact numerical repeats for target `R_c` relative error | `required_repeats_exact` | Binary-search numerical checks assert stable required-repeat values and compare them with lower-bound behavior. |
+| Public repeat-reliability workflow API | `repeat_reliability_metrics`, `repeats_to_solution`, `propagate_success_probability_interval`, `relative_repeats_error`, `required_trials_for_relative_error` | Wrapper tests cover dataframe-friendly output, boundary handling, interval propagation to `R_c`/RTT/CETS, and exact-vs-bound required-trial behavior. |
 
 ## Validation Strategy
 

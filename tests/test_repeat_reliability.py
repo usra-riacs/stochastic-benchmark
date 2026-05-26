@@ -205,6 +205,12 @@ def test_issue_73_required_trials_wrapper_boundaries_and_methods():
         required_trials_for_relative_error(0.5, relative_error_threshold=0)
     with pytest.raises(ValueError):
         required_trials_for_relative_error(0.5, method="unsupported")
+    with pytest.raises(ValueError):
+        required_trials_for_relative_error(1.0, relative_error_threshold=0)
+    with pytest.raises(ValueError):
+        required_trials_for_relative_error(1.0, target_confidence=1.0)
+    with pytest.raises(ValueError):
+        required_trials_for_relative_error(0.5, method="bound", target_confidence=1.0)
 
 
 @pytest.mark.parametrize(

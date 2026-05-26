@@ -542,6 +542,8 @@ def required_trials_for_relative_error(
     """Return trials needed to keep R_c relative error under a threshold."""
 
     probability = _validate_probability(p, "p")
+    threshold = _validate_relative_error_threshold(relative_error_threshold)
+    target = _validate_open_probability(target_confidence, "target_confidence")
     confidence_fraction = _confidence_fraction_from_level(confidence_level, None)
     if method not in {"exact", "bound"}:
         raise ValueError("method must be either 'exact' or 'bound'")
@@ -551,14 +553,14 @@ def required_trials_for_relative_error(
     if method == "bound":
         return required_repeats_lower_bound(
             probability,
-            relative_error_threshold,
+            threshold,
             confidence_fraction=confidence_fraction,
             min_repeats=0,
         )
     return required_repeats_exact(
         probability,
-        relative_error_threshold,
-        target_confidence=target_confidence,
+        threshold,
+        target_confidence=target,
         confidence_fraction=confidence_fraction,
     )
 

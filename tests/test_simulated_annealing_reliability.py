@@ -98,6 +98,31 @@ def test_sa_reliability_report_surfaces_repeats_and_unreliable_cases(tmp_path):
     assert "current_repeats" in diagnostics.columns
 
 
+def test_sa_reliability_diagnostics_keep_custom_target_repeat_columns(tmp_path):
+    baselines = {
+        0: {"best_value": 0.0, "random_value": 10.0},
+        1: {"best_value": 0.0, "random_value": 10.0},
+    }
+    runs = sa_reliability.attach_quality_thresholds(
+        _runs(),
+        baselines,
+        quality_target=0.8,
+    )
+
+    report = sa_reliability.run_reliability_analysis(
+        _benchmark(tmp_path),
+        runs,
+        quality_target=0.8,
+        target_confidence=0.95,
+    )
+    diagnostics = sa_reliability.select_reliability_diagnostics(report)
+
+    assert {"R_c", "R_c_ci_lower", "R_c_ci_upper"} <= set(diagnostics.columns)
+    assert {"R95", "R95_ci_lower", "R95_ci_upper"} <= set(diagnostics.columns)
+    assert "R99" not in diagnostics.columns
+    assert diagnostics["R95"].tolist() == pytest.approx(diagnostics["R_c"].tolist())
+
+
 def test_attach_quality_thresholds_requires_baselines_for_all_instances():
     with pytest.raises(ValueError, match="missing baselines"):
         sa_reliability.attach_quality_thresholds(

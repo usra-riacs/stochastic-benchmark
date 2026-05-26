@@ -22,6 +22,9 @@ DIAGNOSTIC_COLUMNS = [
     "additional_repeats_required",
     "p_ci_lower",
     "p_ci_upper",
+    "R_c",
+    "R_c_ci_lower",
+    "R_c_ci_upper",
     "R99",
     "R99_ci_lower",
     "R99_ci_upper",
@@ -140,8 +143,9 @@ def select_reliability_diagnostics(
 
     if rows_per_instance <= 0:
         raise ValueError("rows_per_instance must be positive")
+    diagnostic_columns = _diagnostic_columns_for_report(report)
     if report.empty:
-        return report.reindex(columns=[col for col in DIAGNOSTIC_COLUMNS if col in report.columns])
+        return report.reindex(columns=diagnostic_columns)
 
     work = report.copy()
     work["_needs_more_trials"] = work["reliability_status"].ne("reliable")
@@ -165,7 +169,7 @@ def select_reliability_diagnostics(
         .groupby("instance", group_keys=False)
         .head(rows_per_instance)
     )
-    return selected[[col for col in DIAGNOSTIC_COLUMNS if col in selected.columns]]
+    return selected[diagnostic_columns]
 
 
 def _baseline_frame(
@@ -190,6 +194,23 @@ def _baseline_frame(
     if missing:
         raise ValueError(f"baselines missing required columns: {sorted(missing)}")
     return baseline_frame.loc[:, ["instance", "best_value", "random_value"]]
+
+
+def _diagnostic_columns_for_report(report: pd.DataFrame) -> list[str]:
+    columns = [col for col in DIAGNOSTIC_COLUMNS if col in report.columns]
+    seen = set(columns)
+    for column in report.columns:
+        if not _is_target_repeat_column(column):
+            continue
+        for repeat_column in [column, f"{column}_ci_lower", f"{column}_ci_upper"]:
+            if repeat_column in report.columns and repeat_column not in seen:
+                columns.append(repeat_column)
+                seen.add(repeat_column)
+    return columns
+
+
+def _is_target_repeat_column(column: str) -> bool:
+    return column.startswith("R") and column[1:].isdigit()
 
 
 def _add_tutorial_context(

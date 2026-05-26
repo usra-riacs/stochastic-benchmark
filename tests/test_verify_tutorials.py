@@ -108,6 +108,31 @@ def test_simulated_annealing_manifest_runs_repeat_reliability_path():
     assert "run_reliability_analysis" in source
 
 
+def test_simulated_annealing_companion_reliability_notebook_is_self_contained():
+    root = Path(__file__).resolve().parents[1]
+    notebook_path = "examples/Simulated_Annealing/reliability_analysis.ipynb"
+    tutorials = verify_tutorials.load_manifest(root / "examples" / "tutorials.json", root)
+    tutorial = next(
+        tutorial
+        for tutorial in tutorials
+        if tutorial.path.relative_to(root).as_posix() == notebook_path
+    )
+
+    notebook = json.loads((root / notebook_path).read_text(encoding="utf-8"))
+    source = "\n".join(
+        line
+        for cell in notebook["cells"]
+        for line in cell.get("source", [])
+    )
+
+    assert tutorial.category == "self_contained"
+    assert "Simulated Annealing Repeat Reliability" in source
+    assert "load_selected_granular_runs" in source
+    assert "run_reliability_analysis" in source
+    assert "select_reliability_diagnostics" in source
+    assert "needs_more_trials" in source
+
+
 def test_load_manifest_requires_skip_reason(tmp_path):
     make_notebook(tmp_path, "examples/external.ipynb")
     manifest = tmp_path / "tutorials.json"

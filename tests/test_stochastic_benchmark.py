@@ -59,6 +59,59 @@ def test_set_bootstrap_accepts_paths_dataframes_and_lists(tmp_path):
     assert sb.bs_results == [str(pickle_path)]
 
 
+def test_run_repeat_reliability_uses_existing_observations_and_default_groups(tmp_path):
+    sb = _make_benchmark(tmp_path)
+    df = pd.DataFrame(
+        {
+            "instance": [1, 1, 1],
+            "param1": [0.1, 0.1, 0.1],
+            "response": [0.2, 0.4, 1.5],
+        }
+    )
+
+    report = sb.run_RepeatReliability(
+        df,
+        response_col="response",
+        success_rule="min",
+        threshold=0.5,
+    )
+
+    assert sb.repeat_reliability is report
+    assert report.loc[0, "instance"] == 1
+    assert report.loc[0, "param1"] == pytest.approx(0.1)
+    assert report.loc[0, "successes"] == 2
+    assert report.loc[0, "trials"] == 3
+
+
+@pytest.mark.parametrize("attribute", ["raw_data", "bs_results", "interp_results"])
+def test_run_repeat_reliability_uses_populated_dataframe_sources(tmp_path, attribute):
+    sb = _make_benchmark(tmp_path)
+    df = pd.DataFrame(
+        {
+            "instance": [1, 1],
+            "param1": [0.1, 0.1],
+            "response": [0.2, 1.5],
+        }
+    )
+    setattr(sb, attribute, df)
+
+    report = sb.run_RepeatReliability(
+        response_col="response",
+        success_rule="min",
+        threshold=0.5,
+    )
+
+    assert report.loc[0, "successes"] == 1
+    assert report.loc[0, "trials"] == 2
+
+
+def test_run_repeat_reliability_requires_existing_dataframe_source(tmp_path):
+    sb = _make_benchmark(tmp_path)
+
+    with pytest.raises(ValueError, match="df is required"):
+        sb.run_RepeatReliability(response_col="response", threshold=0.5)
+
+
 def test_run_bootstrap_non_reduce_uses_existing_raw_data_and_persists(tmp_path, monkeypatch):
     sb = _make_benchmark(tmp_path, reduce_mem=False, recover=False)
     sb.raw_data = pd.DataFrame({

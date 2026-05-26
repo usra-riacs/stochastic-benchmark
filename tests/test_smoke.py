@@ -65,6 +65,8 @@ class TestImports:
         assert hasattr(repeat_reliability, 'repeat_count')
         assert hasattr(repeat_reliability, 'repeats_to_solution')
         assert hasattr(repeat_reliability, 'required_trials_for_relative_error')
+        assert hasattr(repeat_reliability, 'repeat_reliability_report')
+        assert hasattr(repeat_reliability, 'annotate_reliability_comparisons')
     
     def test_import_training(self):
         """Test importing training module."""

@@ -13,10 +13,12 @@ from repeat_reliability import (
     cets_from_repeat_count,
     maximum_relative_error,
     normal_critical_value,
+    annotate_reliability_comparisons,
     propagate_success_probability_interval,
     relative_repeats_error,
     repeat_count,
     repeat_count_interval,
+    repeat_reliability_report,
     repeat_reliability_metrics,
     repeats_to_solution,
     required_repeats_exact,
@@ -211,6 +213,383 @@ def test_issue_73_required_trials_wrapper_boundaries_and_methods():
         required_trials_for_relative_error(1.0, target_confidence=1.0)
     with pytest.raises(ValueError):
         required_trials_for_relative_error(0.5, method="bound", target_confidence=1.0)
+
+
+def test_issue_74_report_supports_grouped_run_level_min_thresholds():
+    df = pd.DataFrame(
+        {
+            "solver": ["alpha"] * 10 + ["beta"] * 10,
+            "energy": [0.5] * 8 + [2.0] * 2 + [0.5] * 5 + [2.0] * 5,
+            "runtime": [2.0] * 20,
+            "iterations": [50] * 20,
+        }
+    )
+
+    report = repeat_reliability_report(
+        df,
+        group_cols="solver",
+        response_col="energy",
+        success_rule="min",
+        threshold=1.0,
+        rtt_factor="runtime",
+        iterations="iterations",
+        effort_per_iteration=0.5,
+    ).set_index("solver")
+
+    assert report.loc["alpha", "successes"] == 8
+    assert report.loc["alpha", "trials"] == 10
+    assert report.loc["alpha", "success_rate"] == pytest.approx(0.8)
+    assert report.loc["alpha", "p_hat"] == pytest.approx(0.8)
+    assert report.loc["alpha", "adjusted_p_hat"] != pytest.approx(0.8)
+    assert report.loc["alpha", "p_hat"] > report.loc["beta", "p_hat"]
+    assert report.loc["alpha", "R_c"] < report.loc["beta", "R_c"]
+    assert report.loc["alpha", "R99"] == pytest.approx(report.loc["alpha", "R_c"])
+    assert report.loc["alpha", "RTT"] == pytest.approx(report.loc["alpha", "R_c"] * 2.0)
+    assert report.loc["alpha", "CETS"] == pytest.approx(report.loc["alpha", "R_c"] * 25.0)
+    assert {"best_point_estimate", "ci_overlaps_best", "statistically_unresolved"} <= set(report.columns)
+
+
+def test_issue_74_report_supports_count_column_perf_ratio_data():
+    df = pd.DataFrame(
+        {
+            "solver": ["alpha", "alpha", "beta", "beta"],
+            "PerfRatio": [0.95, 0.50, 0.90, 0.10],
+            "n": [90, 10, 70, 30],
+        }
+    )
+
+    report = repeat_reliability_report(
+        df,
+        group_cols="solver",
+        response_col="PerfRatio",
+        success_rule="PerfRatio",
+        threshold=0.8,
+        count_col="n",
+    ).set_index("solver")
+
+    assert report.loc["alpha", "successes"] == 90
+    assert report.loc["alpha", "trials"] == 100
+    assert report.loc["beta", "successes"] == 70
+    assert report.loc["beta", "trials"] == 100
+    assert report.loc["alpha", "R_c"] < report.loc["beta", "R_c"]
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected_successes",
+    [
+        ({"response_col": "value", "success_rule": "min", "threshold": 1.0}, 2),
+        ({"response_col": "value", "success_rule": "max", "threshold": 1.0}, 2),
+        (
+            {
+                "response_col": "value",
+                "success_rule": "absolute",
+                "threshold": 0.11,
+                "target_value": 1.0,
+            },
+            2,
+        ),
+        (
+            {
+                "response_col": "value",
+                "success_rule": "gap_min",
+                "best_value": 1.0,
+                "gap": 0.10,
+            },
+            2,
+        ),
+        (
+            {
+                "response_col": "value",
+                "success_rule": "gap_max",
+                "best_value": 1.0,
+                "gap": 0.05,
+            },
+            2,
+        ),
+    ],
+)
+def test_issue_74_success_rule_variants(kwargs, expected_successes):
+    df = pd.DataFrame({"value": [0.9, 1.0, 1.2]})
+
+    report = repeat_reliability_report(df, **kwargs)
+
+    assert report.loc[0, "successes"] == expected_successes
+    assert report.loc[0, "trials"] == 3
+
+
+def test_issue_74_comparison_flags_mark_unresolved_intervals():
+    df = pd.DataFrame(
+        {
+            "budget": [10, 10, 10],
+            "candidate": ["alpha", "beta", "gamma"],
+            "R_c": [10.0, 11.0, 20.0],
+            "R_c_ci_lower": [8.0, 9.0, 18.0],
+            "R_c_ci_upper": [12.0, 13.0, 22.0],
+        }
+    )
+
+    flagged = annotate_reliability_comparisons(df, comparison_cols="budget").set_index("candidate")
+
+    assert flagged.loc["alpha", "best_point_estimate"]
+    assert flagged.loc["alpha", "statistically_unresolved"]
+    assert flagged.loc["beta", "ci_overlaps_best"]
+    assert not flagged.loc["gamma", "statistically_unresolved"]
+
+
+def test_issue_74_empty_report_keeps_joinable_columns_and_flags():
+    df = pd.DataFrame({"solver": [], "value": []})
+
+    report = repeat_reliability_report(
+        df,
+        group_cols="solver",
+        response_col="value",
+        success_rule="min",
+        threshold=1.0,
+        comparison_cols="budget",
+    )
+
+    assert report.empty
+    assert {"solver", "budget", "successes", "R_c", "R99", "best_point_estimate"} <= set(report.columns)
+
+
+def test_issue_74_report_accepts_success_column_and_rejects_null_successes():
+    df = pd.DataFrame({"solver": ["alpha", "alpha"], "ok": ["true", "0"], "n": [2, 3]})
+
+    report = repeat_reliability_report(
+        df,
+        group_cols="solver",
+        success_col="ok",
+        count_col="n",
+        add_comparison_flags=False,
+    )
+
+    assert report.loc[0, "successes"] == 2
+    assert report.loc[0, "trials"] == 5
+
+    with pytest.raises(ValueError, match="success_col"):
+        repeat_reliability_report(
+            pd.DataFrame({"ok": [True, None]}),
+            success_col="ok",
+        )
+    with pytest.raises(ValueError, match="success_col"):
+        repeat_reliability_report(
+            pd.DataFrame({"ok": ["False", "not sure"]}),
+            success_col="ok",
+        )
+    with pytest.raises(ValueError, match="success_col"):
+        repeat_reliability_report(
+            pd.DataFrame({"ok": [0, 2]}),
+            success_col="ok",
+        )
+
+
+@pytest.mark.parametrize(
+    "counts,match",
+    [
+        (["bad"], "numeric"),
+        ([-1], "non-negative"),
+        ([1.5], "integer"),
+    ],
+)
+def test_issue_74_report_rejects_invalid_count_columns(counts, match):
+    df = pd.DataFrame({"value": [1.0], "n": counts})
+
+    with pytest.raises(ValueError, match=match):
+        repeat_reliability_report(
+            df,
+            response_col="value",
+            success_rule="min",
+            threshold=1.0,
+            count_col="n",
+        )
+
+
+def test_issue_74_gap_rule_supports_percent_random_reference_and_response_dir():
+    df = pd.DataFrame(
+        {
+            "response": [10.0, 11.0, 12.0],
+            "best": [10.0, 10.0, 10.0],
+            "random": [20.0, 20.0, 20.0],
+        }
+    )
+
+    report = repeat_reliability_report(
+        df,
+        response_col="response",
+        success_rule="gap",
+        response_dir=-1,
+        best_value="best",
+        random_value="random",
+        gap=10.0,
+        gap_is_percent=True,
+    )
+
+    assert report.loc[0, "successes"] == 2
+
+
+def test_issue_74_report_validation_errors_cover_public_api_edges():
+    df = pd.DataFrame({"value": [1.0]})
+
+    with pytest.raises(TypeError, match="pandas DataFrame"):
+        repeat_reliability_report(object())
+    with pytest.raises(ValueError, match="missing required columns"):
+        repeat_reliability_report(df, group_cols="missing", response_col="value", threshold=1.0)
+    with pytest.raises(ValueError, match="success_rule"):
+        repeat_reliability_report(df, response_col="value", success_rule=object(), threshold=1.0)
+    with pytest.raises(ValueError, match="unsupported success_rule"):
+        repeat_reliability_report(df, response_col="value", success_rule="unknown", threshold=1.0)
+    with pytest.raises(ValueError, match="response_col"):
+        repeat_reliability_report(df, success_rule="min", threshold=1.0)
+    with pytest.raises(ValueError, match="threshold"):
+        repeat_reliability_report(df, response_col="value", success_rule="min")
+    with pytest.raises(ValueError, match="threshold"):
+        repeat_reliability_report(df, response_col="value", success_rule="min", threshold="not-a-number")
+    with pytest.raises(ValueError, match="threshold"):
+        repeat_reliability_report(
+            pd.DataFrame({"value": [1.0], "threshold": [np.nan]}),
+            response_col="value",
+            success_rule="min",
+            threshold="threshold",
+        )
+    with pytest.raises(ValueError, match="gap"):
+        repeat_reliability_report(
+            df,
+            response_col="value",
+            success_rule="gap_min",
+            best_value=1.0,
+            gap=-0.1,
+        )
+    with pytest.raises(ValueError, match="rtt_factor"):
+        repeat_reliability_report(
+            df,
+            response_col="value",
+            success_rule="min",
+            threshold=1.0,
+            rtt_factor=-1.0,
+        )
+
+
+def test_issue_74_zero_count_rows_produce_empty_trial_report():
+    df = pd.DataFrame({"value": [1.0], "n": [0], "runtime": [3.0]})
+
+    report = repeat_reliability_report(
+        df,
+        response_col="value",
+        success_rule="min",
+        threshold=1.0,
+        count_col="n",
+        rtt_factor="runtime",
+        add_comparison_flags=False,
+    )
+
+    assert report.loc[0, "successes"] == 0
+    assert report.loc[0, "trials"] == 0
+    assert math.isnan(report.loc[0, "success_rate"])
+    assert report.loc[0, "rtt_factor"] == pytest.approx(3.0)
+
+
+def test_issue_74_cets_uses_count_weighted_per_row_product():
+    df = pd.DataFrame(
+        {
+            "response": [1.0, 1.0],
+            "iterations": [1.0, 100.0],
+            "effort": [100.0, 1.0],
+            "n": [1, 3],
+        }
+    )
+
+    report = repeat_reliability_report(
+        df,
+        response_col="response",
+        success_rule="min",
+        threshold=1.0,
+        count_col="n",
+        iterations="iterations",
+        effort_per_iteration="effort",
+        add_comparison_flags=False,
+    )
+
+    assert report.loc[0, "iterations"] == pytest.approx(75.25)
+    assert report.loc[0, "effort_per_iteration"] == pytest.approx(25.75)
+    assert report.loc[0, "cets_factor"] == pytest.approx(100.0)
+    assert report.loc[0, "CETS"] == pytest.approx(report.loc[0, "R_c"] * 100.0)
+
+
+def test_issue_74_non_default_target_uses_neutral_and_target_specific_columns():
+    df = pd.DataFrame({"response": [1.0, 2.0, 3.0]})
+
+    report = repeat_reliability_report(
+        df,
+        response_col="response",
+        success_rule="min",
+        threshold=2.0,
+        target_confidence=0.95,
+        add_comparison_flags=False,
+    )
+
+    assert "R_c" in report.columns
+    assert "R95" in report.columns
+    assert "R99" not in report.columns
+    assert report.loc[0, "R95"] == pytest.approx(report.loc[0, "R_c"])
+
+
+def test_issue_74_comparison_flags_handle_max_objective_and_invalid_intervals():
+    df = pd.DataFrame(
+        {
+            "candidate": ["alpha", "beta", "gamma"],
+            "p_hat": [0.8, 0.7, np.nan],
+            "p_ci_lower": [0.7, 0.6, np.nan],
+            "p_ci_upper": [0.9, 0.69, np.nan],
+        }
+    )
+
+    flagged = annotate_reliability_comparisons(
+        df,
+        estimate_col="p_hat",
+        lower_col="p_ci_lower",
+        upper_col="p_ci_upper",
+        objective="max",
+    ).set_index("candidate")
+
+    assert flagged.loc["alpha", "best_point_estimate"]
+    assert not flagged.loc["beta", "statistically_unresolved"]
+    assert not flagged.loc["gamma", "ci_overlaps_best"]
+
+    empty = annotate_reliability_comparisons(
+        df.iloc[0:0],
+        estimate_col="p_hat",
+        lower_col="p_ci_lower",
+        upper_col="p_ci_upper",
+        objective="max",
+    )
+    assert empty.empty
+
+    with pytest.raises(ValueError, match="interval lower"):
+        annotate_reliability_comparisons(
+            pd.DataFrame(
+                {
+                    "R_c": [1.0, 2.0],
+                    "R_c_ci_lower": [2.0, 1.5],
+                    "R_c_ci_upper": [1.0, 2.5],
+                }
+            )
+        )
+    with pytest.raises(ValueError, match="objective"):
+        annotate_reliability_comparisons(
+            pd.DataFrame({"R_c": [1.0], "R_c_ci_lower": [0.9], "R_c_ci_upper": [1.1]}),
+            objective="better",
+        )
+    with pytest.raises(TypeError, match="pandas DataFrame"):
+        annotate_reliability_comparisons(object())
+
+
+def test_issue_74_comparison_flags_skip_all_nan_estimates():
+    df = pd.DataFrame({"R_c": [np.nan], "R_c_ci_lower": [0.0], "R_c_ci_upper": [1.0]})
+
+    flagged = annotate_reliability_comparisons(df, objective=1)
+
+    assert not flagged.loc[0, "best_point_estimate"]
+    assert not flagged.loc[0, "statistically_unresolved"]
 
 
 @pytest.mark.parametrize(

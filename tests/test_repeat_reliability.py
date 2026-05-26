@@ -87,8 +87,8 @@ def test_noori_reference_grid_matches_deterministic_fixtures(
 
 
 def test_rtt_and_cets_scaling_preserve_relative_error():
-    repeat_estimate = repeat_count(0.25, confidence=0.99)
-    repeat_interval = repeat_count_interval(0.22, 0.28, confidence=0.99)
+    repeat_estimate = repeat_count(0.25, target_confidence=0.99)
+    repeat_interval = repeat_count_interval(0.22, 0.28, target_confidence=0.99)
     repeat_error = maximum_relative_error(
         repeat_estimate,
         repeat_interval.lower,
@@ -140,15 +140,23 @@ def test_required_repeats_lower_bound_and_exact_search_are_deterministic():
         lambda: agresti_coull_interval(-1, 10),
         lambda: agresti_coull_interval_from_estimate(-0.1, 10),
         lambda: success_probability_margin(0.5, 0),
+        lambda: repeat_count(0.5, target_confidence=0.0),
+        lambda: repeat_count(0.5, target_confidence=1.0),
         lambda: repeat_count_interval(0.8, 0.2),
+        lambda: repeat_count_interval(0.1, 0.2, target_confidence=0.0),
         lambda: cets_from_repeat_count(1.0, iterations=-1),
         lambda: cets_from_repeat_count(1.0, iterations=1, effort_per_iteration=-1),
+        lambda: cets_from_repeat_count(math.inf, iterations=0),
         lambda: rtt_from_repeat_count(1.0, runtime_per_repeat=-1),
+        lambda: rtt_from_repeat_count(math.inf, runtime_per_repeat=0),
         lambda: scaled_repeat_count_interval(RepeatCountInterval(1.0, 2.0), scale=-1),
+        lambda: scaled_repeat_count_interval(RepeatCountInterval(math.inf, math.inf), scale=0),
         lambda: required_repeats_for_probability_error(0.0),
         lambda: required_repeats_for_probability_error(0.1, min_repeats=-1),
         lambda: required_repeats_lower_bound(0.5, 0.1, min_repeats=-1),
         lambda: required_repeats_lower_bound(0.5, 1.0),
+        lambda: required_repeats_exact(0.5, 0.1, target_confidence=0.0),
+        lambda: required_repeats_exact(0.5, 0.1, target_confidence=1.0),
         lambda: required_repeats_exact(0.5, 0.1, min_repeats=0),
         lambda: required_repeats_exact(0.5, 0.1, min_repeats=10, max_repeats=1),
     ],

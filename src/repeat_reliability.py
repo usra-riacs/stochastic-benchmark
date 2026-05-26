@@ -40,18 +40,17 @@ class RepeatCountInterval:
     upper: float
 
 
-def normal_critical_value(confidence_level: float = 0.95) -> float:
+def normal_critical_value(confidence_fraction: float = 0.95) -> float:
     """Return z_alpha for a two-sided confidence interval."""
 
-    if not 0 < confidence_level < 1:
-        raise ValueError("confidence_level must be a fraction between 0 and 1")
-    return float(scipy_stats.norm.ppf(0.5 + confidence_level / 2.0))
+    _validate_open_probability(confidence_fraction, "confidence_fraction")
+    return float(scipy_stats.norm.ppf(0.5 + confidence_fraction / 2.0))
 
 
 def agresti_coull_interval(
     successes: float,
     repeats: int,
-    confidence_level: float = 0.95,
+    confidence_fraction: float = 0.95,
 ) -> ProportionInterval:
     """Compute the Agresti-Coull interval from paper Eq. (8).
 
@@ -65,7 +64,7 @@ def agresti_coull_interval(
     if successes < 0 or successes > repeats:
         raise ValueError("successes must be between 0 and repeats")
 
-    z = normal_critical_value(confidence_level)
+    z = normal_critical_value(confidence_fraction)
     adjusted_repeats = repeats + z**2
     estimate = (successes + z**2 / 2.0) / adjusted_repeats
     half_width = z * math.sqrt(estimate * (1.0 - estimate) / adjusted_repeats)
@@ -80,7 +79,7 @@ def agresti_coull_interval(
 def agresti_coull_interval_from_estimate(
     success_probability: float,
     repeats: int,
-    confidence_level: float = 0.95,
+    confidence_fraction: float = 0.95,
 ) -> ProportionInterval:
     """Compute Eq. (8) from an observed success fraction n_s / n."""
 
@@ -88,14 +87,14 @@ def agresti_coull_interval_from_estimate(
     return agresti_coull_interval(
         successes=success_probability * repeats,
         repeats=repeats,
-        confidence_level=confidence_level,
+        confidence_fraction=confidence_fraction,
     )
 
 
 def success_probability_margin(
     adjusted_success_probability: float,
     repeats: int,
-    confidence_level: float = 0.95,
+    confidence_fraction: float = 0.95,
 ) -> float:
     """Return epsilon_p from paper Eq. (11) for an adjusted p_hat."""
 
@@ -103,7 +102,7 @@ def success_probability_margin(
     if repeats <= 0:
         raise ValueError("repeats must be positive")
 
-    z = normal_critical_value(confidence_level)
+    z = normal_critical_value(confidence_fraction)
     adjusted_repeats = repeats + z**2
     return z * math.sqrt(
         adjusted_success_probability * (1.0 - adjusted_success_probability)
@@ -111,18 +110,18 @@ def success_probability_margin(
     )
 
 
-def repeat_count(success_probability: float, confidence: float = 0.99) -> float:
+def repeat_count(success_probability: float, target_confidence: float = 0.99) -> float:
     """Compute R_c from paper Eqs. (1) and (2)."""
 
     _validate_probability(success_probability, "success_probability")
-    _validate_probability(confidence, "confidence")
+    _validate_open_probability(target_confidence, "target_confidence")
 
     if success_probability == 0:
         return math.inf
-    if success_probability >= confidence:
+    if success_probability >= target_confidence:
         return 1.0
     return max(
-        math.log1p(-confidence) / math.log1p(-success_probability),
+        math.log1p(-target_confidence) / math.log1p(-success_probability),
         1.0,
     )
 
@@ -130,7 +129,7 @@ def repeat_count(success_probability: float, confidence: float = 0.99) -> float:
 def repeat_count_interval(
     success_probability_lower: float,
     success_probability_upper: float,
-    confidence: float = 0.99,
+    target_confidence: float = 0.99,
 ) -> RepeatCountInterval:
     """Induce an R_c interval from a probability interval.
 
@@ -141,12 +140,13 @@ def repeat_count_interval(
 
     _validate_probability(success_probability_lower, "success_probability_lower")
     _validate_probability(success_probability_upper, "success_probability_upper")
+    _validate_open_probability(target_confidence, "target_confidence")
     if success_probability_lower > success_probability_upper:
         raise ValueError("success_probability_lower must be <= success_probability_upper")
 
     return RepeatCountInterval(
-        lower=repeat_count(success_probability_upper, confidence=confidence),
-        upper=repeat_count(success_probability_lower, confidence=confidence),
+        lower=repeat_count(success_probability_upper, target_confidence=target_confidence),
+        upper=repeat_count(success_probability_lower, target_confidence=target_confidence),
     )
 
 
@@ -161,7 +161,10 @@ def cets_from_repeat_count(
         raise ValueError("iterations must be non-negative")
     if effort_per_iteration < 0:
         raise ValueError("effort_per_iteration must be non-negative")
-    return iterations * effort_per_iteration * repeats_to_confidence
+    return _scale_repeat_count_value(
+        repeats_to_confidence,
+        iterations * effort_per_iteration,
+    )
 
 
 def rtt_from_repeat_count(
@@ -172,7 +175,7 @@ def rtt_from_repeat_count(
 
     if runtime_per_repeat < 0:
         raise ValueError("runtime_per_repeat must be non-negative")
-    return runtime_per_repeat * repeats_to_confidence
+    return _scale_repeat_count_value(repeats_to_confidence, runtime_per_repeat)
 
 
 def scaled_repeat_count_interval(
@@ -183,7 +186,10 @@ def scaled_repeat_count_interval(
 
     if scale < 0:
         raise ValueError("scale must be non-negative")
-    return RepeatCountInterval(lower=scale * interval.lower, upper=scale * interval.upper)
+    return RepeatCountInterval(
+        lower=_scale_repeat_count_value(interval.lower, scale),
+        upper=_scale_repeat_count_value(interval.upper, scale),
+    )
 
 
 def maximum_relative_error(
@@ -202,7 +208,7 @@ def maximum_relative_error(
 
 def required_repeats_for_probability_error(
     error_tolerance: float,
-    confidence_level: float = 0.95,
+    confidence_fraction: float = 0.95,
     min_repeats: int = 1,
 ) -> int:
     """Return the worst-case n bound from paper Eq. (10)."""
@@ -212,7 +218,7 @@ def required_repeats_for_probability_error(
     if min_repeats < 0:
         raise ValueError("min_repeats must be non-negative")
 
-    z = normal_critical_value(confidence_level)
+    z = normal_critical_value(confidence_fraction)
     bound = (z / (2.0 * error_tolerance)) ** 2 - z**2
     return max(min_repeats, math.ceil(bound))
 
@@ -220,7 +226,7 @@ def required_repeats_for_probability_error(
 def required_repeats_lower_bound(
     adjusted_success_probability: float,
     relative_error_threshold: float,
-    confidence_level: float = 0.95,
+    confidence_fraction: float = 0.95,
     min_repeats: int = 1,
 ) -> float:
     """Return the conservative lower-bound repeat count from paper Eq. (19)."""
@@ -233,7 +239,7 @@ def required_repeats_lower_bound(
     if adjusted_success_probability == 0:
         return math.inf
 
-    z = normal_critical_value(confidence_level)
+    z = normal_critical_value(confidence_fraction)
     threshold_factor = z * (1.0 + relative_error_threshold) / relative_error_threshold
     bound = (
         threshold_factor**2
@@ -247,8 +253,8 @@ def required_repeats_lower_bound(
 def required_repeats_exact(
     adjusted_success_probability: float,
     relative_error_threshold: float,
-    confidence: float = 0.99,
-    confidence_level: float = 0.95,
+    target_confidence: float = 0.99,
+    confidence_fraction: float = 0.95,
     min_repeats: int = 1,
     max_repeats: int = 100_000_000,
 ) -> float:
@@ -262,7 +268,7 @@ def required_repeats_exact(
 
     _validate_probability(adjusted_success_probability, "adjusted_success_probability")
     _validate_relative_error_threshold(relative_error_threshold)
-    _validate_probability(confidence, "confidence")
+    _validate_open_probability(target_confidence, "target_confidence")
     if min_repeats <= 0:
         raise ValueError("min_repeats must be positive")
     if max_repeats < min_repeats:
@@ -270,15 +276,15 @@ def required_repeats_exact(
     if adjusted_success_probability == 0:
         return math.inf
 
-    estimate = repeat_count(adjusted_success_probability, confidence=confidence)
+    estimate = repeat_count(adjusted_success_probability, target_confidence=target_confidence)
 
     if _repeat_count_error_satisfies_threshold(
         adjusted_success_probability,
         estimate,
         min_repeats,
         relative_error_threshold,
-        confidence,
-        confidence_level,
+        target_confidence,
+        confidence_fraction,
     ):
         return min_repeats
 
@@ -291,8 +297,8 @@ def required_repeats_exact(
             estimate,
             high,
             relative_error_threshold,
-            confidence,
-            confidence_level,
+            target_confidence,
+            confidence_fraction,
         ):
             break
         low = high + 1
@@ -306,8 +312,8 @@ def required_repeats_exact(
             estimate,
             midpoint,
             relative_error_threshold,
-            confidence,
-            confidence_level,
+            target_confidence,
+            confidence_fraction,
         ):
             high = midpoint
         else:
@@ -320,28 +326,39 @@ def _repeat_count_error_satisfies_threshold(
     repeat_estimate: float,
     repeats: int,
     relative_error_threshold: float,
-    confidence: float,
-    confidence_level: float,
+    target_confidence: float,
+    confidence_fraction: float,
 ) -> bool:
     margin = success_probability_margin(
         adjusted_success_probability,
         repeats,
-        confidence_level=confidence_level,
+        confidence_fraction=confidence_fraction,
     )
     lower_probability = max(0.0, adjusted_success_probability - margin)
     upper_probability = min(1.0, adjusted_success_probability + margin)
     interval = repeat_count_interval(
         lower_probability,
         upper_probability,
-        confidence=confidence,
+        target_confidence=target_confidence,
     )
     error = maximum_relative_error(repeat_estimate, interval.lower, interval.upper)
     return error <= relative_error_threshold
 
 
+def _scale_repeat_count_value(repeats_to_confidence: float, scale: float) -> float:
+    if scale == 0 and not math.isfinite(repeats_to_confidence):
+        raise ValueError("zero scale is undefined for non-finite repeat counts")
+    return scale * repeats_to_confidence
+
+
 def _validate_probability(value: float, name: str) -> None:
     if not 0 <= value <= 1:
         raise ValueError(f"{name} must be between 0 and 1")
+
+
+def _validate_open_probability(value: float, name: str) -> None:
+    if not 0 < value < 1:
+        raise ValueError(f"{name} must be between 0 and 1, exclusive")
 
 
 def _validate_relative_error_threshold(value: float) -> None:

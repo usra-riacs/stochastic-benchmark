@@ -5,6 +5,10 @@ formulas without an author reference implementation, executable code, or raw
 numerical data. The formulas are implemented as deterministic reference helpers
 in `src/repeat_reliability.py`; downstream production integrations should cite
 the same equation labels and reuse these tests when behavior is changed.
+The API uses `confidence_fraction` for statistical confidence-interval coverage
+and `target_confidence` for the `R_c` target probability, so callers do not
+confuse these fractional values with the percentage-style `confidence_level`
+arguments used elsewhere in the repository.
 
 Paper reference:
 
@@ -56,8 +60,13 @@ figures.
 ## Boundary Policy
 
 The implementation clips Agresti-Coull probability intervals to `[0, 1]`, as
-discussed in the paper for boundary cases. `R_c(0)` is infinite and `R_c(p)` is
+discussed in the paper for boundary cases. `target_confidence` is validated as
+an open probability interval, `0 < c < 1`. `R_c(0)` is infinite and `R_c(p)` is
 clamped to `1` when `p >= c`, matching Eq. (1)'s `max(..., 1)` form.
+
+Deterministic RTT/CETS scaling accepts zero scale for finite repeat counts. It
+rejects zero scale for non-finite repeat counts because `0 * infinity` is
+undefined and would otherwise produce `nan` bounds.
 
 The paper source text contains an apparent mismatch around the `epsilon_p = 0.03`
 repeat-count example. Eq. (10) with a two-sided 95 percent normal critical value

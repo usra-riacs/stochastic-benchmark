@@ -13,6 +13,7 @@ import df_utils
 import interpolate
 import plotting as plotting_module
 from plotting import *
+import repeat_reliability
 import stats
 import success_metrics
 import training
@@ -399,6 +400,31 @@ class stochastic_benchmark:
                 self.bs_results = pd.concat(bs_results, ignore_index=True)
             elif isinstance(bs_results[0], str):
                 self.bs_results = bs_results
+
+    def run_RepeatReliability(self, df=None, **kwargs):
+        """Create a passive repeat-reliability report from existing observations."""
+
+        if df is None:
+            if hasattr(self, "raw_data") and isinstance(self.raw_data, pd.DataFrame):
+                df = self.raw_data
+            elif isinstance(self.bs_results, pd.DataFrame):
+                df = self.bs_results
+            elif isinstance(self.interp_results, pd.DataFrame):
+                df = self.interp_results
+            else:
+                raise ValueError(
+                    "df is required unless raw_data, bs_results, or interp_results "
+                    "is already populated as a DataFrame"
+                )
+
+        if "group_cols" not in kwargs or kwargs["group_cols"] is None:
+            kwargs["group_cols"] = self.parameter_names + self.instance_cols
+
+        self.repeat_reliability = repeat_reliability.repeat_reliability_report(
+            df,
+            **kwargs,
+        )
+        return self.repeat_reliability
 
     def run_Interpolate(self, iParams):
         if self.interp_results is not None:

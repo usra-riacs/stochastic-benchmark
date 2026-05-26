@@ -13,10 +13,12 @@ from repeat_reliability import (
     cets_from_repeat_count,
     maximum_relative_error,
     normal_critical_value,
+    annotate_reliability_comparisons,
     propagate_success_probability_interval,
     relative_repeats_error,
     repeat_count,
     repeat_count_interval,
+    repeat_reliability_report,
     repeat_reliability_metrics,
     repeats_to_solution,
     required_repeats_exact,
@@ -211,6 +213,124 @@ def test_issue_73_required_trials_wrapper_boundaries_and_methods():
         required_trials_for_relative_error(1.0, target_confidence=1.0)
     with pytest.raises(ValueError):
         required_trials_for_relative_error(0.5, method="bound", target_confidence=1.0)
+
+
+def test_issue_74_report_supports_grouped_run_level_min_thresholds():
+    df = pd.DataFrame(
+        {
+            "solver": ["alpha"] * 10 + ["beta"] * 10,
+            "energy": [0.5] * 8 + [2.0] * 2 + [0.5] * 5 + [2.0] * 5,
+            "runtime": [2.0] * 20,
+            "iterations": [50] * 20,
+        }
+    )
+
+    report = repeat_reliability_report(
+        df,
+        group_cols="solver",
+        response_col="energy",
+        success_rule="min",
+        threshold=1.0,
+        rtt_factor="runtime",
+        iterations="iterations",
+        effort_per_iteration=0.5,
+    ).set_index("solver")
+
+    assert report.loc["alpha", "successes"] == 8
+    assert report.loc["alpha", "trials"] == 10
+    assert report.loc["alpha", "success_rate"] == pytest.approx(0.8)
+    assert report.loc["alpha", "p_hat"] > report.loc["beta", "p_hat"]
+    assert report.loc["alpha", "R99"] < report.loc["beta", "R99"]
+    assert report.loc["alpha", "RTT"] == pytest.approx(report.loc["alpha", "R99"] * 2.0)
+    assert report.loc["alpha", "CETS"] == pytest.approx(report.loc["alpha", "R99"] * 25.0)
+    assert {"best_point_estimate", "ci_overlaps_best", "statistically_unresolved"} <= set(report.columns)
+
+
+def test_issue_74_report_supports_count_column_perf_ratio_data():
+    df = pd.DataFrame(
+        {
+            "solver": ["alpha", "alpha", "beta", "beta"],
+            "PerfRatio": [0.95, 0.50, 0.90, 0.10],
+            "n": [90, 10, 70, 30],
+        }
+    )
+
+    report = repeat_reliability_report(
+        df,
+        group_cols="solver",
+        response_col="PerfRatio",
+        success_rule="PerfRatio",
+        threshold=0.8,
+        count_col="n",
+    ).set_index("solver")
+
+    assert report.loc["alpha", "successes"] == 90
+    assert report.loc["alpha", "trials"] == 100
+    assert report.loc["beta", "successes"] == 70
+    assert report.loc["beta", "trials"] == 100
+    assert report.loc["alpha", "R99"] < report.loc["beta", "R99"]
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected_successes",
+    [
+        ({"response_col": "value", "success_rule": "min", "threshold": 1.0}, 2),
+        ({"response_col": "value", "success_rule": "max", "threshold": 1.0}, 2),
+        (
+            {
+                "response_col": "value",
+                "success_rule": "absolute",
+                "threshold": 0.11,
+                "target_value": 1.0,
+            },
+            2,
+        ),
+        (
+            {
+                "response_col": "value",
+                "success_rule": "gap_min",
+                "best_value": 1.0,
+                "gap": 0.10,
+            },
+            2,
+        ),
+        (
+            {
+                "response_col": "value",
+                "success_rule": "gap_max",
+                "best_value": 1.0,
+                "gap": 0.05,
+            },
+            2,
+        ),
+    ],
+)
+def test_issue_74_success_rule_variants(kwargs, expected_successes):
+    df = pd.DataFrame({"value": [0.9, 1.0, 1.2]})
+
+    report = repeat_reliability_report(df, **kwargs)
+
+    assert report.loc[0, "successes"] == expected_successes
+    assert report.loc[0, "trials"] == 3
+
+
+def test_issue_74_comparison_flags_mark_unresolved_intervals():
+    df = pd.DataFrame(
+        {
+            "budget": [10, 10, 10],
+            "candidate": ["alpha", "beta", "gamma"],
+            "R99": [10.0, 11.0, 20.0],
+            "R99_ci_lower": [8.0, 9.0, 18.0],
+            "R99_ci_upper": [12.0, 13.0, 22.0],
+        }
+    )
+
+    flagged = annotate_reliability_comparisons(df, comparison_cols="budget").set_index("candidate")
+
+    assert flagged.loc["alpha", "best_point_estimate"]
+    assert flagged.loc["alpha", "statistically_unresolved"]
+    assert flagged.loc["beta", "ci_overlaps_best"]
+    assert not flagged.loc["gamma", "statistically_unresolved"]
 
 
 @pytest.mark.parametrize(

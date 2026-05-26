@@ -59,6 +59,30 @@ def test_set_bootstrap_accepts_paths_dataframes_and_lists(tmp_path):
     assert sb.bs_results == [str(pickle_path)]
 
 
+def test_run_repeat_reliability_uses_existing_observations_and_default_groups(tmp_path):
+    sb = _make_benchmark(tmp_path)
+    df = pd.DataFrame(
+        {
+            "instance": [1, 1, 1],
+            "param1": [0.1, 0.1, 0.1],
+            "response": [0.2, 0.4, 1.5],
+        }
+    )
+
+    report = sb.run_RepeatReliability(
+        df,
+        response_col="response",
+        success_rule="min",
+        threshold=0.5,
+    )
+
+    assert sb.repeat_reliability is report
+    assert report.loc[0, "instance"] == 1
+    assert report.loc[0, "param1"] == pytest.approx(0.1)
+    assert report.loc[0, "successes"] == 2
+    assert report.loc[0, "trials"] == 3
+
+
 def test_run_bootstrap_non_reduce_uses_existing_raw_data_and_persists(tmp_path, monkeypatch):
     sb = _make_benchmark(tmp_path, reduce_mem=False, recover=False)
     sb.raw_data = pd.DataFrame({

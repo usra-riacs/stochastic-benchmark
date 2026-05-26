@@ -1,4 +1,5 @@
 import importlib.util
+import pickle
 import sys
 from pathlib import Path
 
@@ -60,6 +61,25 @@ def test_quality_threshold_uses_tutorial_best_random_convention():
 
     with pytest.raises(ValueError, match="quality_target"):
         sa_reliability.quality_threshold_from_baseline(-10.0, 0.0, quality_target=1.1)
+
+
+def test_load_selected_raw_runs_uses_tracked_aggregate_pickle(tmp_path):
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    all_raw_runs = {
+        0: {1: [1.0, 2.0], 5: [3.0]},
+        2: {1: [4.0]},
+    }
+    with (results_dir / "all_raw_runs.pkl").open("wb") as raw_runs_file:
+        pickle.dump(all_raw_runs, raw_runs_file)
+
+    runs = sa_reliability.load_selected_raw_runs(tmp_path, instance_ids=[0, 2])
+
+    assert runs.columns.tolist() == ["instance", "sweeps", "energy", "resource"]
+    assert runs["instance"].tolist() == [0, 0, 0, 2]
+    assert runs["sweeps"].tolist() == [1, 1, 5, 1]
+    assert runs["energy"].tolist() == pytest.approx([1.0, 2.0, 3.0, 4.0])
+    assert runs["resource"].tolist() == [1, 1, 1, 1]
 
 
 def test_sa_reliability_report_surfaces_repeats_and_unreliable_cases(tmp_path):

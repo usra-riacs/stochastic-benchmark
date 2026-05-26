@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -101,6 +102,40 @@ def load_selected_granular_runs(
         if not data_path.is_file():
             raise FileNotFoundError(f"granular SA data not found: {data_path}")
         frames.append(pd.read_pickle(data_path))
+
+    if not frames:
+        raise ValueError("at least one instance_id is required")
+    return pd.concat(frames, ignore_index=True)
+
+
+def load_selected_raw_runs(
+    example_dir: str | Path,
+    instance_ids: Sequence[int] = DEFAULT_INSTANCE_IDS,
+) -> pd.DataFrame:
+    """Load selected SA runs from the tracked aggregate raw-runs pickle."""
+
+    raw_runs_path = Path(example_dir) / "results" / "all_raw_runs.pkl"
+    if not raw_runs_path.is_file():
+        raise FileNotFoundError(f"aggregate SA raw runs not found: {raw_runs_path}")
+
+    with raw_runs_path.open("rb") as raw_runs_file:
+        all_raw_runs = pickle.load(raw_runs_file)
+
+    frames = []
+    for instance_id in instance_ids:
+        if instance_id not in all_raw_runs:
+            raise ValueError(f"missing raw runs for instance: {instance_id}")
+
+        for sweeps, energies in all_raw_runs[instance_id].items():
+            frame = pd.DataFrame(
+                {
+                    "instance": instance_id,
+                    "sweeps": int(sweeps),
+                    "energy": pd.Series(energies, dtype=float),
+                    "resource": 1,
+                }
+            )
+            frames.append(frame)
 
     if not frames:
         raise ValueError("at least one instance_id is required")

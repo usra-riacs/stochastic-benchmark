@@ -127,7 +127,8 @@ def test_simulated_annealing_companion_reliability_notebook_is_self_contained():
 
     assert tutorial.category == "self_contained"
     assert "Simulated Annealing Repeat Reliability" in source
-    assert "load_selected_granular_runs" in source
+    assert "load_selected_raw_runs" in source
+    assert "all_raw_runs.pkl" in source
     assert "run_reliability_analysis" in source
     assert "select_reliability_diagnostics" in source
     assert "needs_more_trials" in source

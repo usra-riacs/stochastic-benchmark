@@ -402,7 +402,18 @@ class stochastic_benchmark:
                 self.bs_results = bs_results
 
     def run_RepeatReliability(self, df=None, **kwargs):
-        """Create a passive repeat-reliability report from existing observations."""
+        """Create a passive repeat-reliability report from existing observations.
+
+        Parameters are forwarded to
+        :func:`repeat_reliability.repeat_reliability_report`. If ``df`` is not
+        provided, the method uses the first populated DataFrame among
+        ``raw_data``, ``bs_results``, and ``interp_results``. If ``group_cols``
+        is omitted, observations are grouped by ``parameter_names`` plus
+        ``instance_cols`` so the report can be joined back to the benchmark
+        summaries on those columns. For accepted input shapes, success rules,
+        count-column semantics, and output columns, see
+        ``docs/passive_repeat_reliability_reports.md``.
+        """
 
         if df is None:
             if hasattr(self, "raw_data") and isinstance(self.raw_data, pd.DataFrame):

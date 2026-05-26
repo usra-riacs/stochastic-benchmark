@@ -514,15 +514,25 @@ def repeat_reliability_report(
             weight_col="_repeat_reliability_count",
             name="effort_per_iteration",
         )
+        cets_scale = _weighted_product_group_value(
+            group,
+            iterations,
+            effort_per_iteration,
+            weight_col="_repeat_reliability_count",
+            left_name="iterations",
+            right_name="effort_per_iteration",
+            result_name="cets_factor",
+        )
         metrics = repeat_reliability_metrics(
             successes,
             trials,
             confidence_level=confidence_level,
             target_confidence=target_confidence,
             rtt_factor=rtt_scale,
-            iterations=iteration_scale,
-            effort_per_iteration=effort_scale,
+            iterations=cets_scale,
+            effort_per_iteration=1.0,
         )
+        p_hat = successes / trials if trials else math.nan
         required_trials = required_trials_for_relative_error(
             metrics.success_probability.estimate,
             relative_error_threshold=relative_error_threshold,
@@ -540,14 +550,15 @@ def repeat_reliability_report(
             {
                 "successes": successes,
                 "trials": trials,
-                "success_rate": successes / trials if trials else math.nan,
-                "p_hat": metrics.success_probability.estimate,
+                "success_rate": p_hat,
+                "p_hat": p_hat,
+                "adjusted_p_hat": metrics.success_probability.estimate,
                 "p_ci_lower": metrics.success_probability.lower,
                 "p_ci_upper": metrics.success_probability.upper,
                 "p_ci_half_width": metrics.success_probability.half_width,
-                "R99": metrics.r_c.estimate,
-                "R99_ci_lower": metrics.r_c.lower,
-                "R99_ci_upper": metrics.r_c.upper,
+                "R_c": metrics.r_c.estimate,
+                "R_c_ci_lower": metrics.r_c.lower,
+                "R_c_ci_upper": metrics.r_c.upper,
                 "RTT": metrics.rtt.estimate,
                 "RTT_ci_lower": metrics.rtt.lower,
                 "RTT_ci_upper": metrics.rtt.upper,
@@ -568,15 +579,21 @@ def repeat_reliability_report(
                 "rtt_factor": rtt_scale,
                 "iterations": iteration_scale,
                 "effort_per_iteration": effort_scale,
+                "cets_factor": cets_scale,
             }
         )
+        record.update(_target_repeat_count_columns(metrics.r_c, target_confidence))
         records.append(record)
 
     report = (
         pd.DataFrame.from_records(records)
         if records
         else pd.DataFrame(
-            columns=_repeat_reliability_report_columns(groups, comparison_cols)
+            columns=_repeat_reliability_report_columns(
+                groups,
+                comparison_cols,
+                target_confidence,
+            )
         )
     )
     if add_comparison_flags:
@@ -592,14 +609,14 @@ def annotate_reliability_comparisons(
     df: pd.DataFrame,
     *,
     comparison_cols: str | Sequence[str] | None = None,
-    estimate_col: str = "R99",
-    lower_col: str = "R99_ci_lower",
-    upper_col: str = "R99_ci_upper",
+    estimate_col: str = "R_c",
+    lower_col: str = "R_c_ci_lower",
+    upper_col: str = "R_c_ci_upper",
     objective: str | int = "min",
 ) -> pd.DataFrame:
     """Flag point-estimate winners whose confidence intervals are unresolved.
 
-    The default objective is minimization because lower R99/RTT/CETS values are
+    The default objective is minimization because lower R_c/RTT/CETS values are
     better. For probability-like metrics, pass ``objective="max"`` and the
     corresponding estimate/interval columns.
     """
@@ -665,23 +682,29 @@ def annotate_reliability_comparisons(
 def _repeat_reliability_report_columns(
     group_cols: Sequence[str],
     comparison_cols: str | Sequence[str] | None,
+    target_confidence: float,
 ) -> list[str]:
     columns = list(group_cols)
     for column in _coerce_column_list(comparison_cols):
         if column not in columns:
             columns.append(column)
+    repeat_label = _target_repeat_count_label(target_confidence)
     columns.extend(
         [
             "successes",
             "trials",
             "success_rate",
             "p_hat",
+            "adjusted_p_hat",
             "p_ci_lower",
             "p_ci_upper",
             "p_ci_half_width",
-            "R99",
-            "R99_ci_lower",
-            "R99_ci_upper",
+            "R_c",
+            "R_c_ci_lower",
+            "R_c_ci_upper",
+            repeat_label,
+            f"{repeat_label}_ci_lower",
+            f"{repeat_label}_ci_upper",
             "RTT",
             "RTT_ci_lower",
             "RTT_ci_upper",
@@ -699,6 +722,7 @@ def _repeat_reliability_report_columns(
             "rtt_factor",
             "iterations",
             "effort_per_iteration",
+            "cets_factor",
         ]
     )
     return columns
@@ -889,6 +913,24 @@ def _count_series(df: pd.DataFrame, count_col: str | None) -> pd.Series:
     return counts.astype(float)
 
 
+def _target_repeat_count_columns(
+    interval: MetricInterval,
+    target_confidence: float,
+) -> dict[str, float]:
+    repeat_label = _target_repeat_count_label(target_confidence)
+    return {
+        repeat_label: interval.estimate,
+        f"{repeat_label}_ci_lower": interval.lower,
+        f"{repeat_label}_ci_upper": interval.upper,
+    }
+
+
+def _target_repeat_count_label(target_confidence: float) -> str:
+    target = _validate_open_probability(target_confidence, "target_confidence")
+    percent = f"{target * 100.0:g}".replace(".", "_")
+    return f"R{percent}"
+
+
 def _success_series(
     df: pd.DataFrame,
     *,
@@ -906,10 +948,7 @@ def _success_series(
 ) -> pd.Series:
     if success_col is not None:
         _require_columns(df, [success_col])
-        successes = df[success_col]
-        if successes.isna().any():
-            raise ValueError("success_col must not contain null values")
-        return successes.astype(bool)
+        return _success_indicator_series(df[success_col])
 
     rule = _canonical_success_rule(success_rule)
     if rule == "perf_ratio":
@@ -944,6 +983,34 @@ def _success_series(
         )
 
     raise ValueError("unsupported success_rule: {}".format(success_rule))
+
+
+def _success_indicator_series(series: pd.Series) -> pd.Series:
+    if series.isna().any():
+        raise ValueError("success_col must not contain null values")
+    return series.map(_coerce_success_indicator).astype(bool)
+
+
+def _coerce_success_indicator(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "t", "yes", "y", "1"}:
+            return True
+        if normalized in {"false", "f", "no", "n", "0"}:
+            return False
+        raise ValueError("success_col must contain boolean or 0/1 values")
+
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("success_col must contain boolean or 0/1 values") from exc
+    if numeric == 1.0:
+        return True
+    if numeric == 0.0:
+        return False
+    raise ValueError("success_col must contain boolean or 0/1 values")
 
 
 def _gap_success_series(
@@ -1060,6 +1127,28 @@ def _weighted_group_value(
     values = _numeric_series(group, value, name)
     if (values < 0).any():
         raise ValueError("{} must be non-negative".format(name))
+    weights = group[weight_col].astype(float)
+    total_weight = weights.sum()
+    if total_weight == 0:
+        return float(values.mean())
+    return float((values * weights).sum() / total_weight)
+
+
+def _weighted_product_group_value(
+    group: pd.DataFrame,
+    left: float | str,
+    right: float | str,
+    *,
+    weight_col: str,
+    left_name: str,
+    right_name: str,
+    result_name: str,
+) -> float:
+    left_values = _numeric_series(group, left, left_name)
+    right_values = _numeric_series(group, right, right_name)
+    if (left_values < 0).any() or (right_values < 0).any():
+        raise ValueError("{} must be non-negative".format(result_name))
+    values = left_values * right_values
     weights = group[weight_col].astype(float)
     total_weight = weights.sum()
     if total_weight == 0:

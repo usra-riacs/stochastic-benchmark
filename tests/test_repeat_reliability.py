@@ -239,10 +239,13 @@ def test_issue_74_report_supports_grouped_run_level_min_thresholds():
     assert report.loc["alpha", "successes"] == 8
     assert report.loc["alpha", "trials"] == 10
     assert report.loc["alpha", "success_rate"] == pytest.approx(0.8)
+    assert report.loc["alpha", "p_hat"] == pytest.approx(0.8)
+    assert report.loc["alpha", "adjusted_p_hat"] != pytest.approx(0.8)
     assert report.loc["alpha", "p_hat"] > report.loc["beta", "p_hat"]
-    assert report.loc["alpha", "R99"] < report.loc["beta", "R99"]
-    assert report.loc["alpha", "RTT"] == pytest.approx(report.loc["alpha", "R99"] * 2.0)
-    assert report.loc["alpha", "CETS"] == pytest.approx(report.loc["alpha", "R99"] * 25.0)
+    assert report.loc["alpha", "R_c"] < report.loc["beta", "R_c"]
+    assert report.loc["alpha", "R99"] == pytest.approx(report.loc["alpha", "R_c"])
+    assert report.loc["alpha", "RTT"] == pytest.approx(report.loc["alpha", "R_c"] * 2.0)
+    assert report.loc["alpha", "CETS"] == pytest.approx(report.loc["alpha", "R_c"] * 25.0)
     assert {"best_point_estimate", "ci_overlaps_best", "statistically_unresolved"} <= set(report.columns)
 
 
@@ -268,7 +271,7 @@ def test_issue_74_report_supports_count_column_perf_ratio_data():
     assert report.loc["alpha", "trials"] == 100
     assert report.loc["beta", "successes"] == 70
     assert report.loc["beta", "trials"] == 100
-    assert report.loc["alpha", "R99"] < report.loc["beta", "R99"]
+    assert report.loc["alpha", "R_c"] < report.loc["beta", "R_c"]
 
 
 @pytest.mark.parametrize(
@@ -319,9 +322,9 @@ def test_issue_74_comparison_flags_mark_unresolved_intervals():
         {
             "budget": [10, 10, 10],
             "candidate": ["alpha", "beta", "gamma"],
-            "R99": [10.0, 11.0, 20.0],
-            "R99_ci_lower": [8.0, 9.0, 18.0],
-            "R99_ci_upper": [12.0, 13.0, 22.0],
+            "R_c": [10.0, 11.0, 20.0],
+            "R_c_ci_lower": [8.0, 9.0, 18.0],
+            "R_c_ci_upper": [12.0, 13.0, 22.0],
         }
     )
 
@@ -346,11 +349,11 @@ def test_issue_74_empty_report_keeps_joinable_columns_and_flags():
     )
 
     assert report.empty
-    assert {"solver", "budget", "successes", "R99", "best_point_estimate"} <= set(report.columns)
+    assert {"solver", "budget", "successes", "R_c", "R99", "best_point_estimate"} <= set(report.columns)
 
 
 def test_issue_74_report_accepts_success_column_and_rejects_null_successes():
-    df = pd.DataFrame({"solver": ["alpha", "alpha"], "ok": [True, False], "n": [2, 3]})
+    df = pd.DataFrame({"solver": ["alpha", "alpha"], "ok": ["true", "0"], "n": [2, 3]})
 
     report = repeat_reliability_report(
         df,
@@ -366,6 +369,16 @@ def test_issue_74_report_accepts_success_column_and_rejects_null_successes():
     with pytest.raises(ValueError, match="success_col"):
         repeat_reliability_report(
             pd.DataFrame({"ok": [True, None]}),
+            success_col="ok",
+        )
+    with pytest.raises(ValueError, match="success_col"):
+        repeat_reliability_report(
+            pd.DataFrame({"ok": ["False", "not sure"]}),
+            success_col="ok",
+        )
+    with pytest.raises(ValueError, match="success_col"):
+        repeat_reliability_report(
+            pd.DataFrame({"ok": [0, 2]}),
             success_col="ok",
         )
 
@@ -475,6 +488,51 @@ def test_issue_74_zero_count_rows_produce_empty_trial_report():
     assert report.loc[0, "rtt_factor"] == pytest.approx(3.0)
 
 
+def test_issue_74_cets_uses_count_weighted_per_row_product():
+    df = pd.DataFrame(
+        {
+            "response": [1.0, 1.0],
+            "iterations": [1.0, 100.0],
+            "effort": [100.0, 1.0],
+            "n": [1, 3],
+        }
+    )
+
+    report = repeat_reliability_report(
+        df,
+        response_col="response",
+        success_rule="min",
+        threshold=1.0,
+        count_col="n",
+        iterations="iterations",
+        effort_per_iteration="effort",
+        add_comparison_flags=False,
+    )
+
+    assert report.loc[0, "iterations"] == pytest.approx(75.25)
+    assert report.loc[0, "effort_per_iteration"] == pytest.approx(25.75)
+    assert report.loc[0, "cets_factor"] == pytest.approx(100.0)
+    assert report.loc[0, "CETS"] == pytest.approx(report.loc[0, "R_c"] * 100.0)
+
+
+def test_issue_74_non_default_target_uses_neutral_and_target_specific_columns():
+    df = pd.DataFrame({"response": [1.0, 2.0, 3.0]})
+
+    report = repeat_reliability_report(
+        df,
+        response_col="response",
+        success_rule="min",
+        threshold=2.0,
+        target_confidence=0.95,
+        add_comparison_flags=False,
+    )
+
+    assert "R_c" in report.columns
+    assert "R95" in report.columns
+    assert "R99" not in report.columns
+    assert report.loc[0, "R95"] == pytest.approx(report.loc[0, "R_c"])
+
+
 def test_issue_74_comparison_flags_handle_max_objective_and_invalid_intervals():
     df = pd.DataFrame(
         {
@@ -510,15 +568,15 @@ def test_issue_74_comparison_flags_handle_max_objective_and_invalid_intervals():
         annotate_reliability_comparisons(
             pd.DataFrame(
                 {
-                    "R99": [1.0, 2.0],
-                    "R99_ci_lower": [2.0, 1.5],
-                    "R99_ci_upper": [1.0, 2.5],
+                    "R_c": [1.0, 2.0],
+                    "R_c_ci_lower": [2.0, 1.5],
+                    "R_c_ci_upper": [1.0, 2.5],
                 }
             )
         )
     with pytest.raises(ValueError, match="objective"):
         annotate_reliability_comparisons(
-            pd.DataFrame({"R99": [1.0], "R99_ci_lower": [0.9], "R99_ci_upper": [1.1]}),
+            pd.DataFrame({"R_c": [1.0], "R_c_ci_lower": [0.9], "R_c_ci_upper": [1.1]}),
             objective="better",
         )
     with pytest.raises(TypeError, match="pandas DataFrame"):
@@ -526,7 +584,7 @@ def test_issue_74_comparison_flags_handle_max_objective_and_invalid_intervals():
 
 
 def test_issue_74_comparison_flags_skip_all_nan_estimates():
-    df = pd.DataFrame({"R99": [np.nan], "R99_ci_lower": [0.0], "R99_ci_upper": [1.0]})
+    df = pd.DataFrame({"R_c": [np.nan], "R_c_ci_lower": [0.0], "R_c_ci_upper": [1.0]})
 
     flagged = annotate_reliability_comparisons(df, objective=1)
 

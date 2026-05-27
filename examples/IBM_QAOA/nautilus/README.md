@@ -85,9 +85,8 @@ Results are written under:
 Use this only on Nautilus. It is an opt-in parallel path that calls
 `run_prepare_pss_campaign.py` with `--exact-only`, `--shard-index`, and
 `--shard-count`. Laptop/local scripts do not use these flags.
-Each shard copies the already-pulled dependency repos from `/workspace/repos`
-into its own `/workspace/workdirs/shard-XX` directory before running, so the
-pods do not race on a shared git checkout and do not need to contact GitHub
+Each shard uses the already-pulled dependency repos from `/workspace/repos` and
+disables repo updates inside the pod, so the pods do not need to contact GitHub
 after the PVC checkout has been updated.
 
 Start ten exact-point shards:

@@ -31,13 +31,12 @@ spec:
               mkdir -p "${WORKDIR}" /workspace/results /workspace/data
               rm -rf "${WORKDIR}/repos"
               mkdir -p "${WORKDIR}/repos"
-
-              cp -a /workspace/repos/stochastic-benchmark "${WORKDIR}/repos/stochastic-benchmark"
-              cp -a /workspace/repos/QAOA-Parameter-Setting "${WORKDIR}/repos/QAOA-Parameter-Setting"
-              cp -a /workspace/repos/qaoa_training_pipeline "${WORKDIR}/repos/qaoa_training_pipeline"
+              export REPOS_DIR="/workspace/repos"
+              export DATA_DIR="/workspace/data"
+              export RESULTS_DIR="/workspace/results"
               export IBM_QAOA_SKIP_REPO_UPDATE=1
 
-              bash "${WORKDIR}/repos/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
+              bash "/workspace/repos/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
                 --output-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_expanded \
                 --reuse-output-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_PP_opt_p5_expanded \
                 --reuse-output-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_expanded \

@@ -127,11 +127,14 @@ def test_simulated_annealing_companion_reliability_notebook_is_self_contained():
 
     assert tutorial.category == "self_contained"
     assert "Simulated Annealing Repeat Reliability" in source
+    assert "Learning goals" in source
+    assert "Comparison with the paper" in source
     assert "load_selected_raw_runs" in source
     assert "all_raw_runs.pkl" in source
     assert "run_reliability_analysis" in source
     assert "select_reliability_diagnostics" in source
     assert "needs_more_trials" in source
+    assert "point_estimate_best_sweeps" in source
 
 
 def test_load_manifest_requires_skip_reason(tmp_path):

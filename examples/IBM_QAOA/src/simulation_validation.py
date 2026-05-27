@@ -3031,6 +3031,67 @@ def _deduplicate_exact_points(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop_duplicates(subset=dedupe_cols, keep="last").reset_index(drop=True)
 
 
+def filter_pss_exact_points(
+    exact_df: pd.DataFrame,
+    *,
+    train_specs: list[InstanceSpec],
+    test_specs: list[InstanceSpec],
+    p_values: list[int],
+    fa_method_name: str | None,
+    pt_method_name: str | None,
+    fa_n_values: list[int],
+    fa_m_values: list[int],
+    q_values: list[int],
+) -> pd.DataFrame:
+    """Keep only exact rows that belong to the requested PSS campaign grid."""
+    if exact_df.empty:
+        return exact_df
+
+    required_cols = {"graph_type", "num_nodes", "instance", "split", "p", "strategy", "Q"}
+    missing_cols = required_cols.difference(exact_df.columns)
+    if missing_cols:
+        raise KeyError(f"Cannot filter PSS exact points; missing columns: {sorted(missing_cols)}")
+
+    all_specs = list(train_specs) + list(test_specs)
+    q_allowed = {int(q) for q in q_values}
+    fa_nm_allowed = {(int(n), int(m)) for n in fa_n_values for m in fa_m_values}
+    p_allowed = {int(p) for p in p_values}
+
+    n_values = pd.to_numeric(exact_df.get("N", pd.Series(index=exact_df.index)), errors="coerce")
+    m_values = pd.to_numeric(exact_df.get("M", pd.Series(index=exact_df.index)), errors="coerce")
+    q_series = pd.to_numeric(exact_df["Q"], errors="coerce")
+    p_series = pd.to_numeric(exact_df["p"], errors="coerce")
+
+    mask = pd.Series(False, index=exact_df.index)
+    for spec in all_specs:
+        spec_mask = (
+            exact_df["graph_type"].astype(str).eq(str(spec.graph_type))
+            & exact_df["num_nodes"].astype(int).eq(int(spec.num_nodes))
+            & exact_df["instance"].astype(str).eq(str(spec.instance_id))
+            & exact_df["split"].astype(str).eq(str(spec.split or "train"))
+            & p_series.isin(p_allowed)
+        )
+        if fa_method_name is not None:
+            fa_mask = spec_mask & exact_df["strategy"].astype(str).eq(str(fa_method_name))
+            fa_mask &= q_series.isin(q_allowed)
+            fa_mask &= pd.Series(
+                [
+                    (int(n), int(m)) in fa_nm_allowed
+                    if pd.notna(n) and pd.notna(m)
+                    else False
+                    for n, m in zip(n_values, m_values)
+                ],
+                index=exact_df.index,
+            )
+            mask |= fa_mask
+        if pt_method_name is not None:
+            pt_mask = spec_mask & exact_df["strategy"].astype(str).eq(str(pt_method_name))
+            pt_mask &= q_series.isin(q_allowed)
+            mask |= pt_mask
+
+    return exact_df.loc[mask].reset_index(drop=True)
+
+
 def _write_exact_cache_checkpoints(
     output_root: str | Path | None,
     exact_df: pd.DataFrame,
@@ -3055,15 +3116,12 @@ def _write_exact_cache_checkpoints(
             pt_df.to_pickle(root / "pt_raw_points.pkl")
 
 
-def prepare_pss_exp_raw_dataset(
+def generate_pss_exact_points(
     *,
     train_specs: list[InstanceSpec],
     test_specs: list[InstanceSpec],
     p_values: list[int],
-    t_grid: list[float] | None,
     method_configs: dict[str, Path],
-    t_grid_points: int | None = None,
-    t_grid_scale: str = "linear",
     main_repo: str | Path | None = None,
     pipeline_repo: str | Path | None = None,
     fa_method_name: str | None = "FA_PP_opt",
@@ -3077,7 +3135,13 @@ def prepare_pss_exp_raw_dataset(
     pt_transfer_cost: float = 0.0,
     output_root: str | Path | None = None,
     existing_exact_df: pd.DataFrame | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, dict[int, Any]]]:
+) -> pd.DataFrame:
+    """Generate or reuse exact FA/PT PSS rows.
+
+    This intentionally contains only the expensive exact-point loop and cache
+    checkpointing. Frontier construction is separated so Nautilus can run exact
+    point shards independently and merge them later.
+    """
     fa_n_values = fa_n_values or [10, 20, 50, 75, 100]
     fa_m_values = fa_m_values or [10, 50, 100, 200, 500]
     q_values = q_values or [100, 200, 500, 1000, 5000]
@@ -3188,8 +3252,47 @@ def prepare_pss_exp_raw_dataset(
     exact_parts.extend(df for df in exact_frames if not df.empty)
     exact_df = pd.concat(exact_parts, ignore_index=True) if exact_parts else pd.DataFrame()
     exact_df = _deduplicate_exact_points(exact_df)
+    exact_df = filter_pss_exact_points(
+        exact_df,
+        train_specs=train_specs,
+        test_specs=test_specs,
+        p_values=p_values,
+        fa_method_name=fa_method_name,
+        pt_method_name=pt_method_name,
+        fa_n_values=fa_n_values,
+        fa_m_values=fa_m_values,
+        q_values=q_values,
+    )
     if exact_df.empty:
         raise RuntimeError("No FA/PT PSS exact points were generated.")
+
+    if output_root is not None:
+        _write_exact_cache_checkpoints(
+            output_root,
+            exact_df,
+            fa_method_name=fa_method_name,
+            pt_method_name=pt_method_name,
+        )
+
+    return exact_df
+
+
+def build_pss_frontier_outputs(
+    exact_df: pd.DataFrame,
+    *,
+    train_specs: list[InstanceSpec],
+    test_specs: list[InstanceSpec],
+    t_grid: list[float] | None,
+    t_grid_points: int | None = None,
+    t_grid_scale: str = "linear",
+    output_root: str | Path | None = None,
+    fa_method_name: str | None = "FA_PP_opt",
+    pt_method_name: str | None = "PT_PP_AAA",
+) -> tuple[pd.DataFrame, dict[str, dict[int, Any]]]:
+    """Build and optionally write budget-frontier outputs from exact rows."""
+    exact_df = _deduplicate_exact_points(exact_df.copy())
+    if exact_df.empty:
+        raise RuntimeError("No FA/PT PSS exact points were provided.")
 
     if t_grid is None:
         t_grid = build_dense_budget_grid(
@@ -3230,6 +3333,62 @@ def prepare_pss_exp_raw_dataset(
         frontier_df.to_pickle(output_root / "pss_exp_raw_frontier.pkl")
         frontier_df.to_csv(output_root / "pss_exp_raw_frontier.csv", index=False)
 
+    return frontier_df, codebooks
+
+
+def prepare_pss_exp_raw_dataset(
+    *,
+    train_specs: list[InstanceSpec],
+    test_specs: list[InstanceSpec],
+    p_values: list[int],
+    t_grid: list[float] | None,
+    method_configs: dict[str, Path],
+    t_grid_points: int | None = None,
+    t_grid_scale: str = "linear",
+    main_repo: str | Path | None = None,
+    pipeline_repo: str | Path | None = None,
+    fa_method_name: str | None = "FA_PP_opt",
+    pt_method_name: str | None = "PT_PP_AAA",
+    fa_n_values: list[int] | None = None,
+    fa_m_values: list[int] | None = None,
+    q_values: list[int] | None = None,
+    sample_config: dict[str, Any] | None = None,
+    time_per_shot: float = 1.0,
+    cobyla_overhead_c: float = 1.0,
+    pt_transfer_cost: float = 0.0,
+    output_root: str | Path | None = None,
+    existing_exact_df: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, dict[int, Any]]]:
+    exact_df = generate_pss_exact_points(
+        train_specs=train_specs,
+        test_specs=test_specs,
+        p_values=p_values,
+        method_configs=method_configs,
+        main_repo=main_repo,
+        pipeline_repo=pipeline_repo,
+        fa_method_name=fa_method_name,
+        pt_method_name=pt_method_name,
+        fa_n_values=fa_n_values,
+        fa_m_values=fa_m_values,
+        q_values=q_values,
+        sample_config=sample_config,
+        time_per_shot=time_per_shot,
+        cobyla_overhead_c=cobyla_overhead_c,
+        pt_transfer_cost=pt_transfer_cost,
+        output_root=output_root,
+        existing_exact_df=existing_exact_df,
+    )
+    frontier_df, codebooks = build_pss_frontier_outputs(
+        exact_df,
+        train_specs=train_specs,
+        test_specs=test_specs,
+        t_grid=t_grid,
+        t_grid_points=t_grid_points,
+        t_grid_scale=t_grid_scale,
+        output_root=output_root,
+        fa_method_name=fa_method_name,
+        pt_method_name=pt_method_name,
+    )
     return exact_df, frontier_df, codebooks
 
 

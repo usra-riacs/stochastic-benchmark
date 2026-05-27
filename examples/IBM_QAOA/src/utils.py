@@ -863,10 +863,10 @@ def plot_ibm_qaoa_performance_panels(
     fs_tick = 18
     fs_label = 20
     fs_title = 28
-    fs_legend = 18
+    fs_legend = 14
     raw_marker_size = 8.0
     centroid_marker_size = 18.0
-    legend_marker_size = 9.0
+    legend_marker_size = 7.5
     y_scale = 100.0
     y_cushion = 3.0
     eb_opts = {"ecolor": "k", "capsize": 3, "elinewidth": 1.2}
@@ -1334,7 +1334,7 @@ def plot_ibm_qaoa_overlay(
     method_legend = fig.legend(
         handles=[handle for _, handle in method_items],
         loc="upper left",
-        bbox_to_anchor=(0.04, 0.11),
+        bbox_to_anchor=(0.04, -0.01),
         ncol=4,
         borderaxespad=0,
         frameon=True,
@@ -1827,7 +1827,7 @@ def plot_ibm_qaoa_recommendation(
     raw_alpha = 0.18
     raw_ms_map = {0: 8, 1: 8, 2: 8}
     frontier_base_ms_map = {0: 22, 1: 22, 2: 22}
-    legend_marker_size = 11
+    legend_marker_size = 9.0
     eb_opts = {"mec": "k", "ecolor": "k", "capsize": 3, "elinewidth": 1.2}
 
     _ensure_save_dir(save_dir)
@@ -2333,29 +2333,38 @@ def plot_ibm_qaoa_recommendation(
         .drop_duplicates()
         .sort_values(["color_label"])
     )
-    method_handles = []
+    method_legend_dict = {}
+    evaluator_legend_dict = {}
     for _, pair in legend_pairs.iterrows():
         color_label = pair["color_label"]
-        opt_level = _optimization_level(color_label)
-        visible_label = (
-            label_map[color_label]
-            .replace(r"$^\star$", "*")
-            .replace(r"$^\dagger$", "†")
-        )
-        method_handles.append(
-            Line2D(
+        style_kwargs = _style_plot_kwargs(color_label)
+        method_label = _method_label_from_training_method(color_label, format="latex")
+        if method_label not in method_legend_dict:
+            method_legend_dict[method_label] = Line2D(
                 [0],
                 [0],
-                marker=shape_map[color_label],
+                marker="s",
                 color=color_map[color_label],
-                markerfacecolor=_style_plot_kwargs(color_label)["markerfacecolor"],
-                markeredgecolor=_style_plot_kwargs(color_label)["markeredgecolor"],
-                markeredgewidth=max(float(_style_plot_kwargs(color_label)["markeredgewidth"]), 1.0),
+                markerfacecolor=style_kwargs["markerfacecolor"],
+                markeredgecolor=style_kwargs["markeredgecolor"],
+                markeredgewidth=max(float(style_kwargs["markeredgewidth"]), 1.0),
                 markersize=legend_marker_size,
                 linestyle="",
-                label=visible_label,
+                label=method_label,
             )
-        )
+        evaluator_label = _evaluation_label_from_training_method(color_label)
+        if evaluator_label and evaluator_label not in evaluator_legend_dict:
+            evaluator_legend_dict[evaluator_label] = Line2D(
+                [0],
+                [0],
+                marker=_marker_from_training_method(color_label),
+                color="black",
+                markerfacecolor="black",
+                markeredgecolor="black",
+                lw=0,
+                markersize=legend_marker_size,
+                label=evaluator_label,
+            )
 
     frontier_handle = Line2D(
         [0],
@@ -2386,21 +2395,35 @@ def plot_ibm_qaoa_recommendation(
         color="none",
         label="*: full angle optimization",
     )
+    method_items = sorted(method_legend_dict.items(), key=lambda item: item[0])
+    evaluator_items = sorted(evaluator_legend_dict.items(), key=lambda item: item[0])
 
-    fig.legend(
-        handles=method_handles
+    method_legend = fig.legend(
+        handles=[handle for _, handle in method_items],
+        loc="upper left",
+        bbox_to_anchor=(0.04, -0.01),
+        ncol=4,
+        borderaxespad=0,
+        frameon=True,
+        fontsize=fs_legend,
+        handletextpad=0.7,
+        columnspacing=1.2,
+    )
+    evaluator_legend = fig.legend(
+        handles=[handle for _, handle in evaluator_items]
         + [frontier_handle, no_opt_note, dagger_note, star_note],
         loc="upper left",
-        bbox_to_anchor=(0.08, -0.08, 0.91, 0.14),
-        ncol=4,
-        mode="expand",
+        bbox_to_anchor=(0.62, -0.01),
+        ncol=1,
         borderaxespad=0,
-        fontsize=fs_legend,
         frameon=True,
+        fontsize=fs_legend,
         handlelength=2.0,
         handletextpad=0.7,
         columnspacing=1.2,
     )
+    fig.add_artist(method_legend)
+    fig.add_artist(evaluator_legend)
 
     fig.tight_layout()
     fig.subplots_adjust(left=0.08, bottom=0.18)

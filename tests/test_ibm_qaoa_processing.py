@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 
@@ -24,6 +25,8 @@ from src.approx_ratio_calc import (  # noqa: E402
     maxcut_approximation_ratio,
     maxcut_energy_from_bitstring,
 )
+from src.simulation_validation import InstanceSpec, filter_pss_exact_points  # noqa: E402
+from run_prepare_pss_campaign import _shard_specs  # noqa: E402
 
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "ibm_qaoa"
@@ -122,3 +125,92 @@ def test_maxcut_helpers_compute_energy_counts_and_ratio(tmp_path):
     energy = maxcut_energy_from_bitstring("010", context)
     assert energy == pytest.approx(1.5)
     assert maxcut_approximation_ratio(0.0, 3.0, 3.0, energy) == pytest.approx(1.0)
+
+
+def test_pss_shard_specs_split_train_then_test_deterministically():
+    train_specs = [
+        InstanceSpec("heavy_hex", 144, idx, split="train")
+        for idx in range(100, 104)
+    ]
+    test_specs = [
+        InstanceSpec("heavy_hex", 144, idx, split="test")
+        for idx in range(200, 202)
+    ]
+
+    shard_train, shard_test = _shard_specs(
+        train_specs,
+        test_specs,
+        shard_index=1,
+        shard_count=3,
+    )
+
+    assert [spec.instance for spec in shard_train] == [101]
+    assert [spec.instance for spec in shard_test] == [200]
+
+
+def test_filter_pss_exact_points_keeps_requested_instances_and_grid_only():
+    train_specs = [InstanceSpec("heavy_hex", 144, 100, split="train")]
+    test_specs = [InstanceSpec("heavy_hex", 144, 200, split="test")]
+    rows = [
+        {
+            "graph_type": "heavy_hex",
+            "num_nodes": 144,
+            "instance": "100",
+            "split": "train",
+            "p": 5,
+            "strategy": "FA_PP_opt",
+            "N": 10,
+            "M": 25,
+            "Q": 100,
+        },
+        {
+            "graph_type": "heavy_hex",
+            "num_nodes": 144,
+            "instance": "100",
+            "split": "train",
+            "p": 5,
+            "strategy": "FA_PP_opt",
+            "N": 75,
+            "M": 25,
+            "Q": 100,
+        },
+        {
+            "graph_type": "heavy_hex",
+            "num_nodes": 144,
+            "instance": "200",
+            "split": "test",
+            "p": 5,
+            "strategy": "PT_PP_AAA",
+            "N": 0,
+            "M": 0,
+            "Q": 250,
+        },
+        {
+            "graph_type": "heavy_hex",
+            "num_nodes": 144,
+            "instance": "999",
+            "split": "train",
+            "p": 5,
+            "strategy": "FA_PP_opt",
+            "N": 10,
+            "M": 25,
+            "Q": 100,
+        },
+    ]
+
+    filtered = filter_pss_exact_points(
+        pd.DataFrame(rows),
+        train_specs=train_specs,
+        test_specs=test_specs,
+        p_values=[5],
+        fa_method_name="FA_PP_opt",
+        pt_method_name="PT_PP_AAA",
+        fa_n_values=[10],
+        fa_m_values=[25],
+        q_values=[100, 250],
+    )
+
+    assert filtered.loc[:, ["instance", "strategy", "N", "M", "Q"]].to_dict("records") == [
+        {"instance": "100", "strategy": "FA_PP_opt", "N": 10, "M": 25, "Q": 100},
+        {"instance": "200", "strategy": "PT_PP_AAA", "N": 0, "M": 0, "Q": 250},
+    ]

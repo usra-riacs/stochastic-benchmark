@@ -141,6 +141,10 @@ def test_simulated_annealing_companion_reliability_notebook_is_self_contained():
     assert "load_targeted_rerun_runs" in source
     assert "targeted_sa_reruns.npz" in source
     assert "after_rerun_reliable_sweeps" in source
+    assert "Relationship to the Other Tutorials" in source
+    assert "does not invalidate the other Window Sticker tutorials" in source
+    assert "cross-instance benchmarking" in source
+    assert "per-instance question" in source
 
 
 def test_load_manifest_requires_skip_reason(tmp_path):

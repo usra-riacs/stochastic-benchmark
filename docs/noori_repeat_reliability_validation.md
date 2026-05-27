@@ -13,9 +13,12 @@ helpers retain `confidence_fraction` for equation-oriented tests. In both cases,
 Paper reference:
 
 Noori, Moslem, Elisabetta Valiante, Ignacio Rozada, Thomas Van Vaerenbergh, and
-Masoud Mohseni. "Statistical analysis for per-instance evaluation of stochastic
-optimizers: Avoiding unreliable conclusions." Physical Review Applied 25, no. 3
-(2026): 034081.
+Masoud Mohseni. "[Statistical analysis for per-instance evaluation of stochastic
+optimizers: Avoiding unreliable conclusions](https://doi.org/10.1103/PhysRevApplied.25.034081)."
+Physical Review Applied 25, no. 3 (2026): 034081. The related
+[arXiv preprint](https://arxiv.org/abs/2503.16589) is titled "A Statistical
+Analysis for Per-Instance Evaluation of Stochastic Optimizers: How Many Repeats
+Are Enough?"
 
 ## Equation Map
 

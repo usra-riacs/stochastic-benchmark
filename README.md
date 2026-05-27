@@ -7,13 +7,17 @@
 
 Repository for Stochastic Optimization Solvers Benchmark implementation of the Window Sticker framework.
 
-The benchmarking approach is described in this [preprint](https://arxiv.org/abs/2402.10255) titled: *Benchmarking the Operation of Quantum Heuristics and Ising Machines: Scoring Parameter Setting Strategies on Optimization Applications*.
+The benchmarking approach is described in
+[*Benchmarking the Operation of Quantum Heuristics and Ising Machines: Scoring Parameter Setting Strategies on Optimization Applications*](https://link.springer.com/article/10.1007/s42484-025-00311-2),
+with the [arXiv preprint](https://arxiv.org/abs/2402.10255) also available.
 
 Details of the implementation and an illustrative example for Wishart instances found [here](examples/wishart_n_50_alpha_0.5/wishart_n_50_alpha_0.50.ipynb) are given in this [document](stochastic-benchmarking-notes.pdf).
 
 ## Table of Contents
 
 - [Background](#background)
+- [Methodology Reliability](#methodology-reliability)
+- [References](#references)
 - [Installation](#installation)
 - [Examples](#examples)
 - [Documentation](#documentation)
@@ -39,6 +43,60 @@ The current package implements the following functionality:
 - Perform an exploration-exploitation parameter setting strategy, where the fraction of the allocated resources used in the exploration round is optimized. The exploration procedure is implemented as a random search in the seen parameter settings or a Bayesian-based method known as the tree of parzen and implemented in the package [Hyperopt](https://hyperopt.github.io/hyperopt/) when generation dependencies are installed.
 - Plot the Window sticker, comparing the performance curves corresponding to the virtual best, recommended parameters, and exploration-exploitation parameter setting strategies.
 - Plots the values of the parameters and their best values with respect to the resource considered, a plot we call the Strategy plot. These plots can show the actual solver parameter values or the meta-parameters associated with parameter-setting strategies.
+
+## Methodology Reliability
+
+The Window Sticker workflow combines two different uncertainty questions that
+should be interpreted separately. The cross-instance Window Sticker uncertainty
+comes from train/test splits, interpolation, aggregation, and bootstrap
+resampling across a problem family. It answers how a parameter-setting strategy
+is expected to perform on unseen instances from that family. Per-instance
+repeat-count reliability asks whether each solver, parameter setting, and
+resource level has enough repeated stochastic runs to support its own success
+probability, repeat count, and time-to-solution estimates.
+
+Repeat reliability follows Noori et al. 2026:
+
+Noori, Moslem, Elisabetta Valiante, Ignacio Rozada, Thomas Van Vaerenbergh, and
+Masoud Mohseni. "[Statistical analysis for per-instance evaluation of stochastic
+optimizers: Avoiding unreliable conclusions](https://doi.org/10.1103/PhysRevApplied.25.034081)."
+Physical Review Applied 25, no. 3 (2026): 034081. The related
+[arXiv preprint](https://arxiv.org/abs/2503.16589) is titled "A Statistical
+Analysis for Per-Instance Evaluation of Stochastic Optimizers: How Many Repeats
+Are Enough?"
+
+The analytic guarantees implemented here apply to Bernoulli success events and
+metrics derived from their success probabilities: `R_c`, RTT/TTS, CETS, and
+thresholded continuous metrics. For example, a continuous energy, Response, or
+PerfRatio value can be analyzed with repeat reliability only after the workflow
+defines a threshold that turns each run into success or failure.
+
+The original Window Sticker bootstrap remains the uncertainty model for
+continuous Response curves and for continuous PerfRatio curves that are not
+converted to success thresholds. Those bootstrap intervals are useful for
+cross-instance benchmarking, but they are not a substitute for the analytic
+repeat-count checks above.
+
+Repeat reliability addresses several methodology criticisms directly:
+
+| Criticism | Documentation and package response |
+| --- | --- |
+| Repeat-count sufficiency | Report `required_trials`, `additional_trials_required`, `reliable`, and `reliability_status` so users can tell whether more stochastic runs are needed. |
+| Bootstrap-only uncertainty | Keep bootstrap intervals for cross-instance continuous curves, and use analytic Bernoulli intervals for per-instance success probabilities and derived repeat-count metrics. |
+| Noisy HPO choices | Surface repeat reliability before treating a parameter choice as stable, especially when success rates are small or intervals are wide. |
+| CI-overlap ambiguity | Flag `ci_overlaps_best` and `statistically_unresolved` comparisons instead of implying that overlapping intervals identify a clear winner. |
+| Virtual-best optimism | Document virtual best as an optimistic, unattainable reference and pair it with reliability checks when judging whether observed gaps are meaningful. |
+
+Use [docs/passive_repeat_reliability_reports.md](docs/passive_repeat_reliability_reports.md)
+to add passive repeat-reliability reports to existing benchmark data. Use
+[docs/noori_repeat_reliability_validation.md](docs/noori_repeat_reliability_validation.md)
+for the equation map and validation boundaries.
+
+## References
+
+- Window Sticker methodology: [published Quantum Machine Intelligence article](https://link.springer.com/article/10.1007/s42484-025-00311-2) and [arXiv preprint](https://arxiv.org/abs/2402.10255).
+- Repeat reliability: [published Physical Review Applied article](https://doi.org/10.1103/PhysRevApplied.25.034081) and [arXiv preprint](https://arxiv.org/abs/2503.16589).
+- QAOA benchmark case: [published ACM Transactions on Quantum Computing article](https://doi.org/10.1145/3678184) and [arXiv preprint](https://arxiv.org/abs/2302.02278).
 
 ## Installation
 

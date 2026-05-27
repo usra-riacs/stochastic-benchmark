@@ -8,9 +8,15 @@ Given a benchmark task, the workflow generally follows these steps:
 4. Train/Test split and Statistical Aggregation
 5. Virtual Best Baseline
 6. Evaluating Parameter Recommendation Strategies
-7. Visualization
+7. Repeat Reliability
+8. Visualization
 
-Each step is explored in greater detail along with code implementation at `examples/QAOA_iterative/qaoa_demo.ipynb`.
+Each step is explored in greater detail along with code implementation at
+`examples/QAOA_iterative/qaoa_demo.ipynb`. For the QAOA benchmark context, see
+the published ACM Transactions on Quantum Computing article
+[*Optimization Applications as Quantum Performance Benchmarks*](https://doi.org/10.1145/3678184)
+and its [arXiv preprint](https://arxiv.org/abs/2302.02278).
+
 ## Define the Metrics
 In this first step, we configure the central object for the benchmark task. We define:
 
@@ -41,6 +47,56 @@ After having devised parameter recommendations from the training set, we need a 
 
 1. We can aggregate statistics across all training instances to learn a parameter recipe. We refer to this as the Aggregate-then-Recommend projection strategy.
 2. It is also possible to look at what parameters work best for each instance individually. After this, we can average those recommendations.
+
+## Repeat Reliability
+
+Noori et al. 2026 show that per-instance stochastic optimizer conclusions can
+be unreliable when they are based on too few repeats:
+
+Noori, Moslem, Elisabetta Valiante, Ignacio Rozada, Thomas Van Vaerenbergh, and
+Masoud Mohseni. "[Statistical analysis for per-instance evaluation of stochastic
+optimizers: Avoiding unreliable conclusions](https://doi.org/10.1103/PhysRevApplied.25.034081)."
+Physical Review Applied 25, no. 3 (2026): 034081. The related
+[arXiv preprint](https://arxiv.org/abs/2503.16589) is titled "A Statistical
+Analysis for Per-Instance Evaluation of Stochastic Optimizers: How Many Repeats
+Are Enough?"
+
+This check is separate from the cross-instance Window Sticker uncertainty used
+elsewhere in the workflow. Window Sticker plots summarize expected performance
+over unseen instances from a problem family. Repeat reliability checks whether a
+specific instance, solver configuration, and resource level has enough repeated
+runs to estimate its success probability and the derived repeat counts.
+
+Analytic repeat-reliability guarantees apply when each run can be treated as a
+Bernoulli success event. In this package that covers:
+
+- `R_c`, the repeats required to reach a target success confidence
+- RTT/TTS values derived from `R_c` and runtime-per-repeat scaling
+- CETS values derived from `R_c`, iterations, and effort-per-iteration scaling
+- Thresholded continuous metrics, such as Response or PerfRatio after a
+  success threshold converts each run into success or failure
+
+Continuous Response curves and continuous PerfRatio curves remain
+bootstrap-based unless they are converted to thresholded success events. Their
+bootstrap intervals describe empirical cross-instance variation and resampling
+uncertainty, not the analytic repeat-count guarantees from the paper.
+
+Use `repeat_reliability_report` or `stochastic_benchmark.run_RepeatReliability`
+before treating a benchmark conclusion as final. The resulting
+`required_trials`, `additional_trials_required`, `reliable`, and
+`reliability_status` columns tell users whether the existing data are reliable
+enough or whether the solver should be rerun.
+
+## Methodology Criticism Checklist
+
+| Criticism | Workflow response |
+| --- | --- |
+| Repeat-count sufficiency | Check required and additional trials before trusting a per-instance success estimate. |
+| Bootstrap-only uncertainty | Use analytic Bernoulli intervals for success events and keep bootstrap intervals for continuous cross-instance curves. |
+| Noisy HPO choices | Treat parameter recommendations as provisional when repeat reliability is low or intervals are wide. |
+| CI-overlap ambiguity | Mark overlapping comparisons as statistically unresolved instead of selecting a winner from point estimates alone. |
+| Virtual-best optimism | Interpret virtual best as an unattainable optimistic reference, not as a deployable strategy. |
+
 ## Visualization
 
 The framework's results can be visualized, mainly, through two lenses:

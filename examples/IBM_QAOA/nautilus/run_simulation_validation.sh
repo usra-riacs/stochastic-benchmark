@@ -5,6 +5,7 @@ WORKDIR="${WORKDIR:-/workspace}"
 REPOS_DIR="${WORKDIR}/repos"
 DATA_DIR="${WORKDIR}/data"
 RESULTS_DIR="${WORKDIR}/results"
+SKIP_REPO_UPDATE="${IBM_QAOA_SKIP_REPO_UPDATE:-0}"
 
 STOCHASTIC_BENCHMARK_REPO="${STOCHASTIC_BENCHMARK_REPO:-https://github.com/usra-riacs/stochastic-benchmark.git}"
 STOCHASTIC_BENCHMARK_BRANCH="${STOCHASTIC_BENCHMARK_BRANCH:-QAOA_Parameter_Setting_IBM}"
@@ -26,6 +27,10 @@ clone_or_update() {
     local branch="$2"
     local dest="$3"
 
+    if [[ "${SKIP_REPO_UPDATE}" == "1" && -d "${dest}/.git" ]]; then
+        return
+    fi
+
     if [[ -d "${dest}/.git" ]]; then
         git -C "${dest}" fetch origin "${branch}"
         git -C "${dest}" checkout "${branch}"
@@ -41,6 +46,10 @@ clone_or_update_sparse() {
     local dest="$3"
     shift 3
     local paths=("$@")
+
+    if [[ "${SKIP_REPO_UPDATE}" == "1" && -d "${dest}/.git" ]]; then
+        return
+    fi
 
     if [[ -d "${dest}/.git" ]]; then
         git -C "${dest}" fetch origin "${branch}"

@@ -29,21 +29,13 @@ spec:
 
               export WORKDIR="/workspace/workdirs/shard-${JOB_COMPLETION_INDEX}"
               mkdir -p "${WORKDIR}" /workspace/results /workspace/data
-
-              if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-                git config --global credential.helper "store --file=/tmp/git-credentials"
-                printf 'https://x-access-token:%s@github.com\n' "${GITHUB_TOKEN}" > /tmp/git-credentials
-                chmod 0600 /tmp/git-credentials
-              fi
-
+              rm -rf "${WORKDIR}/repos"
               mkdir -p "${WORKDIR}/repos"
-              if [[ -d "${WORKDIR}/repos/stochastic-benchmark/.git" ]]; then
-                git -C "${WORKDIR}/repos/stochastic-benchmark" fetch origin "${STOCHASTIC_BENCHMARK_BRANCH}"
-                git -C "${WORKDIR}/repos/stochastic-benchmark" checkout "${STOCHASTIC_BENCHMARK_BRANCH}"
-                git -C "${WORKDIR}/repos/stochastic-benchmark" pull --ff-only origin "${STOCHASTIC_BENCHMARK_BRANCH}"
-              else
-                git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 "${STOCHASTIC_BENCHMARK_REPO}" "${WORKDIR}/repos/stochastic-benchmark"
-              fi
+
+              cp -a /workspace/repos/stochastic-benchmark "${WORKDIR}/repos/stochastic-benchmark"
+              cp -a /workspace/repos/QAOA-Parameter-Setting "${WORKDIR}/repos/QAOA-Parameter-Setting"
+              cp -a /workspace/repos/qaoa_training_pipeline "${WORKDIR}/repos/qaoa_training_pipeline"
+              export IBM_QAOA_SKIP_REPO_UPDATE=1
 
               bash "${WORKDIR}/repos/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
                 --output-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_expanded \

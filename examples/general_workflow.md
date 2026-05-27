@@ -11,7 +11,12 @@ Given a benchmark task, the workflow generally follows these steps:
 7. Repeat Reliability
 8. Visualization
 
-Each step is explored in greater detail along with code implementation at `examples/QAOA_iterative/qaoa_demo.ipynb`.
+Each step is explored in greater detail along with code implementation at
+`examples/QAOA_iterative/qaoa_demo.ipynb`. For the QAOA benchmark context, see
+the published ACM Transactions on Quantum Computing article
+[*Optimization Applications as Quantum Performance Benchmarks*](https://doi.org/10.1145/3678184)
+and its [arXiv preprint](https://arxiv.org/abs/2302.02278).
+
 ## Define the Metrics
 In this first step, we configure the central object for the benchmark task. We define:
 
@@ -49,9 +54,12 @@ Noori et al. 2026 show that per-instance stochastic optimizer conclusions can
 be unreliable when they are based on too few repeats:
 
 Noori, Moslem, Elisabetta Valiante, Ignacio Rozada, Thomas Van Vaerenbergh, and
-Masoud Mohseni. "Statistical analysis for per-instance evaluation of stochastic
-optimizers: Avoiding unreliable conclusions." Physical Review Applied 25, no. 3
-(2026): 034081.
+Masoud Mohseni. "[Statistical analysis for per-instance evaluation of stochastic
+optimizers: Avoiding unreliable conclusions](https://doi.org/10.1103/PhysRevApplied.25.034081)."
+Physical Review Applied 25, no. 3 (2026): 034081. The related
+[arXiv preprint](https://arxiv.org/abs/2503.16589) is titled "A Statistical
+Analysis for Per-Instance Evaluation of Stochastic Optimizers: How Many Repeats
+Are Enough?"
 
 This check is separate from the cross-instance Window Sticker uncertainty used
 elsewhere in the workflow. Window Sticker plots summarize expected performance

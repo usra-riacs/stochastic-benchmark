@@ -7,7 +7,9 @@
 
 Repository for Stochastic Optimization Solvers Benchmark implementation of the Window Sticker framework.
 
-The benchmarking approach is described in this [preprint](https://arxiv.org/abs/2402.10255) titled: *Benchmarking the Operation of Quantum Heuristics and Ising Machines: Scoring Parameter Setting Strategies on Optimization Applications*.
+The benchmarking approach is described in
+[*Benchmarking the Operation of Quantum Heuristics and Ising Machines: Scoring Parameter Setting Strategies on Optimization Applications*](https://link.springer.com/article/10.1007/s42484-025-00311-2),
+with the [arXiv preprint](https://arxiv.org/abs/2402.10255) also available.
 
 Details of the implementation and an illustrative example for Wishart instances found [here](examples/wishart_n_50_alpha_0.5/wishart_n_50_alpha_0.50.ipynb) are given in this [document](stochastic-benchmarking-notes.pdf).
 
@@ -15,6 +17,7 @@ Details of the implementation and an illustrative example for Wishart instances 
 
 - [Background](#background)
 - [Methodology Reliability](#methodology-reliability)
+- [References](#references)
 - [Installation](#installation)
 - [Examples](#examples)
 - [Documentation](#documentation)
@@ -55,9 +58,12 @@ probability, repeat count, and time-to-solution estimates.
 Repeat reliability follows Noori et al. 2026:
 
 Noori, Moslem, Elisabetta Valiante, Ignacio Rozada, Thomas Van Vaerenbergh, and
-Masoud Mohseni. "Statistical analysis for per-instance evaluation of stochastic
-optimizers: Avoiding unreliable conclusions." Physical Review Applied 25, no. 3
-(2026): 034081.
+Masoud Mohseni. "[Statistical analysis for per-instance evaluation of stochastic
+optimizers: Avoiding unreliable conclusions](https://doi.org/10.1103/PhysRevApplied.25.034081)."
+Physical Review Applied 25, no. 3 (2026): 034081. The related
+[arXiv preprint](https://arxiv.org/abs/2503.16589) is titled "A Statistical
+Analysis for Per-Instance Evaluation of Stochastic Optimizers: How Many Repeats
+Are Enough?"
 
 The analytic guarantees implemented here apply to Bernoulli success events and
 metrics derived from their success probabilities: `R_c`, RTT/TTS, CETS, and
@@ -85,6 +91,12 @@ Use [docs/passive_repeat_reliability_reports.md](docs/passive_repeat_reliability
 to add passive repeat-reliability reports to existing benchmark data. Use
 [docs/noori_repeat_reliability_validation.md](docs/noori_repeat_reliability_validation.md)
 for the equation map and validation boundaries.
+
+## References
+
+- Window Sticker methodology: [published Quantum Machine Intelligence article](https://link.springer.com/article/10.1007/s42484-025-00311-2) and [arXiv preprint](https://arxiv.org/abs/2402.10255).
+- Repeat reliability: [published Physical Review Applied article](https://doi.org/10.1103/PhysRevApplied.25.034081) and [arXiv preprint](https://arxiv.org/abs/2503.16589).
+- QAOA benchmark case: [published ACM Transactions on Quantum Computing article](https://doi.org/10.1145/3678184) and [arXiv preprint](https://arxiv.org/abs/2302.02278).
 
 ## Installation
 

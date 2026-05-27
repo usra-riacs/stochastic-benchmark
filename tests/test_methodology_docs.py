@@ -23,6 +23,12 @@ def test_readme_documents_repeat_reliability_boundaries():
         "thresholded continuous metrics",
         "continuous Response curves",
         "continuous PerfRatio curves",
+        "https://link.springer.com/article/10.1007/s42484-025-00311-2",
+        "https://arxiv.org/abs/2402.10255",
+        "https://doi.org/10.1103/PhysRevApplied.25.034081",
+        "https://arxiv.org/abs/2503.16589",
+        "https://doi.org/10.1145/3678184",
+        "https://arxiv.org/abs/2302.02278",
     ]:
         assert required in readme
 
@@ -42,3 +48,12 @@ def test_general_workflow_maps_repeat_reliability_criticisms():
     assert "cross-instance Window Sticker uncertainty" in workflow
     assert "Bernoulli success event" in workflow
     assert "Continuous Response curves and continuous PerfRatio curves" in workflow
+    assert "https://doi.org/10.1145/3678184" in workflow
+    assert "https://arxiv.org/abs/2302.02278" in workflow
+
+
+def test_noori_validation_doc_links_published_and_arxiv_versions():
+    validation_doc = read_doc("docs/noori_repeat_reliability_validation.md")
+
+    assert "https://doi.org/10.1103/PhysRevApplied.25.034081" in validation_doc
+    assert "https://arxiv.org/abs/2503.16589" in validation_doc

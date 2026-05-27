@@ -118,7 +118,15 @@ def test_sa_reliability_report_surfaces_repeats_and_unreliable_cases(tmp_path):
     assert "current_repeats" in diagnostics.columns
 
 
-def test_sa_reliability_diagnostics_keep_custom_target_repeat_columns(tmp_path):
+@pytest.mark.parametrize(
+    ("target_confidence", "repeat_column"),
+    [(0.95, "R95"), (0.975, "R97_5")],
+)
+def test_sa_reliability_diagnostics_keep_custom_target_repeat_columns(
+    tmp_path,
+    target_confidence,
+    repeat_column,
+):
     baselines = {
         0: {"best_value": 0.0, "random_value": 10.0},
         1: {"best_value": 0.0, "random_value": 10.0},
@@ -133,14 +141,21 @@ def test_sa_reliability_diagnostics_keep_custom_target_repeat_columns(tmp_path):
         _benchmark(tmp_path),
         runs,
         quality_target=0.8,
-        target_confidence=0.95,
+        target_confidence=target_confidence,
     )
     diagnostics = sa_reliability.select_reliability_diagnostics(report)
 
     assert {"R_c", "R_c_ci_lower", "R_c_ci_upper"} <= set(diagnostics.columns)
-    assert {"R95", "R95_ci_lower", "R95_ci_upper"} <= set(diagnostics.columns)
+    repeat_columns = {
+        repeat_column,
+        f"{repeat_column}_ci_lower",
+        f"{repeat_column}_ci_upper",
+    }
+    assert repeat_columns <= set(diagnostics.columns)
     assert "R99" not in diagnostics.columns
-    assert diagnostics["R95"].tolist() == pytest.approx(diagnostics["R_c"].tolist())
+    assert diagnostics[repeat_column].tolist() == pytest.approx(
+        diagnostics["R_c"].tolist(),
+    )
 
 
 def test_attach_quality_thresholds_requires_baselines_for_all_instances():

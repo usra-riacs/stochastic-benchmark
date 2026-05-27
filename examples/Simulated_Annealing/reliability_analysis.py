@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pickle
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -13,6 +14,7 @@ DEFAULT_QUALITY_TARGET = 0.95
 DEFAULT_RELATIVE_ERROR_THRESHOLD = 0.10
 DEFAULT_TARGET_CONFIDENCE = 0.99
 DEFAULT_INSTANCE_IDS = (0, 1, 2)
+TARGET_REPEAT_COLUMN_RE = re.compile(r"^R\d+(?:_\d+)?$")
 
 DIAGNOSTIC_COLUMNS = [
     "instance",
@@ -245,7 +247,7 @@ def _diagnostic_columns_for_report(report: pd.DataFrame) -> list[str]:
 
 
 def _is_target_repeat_column(column: str) -> bool:
-    return column.startswith("R") and column[1:].isdigit()
+    return bool(TARGET_REPEAT_COLUMN_RE.fullmatch(column))
 
 
 def _add_tutorial_context(

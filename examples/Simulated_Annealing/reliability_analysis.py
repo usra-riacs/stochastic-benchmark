@@ -7,6 +7,7 @@ import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 
@@ -142,6 +143,30 @@ def load_selected_raw_runs(
     if not frames:
         raise ValueError("at least one instance_id is required")
     return pd.concat(frames, ignore_index=True)
+
+
+def load_targeted_rerun_runs(example_dir: str | Path) -> pd.DataFrame:
+    """Load the committed targeted SA reruns used by the reliability tutorial."""
+
+    results_path = Path(example_dir) / "results"
+    data_path = results_path / "targeted_sa_reruns.npz"
+    if not data_path.is_file():
+        raise FileNotFoundError(f"targeted SA rerun data not found: {data_path}")
+
+    with np.load(data_path) as data:
+        missing = {"instance", "sweeps", "energy", "resource"} - set(data.files)
+        if missing:
+            raise ValueError(f"targeted SA rerun data missing arrays: {sorted(missing)}")
+        reruns = pd.DataFrame(
+            {
+                "instance": data["instance"].astype(int),
+                "sweeps": data["sweeps"].astype(int),
+                "energy": data["energy"].astype(float),
+                "resource": data["resource"].astype(int),
+            }
+        )
+
+    return reruns
 
 
 def run_reliability_analysis(

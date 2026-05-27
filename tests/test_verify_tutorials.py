@@ -135,6 +135,9 @@ def test_simulated_annealing_companion_reliability_notebook_is_self_contained():
     assert "select_reliability_diagnostics" in source
     assert "needs_more_trials" in source
     assert "point_estimate_best_sweeps" in source
+    assert "load_targeted_rerun_runs" in source
+    assert "targeted_sa_reruns.npz" in source
+    assert "after_rerun_reliable_sweeps" in source
 
 
 def test_load_manifest_requires_skip_reason(tmp_path):

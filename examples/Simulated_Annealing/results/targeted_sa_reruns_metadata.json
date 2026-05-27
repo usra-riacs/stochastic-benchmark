@@ -1,0 +1,302 @@
+{
+  "sampler": "neal.SimulatedAnnealingSampler",
+  "package": "dwave-neal",
+  "package_version": "0.6.0",
+  "model": "100-variable dense Ising model generated with numpy.random.seed(instance_id), numpy.random.rand for J and h, and np.triu(J, 1)",
+  "instance_ids": [
+    0,
+    1,
+    2
+  ],
+  "selection_rule": "top 10 rows by initial CETS per instance",
+  "initial_repeats_per_setting": 1000,
+  "additional_repeats_per_setting": 9000,
+  "target_repeats_per_setting": 10000,
+  "base_seed": 750000,
+  "elapsed_seconds": 32.874,
+  "targets": [
+    {
+      "instance": 0,
+      "sweeps": 14,
+      "current_repeats": 1000,
+      "required_repeats": 5722,
+      "additional_repeats_required": 4722,
+      "CETS": 767.1079977697691,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 0,
+      "sweeps": 10,
+      "current_repeats": 1000,
+      "required_repeats": 8153,
+      "additional_repeats_required": 7153,
+      "CETS": 788.907823908653,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 0,
+      "sweeps": 40,
+      "current_repeats": 1000,
+      "required_repeats": 2193,
+      "additional_repeats_required": 1193,
+      "CETS": 789.4115768957739,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 0,
+      "sweeps": 74,
+      "current_repeats": 1000,
+      "required_repeats": 1306,
+      "additional_repeats_required": 306,
+      "CETS": 800.8061226360795,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 0,
+      "sweeps": 9,
+      "current_repeats": 1000,
+      "required_repeats": 9302,
+      "additional_repeats_required": 8302,
+      "CETS": 812.536839710494,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 0,
+      "sweeps": 19,
+      "current_repeats": 1000,
+      "required_repeats": 4580,
+      "additional_repeats_required": 3580,
+      "CETS": 825.8086158276675,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 0,
+      "sweeps": 63,
+      "current_repeats": 1000,
+      "required_repeats": 1534,
+      "additional_repeats_required": 534,
+      "CETS": 827.3448707691219,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 0,
+      "sweeps": 58,
+      "current_repeats": 1000,
+      "required_repeats": 1647,
+      "additional_repeats_required": 647,
+      "CETS": 827.5188573647008,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 0,
+      "sweeps": 115,
+      "current_repeats": 1000,
+      "required_repeats": 957,
+      "additional_repeats_required": 0,
+      "CETS": 828.9655869506342,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 0,
+      "sweeps": 13,
+      "current_repeats": 1000,
+      "required_repeats": 6629,
+      "additional_repeats_required": 5629,
+      "CETS": 829.2108532997224,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 1,
+      "sweeps": 65,
+      "current_repeats": 1000,
+      "required_repeats": 694,
+      "additional_repeats_required": 0,
+      "CETS": 273.43764259132143,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 1,
+      "sweeps": 54,
+      "current_repeats": 1000,
+      "required_repeats": 765,
+      "additional_repeats_required": 0,
+      "CETS": 274.6526866323613,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 1,
+      "sweeps": 12,
+      "current_repeats": 1000,
+      "required_repeats": 2524,
+      "additional_repeats_required": 1524,
+      "CETS": 276.38563116521397,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 1,
+      "sweeps": 14,
+      "current_repeats": 1000,
+      "required_repeats": 2204,
+      "additional_repeats_required": 1204,
+      "CETS": 277.79069644894,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 1,
+      "sweeps": 10,
+      "current_repeats": 1000,
+      "required_repeats": 3009,
+      "additional_repeats_required": 2009,
+      "CETS": 278.64457739045196,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 1,
+      "sweeps": 43,
+      "current_repeats": 1000,
+      "required_repeats": 891,
+      "additional_repeats_required": 0,
+      "CETS": 279.2136405464188,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 1,
+      "sweeps": 52,
+      "current_repeats": 1000,
+      "required_repeats": 791,
+      "additional_repeats_required": 0,
+      "CETS": 280.0834651187563,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 1,
+      "sweeps": 13,
+      "current_repeats": 1000,
+      "required_repeats": 2378,
+      "additional_repeats_required": 1378,
+      "CETS": 280.51481778208546,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 1,
+      "sweeps": 72,
+      "current_repeats": 1000,
+      "required_repeats": 672,
+      "additional_repeats_required": 0,
+      "CETS": 280.57803681178177,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 1,
+      "sweeps": 57,
+      "current_repeats": 1000,
+      "required_repeats": 755,
+      "additional_repeats_required": 0,
+      "CETS": 282.9055460090493,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 2,
+      "sweeps": 13,
+      "current_repeats": 1000,
+      "required_repeats": 3784,
+      "additional_repeats_required": 2784,
+      "CETS": 462.3407671860345,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 2,
+      "sweeps": 50,
+      "current_repeats": 1000,
+      "required_repeats": 1234,
+      "additional_repeats_required": 234,
+      "CETS": 504.3827175318447,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 2,
+      "sweeps": 11,
+      "current_repeats": 1000,
+      "required_repeats": 4924,
+      "additional_repeats_required": 3924,
+      "CETS": 515.6866112043858,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 2,
+      "sweeps": 77,
+      "current_repeats": 1000,
+      "required_repeats": 912,
+      "additional_repeats_required": 0,
+      "CETS": 517.5032820512403,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 2,
+      "sweeps": 57,
+      "current_repeats": 1000,
+      "required_repeats": 1146,
+      "additional_repeats_required": 146,
+      "CETS": 523.3723021749173,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 2,
+      "sweeps": 82,
+      "current_repeats": 1000,
+      "required_repeats": 891,
+      "additional_repeats_required": 0,
+      "CETS": 532.4539191815428,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 2,
+      "sweeps": 86,
+      "current_repeats": 1000,
+      "required_repeats": 864,
+      "additional_repeats_required": 0,
+      "CETS": 533.6489555592153,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 2,
+      "sweeps": 98,
+      "current_repeats": 1000,
+      "required_repeats": 799,
+      "additional_repeats_required": 0,
+      "CETS": 536.6088424021461,
+      "reliability_status": "reliable"
+    },
+    {
+      "instance": 2,
+      "sweeps": 59,
+      "current_repeats": 1000,
+      "required_repeats": 1140,
+      "additional_repeats_required": 140,
+      "CETS": 538.2000788354663,
+      "reliability_status": "needs_more_trials"
+    },
+    {
+      "instance": 2,
+      "sweeps": 68,
+      "current_repeats": 1000,
+      "required_repeats": 1029,
+      "additional_repeats_required": 29,
+      "CETS": 541.3627267586056,
+      "reliability_status": "needs_more_trials"
+    }
+  ],
+  "adaptive_targets": [
+    {
+      "instance": 0,
+      "sweeps": 83,
+      "existing_repeats": 1000,
+      "additional_repeats": 9000,
+      "CETS_before_adaptive_rerun": 831.5376187498674,
+      "best_reliable_CETS_before_adaptive_rerun": 834.7921394669612
+    }
+  ],
+  "adaptive_selection_rule": "After the first rerun, add repeats for any still-unreliable row whose point CETS is lower than the current best reliable CETS.",
+  "total_extra_rows": 279000,
+  "data_file": "targeted_sa_reruns.npz"
+}

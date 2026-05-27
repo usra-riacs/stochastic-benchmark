@@ -82,6 +82,42 @@ def test_load_selected_raw_runs_uses_tracked_aggregate_pickle(tmp_path):
     assert runs["resource"].tolist() == [1, 1, 1, 1]
 
 
+def test_load_targeted_rerun_runs_reads_npz_fixture(tmp_path):
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+
+    import numpy as np
+
+    np.savez_compressed(
+        results_dir / "targeted_sa_reruns.npz",
+        instance=np.array([0, 0, 2], dtype=np.int16),
+        sweeps=np.array([10, 10, 13], dtype=np.int16),
+        energy=np.array([-1.5, -2.5, -3.5], dtype=float),
+        resource=np.array([1, 1, 1], dtype=np.int8),
+    )
+
+    reruns = sa_reliability.load_targeted_rerun_runs(tmp_path)
+
+    assert reruns.columns.tolist() == ["instance", "sweeps", "energy", "resource"]
+    assert reruns["instance"].tolist() == [0, 0, 2]
+    assert reruns["sweeps"].tolist() == [10, 10, 13]
+    assert reruns["energy"].tolist() == pytest.approx([-1.5, -2.5, -3.5])
+    assert reruns["resource"].tolist() == [1, 1, 1]
+
+
+def test_committed_targeted_reruns_cover_sa_tutorial_candidates():
+    example_dir = MODULE_PATH.parent
+
+    reruns = sa_reliability.load_targeted_rerun_runs(example_dir)
+    counts = reruns.groupby(["instance", "sweeps"]).size()
+
+    assert len(reruns) == 279000
+    assert counts.loc[(0, 10)] == 9000
+    assert counts.loc[(0, 83)] == 9000
+    assert counts.loc[(1, 12)] == 9000
+    assert counts.loc[(2, 13)] == 9000
+
+
 def test_sa_reliability_report_surfaces_repeats_and_unreliable_cases(tmp_path):
     baselines = {
         0: {"best_value": 0.0, "random_value": 10.0},

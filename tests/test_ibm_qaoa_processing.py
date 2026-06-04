@@ -25,7 +25,11 @@ from src.approx_ratio_calc import (  # noqa: E402
     maxcut_approximation_ratio,
     maxcut_energy_from_bitstring,
 )
-from src.simulation_validation import InstanceSpec, filter_pss_exact_points  # noqa: E402
+from src.simulation_validation import (  # noqa: E402
+    InstanceSpec,
+    build_cumulative_budget_frontier,
+    filter_pss_exact_points,
+)
 from run_prepare_pss_campaign import _shard_specs  # noqa: E402
 
 
@@ -214,3 +218,92 @@ def test_filter_pss_exact_points_keeps_requested_instances_and_grid_only():
         {"instance": "100", "strategy": "FA_PP_opt", "N": 10, "M": 25, "Q": 100},
         {"instance": "200", "strategy": "PT_PP_AAA", "N": 0, "M": 0, "Q": 250},
     ]
+
+
+def test_build_cumulative_budget_frontier_selects_best_feasible_pss_per_instance():
+    exact_df = pd.DataFrame(
+        [
+            {
+                "graph_type": "heavy_hex",
+                "num_nodes": 144,
+                "instance": "0",
+                "split": "train",
+                "strategy": "FA_PP_opt",
+                "simulation_method": "MPSAer",
+                "p": 5,
+                "N": 10,
+                "M": 10,
+                "Q": 100,
+                "T_exact_proxy": 100.0,
+                "T_exact": 110.0,
+                "BestApproximationRatio": 0.80,
+            },
+            {
+                "graph_type": "heavy_hex",
+                "num_nodes": 144,
+                "instance": "0",
+                "split": "train",
+                "strategy": "FA_PP_opt",
+                "simulation_method": "MPSAer",
+                "p": 5,
+                "N": 20,
+                "M": 50,
+                "Q": 500,
+                "T_exact_proxy": 300.0,
+                "T_exact": 330.0,
+                "BestApproximationRatio": 0.85,
+            },
+            {
+                "graph_type": "heavy_hex",
+                "num_nodes": 144,
+                "instance": "1",
+                "split": "train",
+                "strategy": "FA_PP_opt",
+                "simulation_method": "MPSAer",
+                "p": 5,
+                "N": 10,
+                "M": 10,
+                "Q": 100,
+                "T_exact_proxy": 100.0,
+                "T_exact": 112.0,
+                "BestApproximationRatio": 0.75,
+            },
+            {
+                "graph_type": "heavy_hex",
+                "num_nodes": 144,
+                "instance": "1",
+                "split": "train",
+                "strategy": "FA_PP_opt",
+                "simulation_method": "MPSAer",
+                "p": 5,
+                "N": 50,
+                "M": 100,
+                "Q": 1000,
+                "T_exact_proxy": 700.0,
+                "T_exact": 760.0,
+                "BestApproximationRatio": 0.88,
+            },
+        ]
+    )
+
+    frontier = build_cumulative_budget_frontier(
+        exact_df,
+        t_grid=[100.0, 300.0, 700.0],
+    )
+
+    assert frontier.groupby("T")["instance"].nunique().to_dict() == {
+        100.0: 2,
+        300.0: 2,
+        700.0: 2,
+    }
+    means = frontier.groupby("T")["BestApproximationRatio"].mean().to_dict()
+    assert means[100.0] == pytest.approx((0.80 + 0.75) / 2)
+    assert means[300.0] == pytest.approx((0.85 + 0.75) / 2)
+    assert means[700.0] == pytest.approx((0.85 + 0.88) / 2)
+
+    inst1_700 = frontier[
+        frontier["T"].eq(700.0) & frontier["instance"].astype(str).eq("1")
+    ].iloc[0]
+    assert inst1_700["N"] == 50
+    assert inst1_700["M"] == 100
+    assert inst1_700["Q"] == 1000

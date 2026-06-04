@@ -2930,6 +2930,105 @@ def build_binned_budget_dataset(
     return assigned.reset_index(drop=True)
 
 
+def build_cumulative_budget_frontier(
+    exact_df: pd.DataFrame,
+    *,
+    t_grid: list[float] | None = None,
+    num_points: int = 1000,
+    budget_col: str = "T_exact_proxy",
+    response_col: str = "BestApproximationRatio",
+    scale: str = "log",
+    group_cols: tuple[str, ...] = (
+        "graph_type",
+        "num_nodes",
+        "instance",
+        "split",
+        "strategy",
+        "simulation_method",
+        "p",
+    ),
+) -> pd.DataFrame:
+    """Build a common-budget cumulative PSS frontier.
+
+    For every instance/method group and every budget in ``t_grid``, select the
+    best exact PSS row whose resource cost is no larger than that budget.  This
+    creates the common-support table expected by the Window Sticker workflow:
+    stochastic-benchmark sees one best-feasible row per instance and budget
+    rather than sparse exact rows assigned to bins.
+    """
+    if exact_df.empty:
+        return pd.DataFrame()
+    if budget_col not in exact_df.columns:
+        raise KeyError(f"Expected budget column '{budget_col}' in exact_df.")
+    if response_col not in exact_df.columns:
+        raise KeyError(f"Expected response column '{response_col}' in exact_df.")
+
+    if t_grid is None:
+        t_grid = build_dense_budget_grid(
+            exact_df,
+            num_points=num_points,
+            resource_col=budget_col,
+            scale=scale,
+        )
+    grid = np.asarray(sorted({float(value) for value in t_grid}), dtype=float)
+    grid = grid[np.isfinite(grid)]
+    if grid.size == 0:
+        return pd.DataFrame()
+
+    present_group_cols = [col for col in group_cols if col in exact_df.columns]
+    rows: list[pd.DataFrame] = []
+
+    work = exact_df.copy()
+    work[budget_col] = pd.to_numeric(work[budget_col], errors="coerce")
+    work[response_col] = pd.to_numeric(work[response_col], errors="coerce")
+    work = work.replace([np.inf, -np.inf], np.nan)
+    work = work.dropna(subset=[budget_col, response_col])
+    work = work[work[budget_col] > 0]
+    if work.empty:
+        return pd.DataFrame()
+
+    for _, group in work.groupby(present_group_cols, dropna=False):
+        group = group.sort_values(
+            [budget_col, response_col],
+            ascending=[True, False],
+        ).reset_index(drop=True)
+        budgets = group[budget_col].to_numpy(dtype=float)
+        responses = group[response_col].to_numpy(dtype=float)
+        if budgets.size == 0:
+            continue
+
+        best_indices = np.empty(len(group), dtype=int)
+        best_idx = 0
+        best_response = -np.inf
+        for idx, response in enumerate(responses):
+            if response > best_response:
+                best_response = float(response)
+                best_idx = idx
+            best_indices[idx] = best_idx
+
+        grid_positions = np.searchsorted(budgets, grid, side="right") - 1
+        feasible_mask = grid_positions >= 0
+        if not feasible_mask.any():
+            continue
+
+        feasible_grid = grid[feasible_mask]
+        selected_positions = best_indices[grid_positions[feasible_mask]]
+        selected = group.iloc[selected_positions].copy().reset_index(drop=True)
+        selected["budget_bin"] = np.flatnonzero(feasible_mask).astype(int)
+        selected["budget_left"] = feasible_grid
+        selected["budget_right"] = feasible_grid
+        selected["T"] = feasible_grid
+        selected["resource"] = feasible_grid
+        selected["selected_exact_T"] = selected.get("T_exact", np.nan)
+        selected["selected_exact_T_proxy"] = selected.get("T_exact_proxy", np.nan)
+        selected["budget_distance"] = feasible_grid - selected[budget_col].astype(float).to_numpy()
+        rows.append(selected)
+
+    if not rows:
+        return pd.DataFrame()
+    return pd.concat(rows, ignore_index=True)
+
+
 def _resource_distance(
     values: pd.Series,
     target: float,
@@ -2960,10 +3059,11 @@ def build_budget_frontier(
     budget_col: str = "T_exact_proxy",
     distance_scale: str = "log",
 ) -> pd.DataFrame:
-    return build_binned_budget_dataset(
+    return build_cumulative_budget_frontier(
         exact_df,
         t_grid=t_grid,
         budget_col=budget_col,
+        response_col=response_col,
         scale=distance_scale,
     )
 
@@ -2985,6 +3085,45 @@ def attach_ws_codebook_columns(
     return out
 
 
+def summarize_frontier_instance_coverage(
+    frontier_df: pd.DataFrame,
+    *,
+    group_cols: tuple[str, ...] = ("split", "strategy", "simulation_method", "p"),
+) -> pd.DataFrame:
+    """Summarize how many instances support each method/resource frontier."""
+    if frontier_df.empty or "T" not in frontier_df.columns or "instance" not in frontier_df.columns:
+        return pd.DataFrame()
+
+    present_group_cols = [col for col in group_cols if col in frontier_df.columns]
+    per_budget = (
+        frontier_df.groupby(present_group_cols + ["T"], dropna=False)
+        .agg(n_instances=("instance", "nunique"), n_rows=("instance", "size"))
+        .reset_index()
+    )
+    if per_budget.empty:
+        return pd.DataFrame()
+
+    expected = (
+        per_budget.groupby(present_group_cols, dropna=False)["n_instances"]
+        .max()
+        .rename("expected_instances")
+        .reset_index()
+    )
+    summary = per_budget.merge(expected, on=present_group_cols, how="left")
+    summary["has_full_instance_support"] = summary["n_instances"].eq(summary["expected_instances"])
+    return (
+        summary.groupby(present_group_cols, dropna=False)
+        .agg(
+            expected_instances=("expected_instances", "max"),
+            min_instances=("n_instances", "min"),
+            max_instances=("n_instances", "max"),
+            n_budget_points=("T", "nunique"),
+            n_partial_budget_points=("has_full_instance_support", lambda values: int((~values).sum())),
+        )
+        .reset_index()
+    )
+
+
 def build_resource_frontier_from_exact_points(
     exact_df: pd.DataFrame,
     *,
@@ -2993,10 +3132,10 @@ def build_resource_frontier_from_exact_points(
     num_bins: int = 1000,
     scale: str = "log",
 ) -> pd.DataFrame:
-    """Build a binned frontier using a measured or proxy resource column."""
-    frontier_df = build_binned_budget_dataset(
+    """Build a cumulative common-budget frontier using a resource column."""
+    frontier_df = build_cumulative_budget_frontier(
         exact_df,
-        num_bins=num_bins,
+        num_points=num_bins,
         budget_col=budget_col,
         scale=scale,
     )
@@ -3554,6 +3693,9 @@ def build_pss_frontier_outputs(
         )
         frontier_df.to_pickle(output_root / "pss_exp_raw_frontier.pkl")
         frontier_df.to_csv(output_root / "pss_exp_raw_frontier.csv", index=False)
+        coverage_df = summarize_frontier_instance_coverage(frontier_df)
+        if not coverage_df.empty:
+            coverage_df.to_csv(output_root / "frontier_instance_coverage.csv", index=False)
 
     return frontier_df, codebooks
 
@@ -4024,10 +4166,12 @@ def run_stochastic_benchmark_pss(
     import stats  # pylint: disable=import-outside-toplevel
     import training  # pylint: disable=import-outside-toplevel
 
+    shared_grid = sorted(exp_raw_df[resource_col].astype(float).dropna().unique())
     i_params = interpolate.InterpolationParameters(
         lambda df: resource_metric_column(df, resource_col),
         parameters=parameter_names,
-        resource_value_type="data",
+        resource_value_type="manual",
+        resource_values=shared_grid,
     )
     st_params = stats.StatsParameters(
         metrics=["Response", "PerfRatio", "MeanTime", "SuccProb"],
@@ -4044,7 +4188,6 @@ def run_stochastic_benchmark_pss(
     sb.training_stats = None
     sb.testing_stats = None
     sb.populate_training_stats()
-    shared_grid = sorted(exp_raw_df[resource_col].astype(float).dropna().unique())
     align_projection_resources(sb, shared_grid=shared_grid, resource_col="resource")
     if not hasattr(sb, "baseline"):
         sb.baseline = SimpleNamespace(recalibrate=lambda _df: None)

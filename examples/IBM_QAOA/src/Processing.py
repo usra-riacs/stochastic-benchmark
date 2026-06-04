@@ -697,6 +697,55 @@ def _max_abs_angle_diff(left: list[float] | None, right: list[float] | None) -> 
     return max(abs(a - b) for a, b in zip(left, right))
 
 
+def _as_finite_float(value: Any) -> float:
+    """Return a finite float or NaN for loose notebook metadata values."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return np.nan
+    return numeric if np.isfinite(numeric) else np.nan
+
+
+def _choose_stage_for_method(candidates: list[pd.Series], method: str) -> tuple[pd.Series | None, list[str]]:
+    """Pick a stage when multiple physical files or stages can satisfy a match."""
+    notes: list[str] = []
+    if not candidates:
+        return None, notes
+    if len(candidates) == 1:
+        return candidates[0], notes
+
+    unique_stage_trainer = {
+        (
+            int(candidate["stage"]),
+            str(candidate["trainer_name"]),
+        )
+        for candidate in candidates
+    }
+    if len(unique_stage_trainer) == 1:
+        notes.append("resolved_duplicate_physical_files")
+        return sorted(
+            candidates,
+            key=lambda candidate: str(candidate["physical_training_file"]),
+        )[0], notes
+
+    if "no_opt" in method:
+        chosen_stage = min(int(candidate["stage"]) for candidate in candidates)
+        notes.append("resolved_by_method_suffix")
+    elif "angleOpt" in method or "_opt_" in method or method.endswith("_opt"):
+        chosen_stage = max(int(candidate["stage"]) for candidate in candidates)
+        notes.append("resolved_by_method_suffix")
+    else:
+        return None, notes
+
+    stage_candidates = [
+        candidate for candidate in candidates if int(candidate["stage"]) == chosen_stage
+    ]
+    return sorted(
+        stage_candidates,
+        key=lambda candidate: str(candidate["physical_training_file"]),
+    )[0], notes
+
+
 def _build_stage_manifest(df_training: pd.DataFrame) -> pd.DataFrame:
     """Expand stage-level training metadata into a flat manifest table."""
     stage_rows: list[dict[str, Any]] = []
@@ -820,6 +869,35 @@ def _resolve_training_stage(
             matches.append((candidate, diff))
 
     if not matches:
+        job_p = _as_finite_float(hw_row.get("job_p"))
+        training_p = _as_finite_float(hw_row.get("training_p"))
+        is_depth_prefix_row = (
+            np.isfinite(job_p)
+            and np.isfinite(training_p)
+            and training_p > job_p
+        )
+
+        if is_depth_prefix_row:
+            depth_prefix_candidates: list[pd.Series] = []
+            for _, candidate in candidates.iterrows():
+                angles = _normalize_angle_list(candidate["optimized_qaoa_angles"])
+                if angles is None or len(angles) < len(params):
+                    continue
+                depth_prefix_candidates.append(candidate)
+
+            chosen, fallback_notes = _choose_stage_for_method(depth_prefix_candidates, method)
+            if chosen is not None:
+                return {
+                    "matched_stage": int(chosen["stage"]),
+                    "matched_stage_trainer": chosen["trainer_name"],
+                    "physical_training_file": chosen["physical_training_file"],
+                    "training_match_status": "matched",
+                    "training_match_note": "; ".join(
+                        notes + fallback_notes + ["depth_prefix_match_without_angle_equality"]
+                    ),
+                    "outer_init_duration_sum": float(chosen["outer_init_duration_sum"]),
+                }
+
         return {
             "matched_stage": np.nan,
             "matched_stage_trainer": np.nan,
@@ -837,39 +915,17 @@ def _resolve_training_stage(
         )
     )
 
-    chosen = None
-    if len(matches) == 1:
-        chosen = matches[0][0]
-    else:
-        unique_stage_trainer = {
-            (
-                int(match[0]["stage"]),
-                str(match[0]["trainer_name"]),
-            )
-            for match in matches
+    chosen, match_notes = _choose_stage_for_method([match[0] for match in matches], method)
+    notes.extend(match_notes)
+    if chosen is None:
+        return {
+            "matched_stage": np.nan,
+            "matched_stage_trainer": np.nan,
+            "physical_training_file": np.nan,
+            "training_match_status": "ambiguous_stage_match",
+            "training_match_note": "; ".join(notes + ["multiple stage matches"]),
+            "outer_init_duration_sum": np.nan,
         }
-        if len(unique_stage_trainer) == 1:
-            chosen = matches[0][0]
-            notes.append("resolved_duplicate_physical_files")
-
-    if chosen is None and len(matches) > 1:
-        if "no_opt" in method:
-            chosen_stage = min(int(match[0]["stage"]) for match in matches)
-            chosen = next(match[0] for match in matches if int(match[0]["stage"]) == chosen_stage)
-            notes.append("resolved_by_method_suffix")
-        elif "angleOpt" in method or "_opt_" in method or method.endswith("_opt"):
-            chosen_stage = max(int(match[0]["stage"]) for match in matches)
-            chosen = next(match[0] for match in matches if int(match[0]["stage"]) == chosen_stage)
-            notes.append("resolved_by_method_suffix")
-        else:
-            return {
-                "matched_stage": np.nan,
-                "matched_stage_trainer": np.nan,
-                "physical_training_file": np.nan,
-                "training_match_status": "ambiguous_stage_match",
-                "training_match_note": "; ".join(notes + ["multiple stage matches"]),
-                "outer_init_duration_sum": np.nan,
-            }
 
     return {
         "matched_stage": int(chosen["stage"]),

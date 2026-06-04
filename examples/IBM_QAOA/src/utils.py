@@ -2,7 +2,7 @@ import re
 import math
 import os
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt 
@@ -20,6 +20,11 @@ from matplotlib.ticker import (
     MultipleLocator,
 )
 from matplotlib.transforms import Bbox
+
+WINDOW_STICKER_LABEL_FONTSIZE = 16
+WINDOW_STICKER_TICK_FONTSIZE = 14
+WINDOW_STICKER_LEGEND_FONTSIZE = 13
+WINDOW_STICKER_TITLE_FONTSIZE = 16
 
 try:
     from qaoa_parameter_setting.utils.labels import (
@@ -353,8 +358,8 @@ _QPS_METHOD_LABELS = {
     "I_opt.json": "Interp.*",
     "IAer.json": "Interp.*",
     "IAer_opt.json": "Interp.*",
-    "I_no_opt.json": "Interp.",
-    "IAer_no_opt.json": "Interp.",
+    "I_no_opt.json": "Interp.†",
+    "IAer_no_opt.json": "Interp.†",
     "LR_opt.json": "Linear Ramp",
     "LRAer_opt.json": "Linear Ramp",
     "LR_no_opt.json": "Linear Ramp†",
@@ -364,12 +369,15 @@ _QPS_METHOD_LABELS = {
     "RTS.json": "Recursive TS*",
     "RTSAer.json": "Recursive TS*",
     "TS.json": "Recursive TS*",
-    "TQA_no_opt.json": "TQA",
+    "TQA_no_opt.json": "TQA†",
     "TQA_opt.json": "TQA*",
     "TQAAer_opt.json": "TQA*",
-    "TQAAer_no_opt.json": "TQA",
+    "TQAAer_no_opt.json": "TQA†",
     "PT_AAAM.json": "Param. Transfer",
     "PT_AAA.json": "Param. Transfer",
+    "PT_no_opt.json": "Param. Transfer†",
+    "PT_AAAM_no_opt.json": "Param. Transfer†",
+    "PT_AAA_no_opt.json": "Param. Transfer†",
 }
 _QPS_METHOD_PREFIXES = tuple(
     sorted(
@@ -393,6 +401,7 @@ QPS_METHOD_COLORS = {
     "TQA": "#AA3377",
     "TQA†": "#AA3377",
     "Param. Transfer": "#BBBBBB",
+    "Param. Transfer†": "#BBBBBB",
     "Parameter Transfer": "#BBBBBB",
 }
 QPS_EVALUATOR_MARKERS = {
@@ -450,6 +459,109 @@ def _method_color_from_training_method(label: str) -> str:
         base_label,
         _STYLE_FALLBACK_COLORS[abs(hash(base_label)) % len(_STYLE_FALLBACK_COLORS)],
     )
+
+
+def _window_sticker_method_color(label: str) -> str:
+    """Return paper-style color for Window Sticker labels that may include depth text."""
+    label_str = str(label)
+    cleaned = re.sub(r"\s*\(p\s*=\s*\d+\)\s*$", "", label_str)
+    if cleaned in QPS_METHOD_COLORS:
+        return QPS_METHOD_COLORS[cleaned]
+    base_label = cleaned.replace("*", "").replace("†", "")
+    if base_label in QPS_METHOD_COLORS:
+        return QPS_METHOD_COLORS[base_label]
+    return _method_color_from_training_method(cleaned)
+
+
+def window_sticker_method_color(label: str) -> str:
+    """Return the paper-style base color for a Window Sticker method label."""
+    label_str = str(label)
+    cleaned = re.sub(r"\s*\(p\s*=\s*\d+\)\s*$", "", label_str)
+    base_label = re.sub(r"\$?\s*\^?\s*\{?\s*\\(?:star|dagger)\s*\}?\s*\$?", "", cleaned)
+    base_label = re.sub(r"[\*†★⋆]", "", base_label).strip()
+    base_label = re.sub(r"\s+", " ", base_label)
+    base_lower = base_label.lower()
+    if "fixed angles" in base_lower:
+        return "#4477AA"
+    if "linear ramp" in base_lower:
+        return "#CCBB44"
+    if "param. transfer" in base_lower or "parameter transfer" in base_lower:
+        return "#BBBBBB"
+    if "interp" in base_lower:
+        return "#228833"
+    if "fourier" in base_lower:
+        return "#EE6677"
+    if "recursive" in base_lower:
+        return "#66CCEE"
+    if "tqa" in base_lower:
+        return "#AA3377"
+    return _window_sticker_method_color(label_str)
+
+
+def _window_sticker_label_base(label: str) -> str:
+    """Return a normalized method key, without depth or optimization markers."""
+    label_str = str(label)
+    cleaned = re.sub(r"\s*\(p\s*=\s*\d+\)\s*$", "", label_str)
+    cleaned = re.sub(r"\$?\s*\^?\s*\{?\s*\\(?:star|dagger)\s*\}?\s*\$?", "", cleaned)
+    cleaned = re.sub(r"[\*†★⋆]", "", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip().lower()
+
+
+def _window_sticker_label_depth(label: str) -> int | None:
+    """Extract the plotted QAOA depth from a Window Sticker label, when present."""
+    match = re.search(r"\(p\s*=\s*(\d+)\)\s*$", str(label))
+    return int(match.group(1)) if match else None
+
+
+def _shade_color(color: str, amount: float) -> tuple[float, float, float]:
+    """Lighten (positive) or darken (negative) a color while keeping the hue."""
+    c = np.array(mcolors.to_rgb(color), dtype=float)
+    if amount >= 0:
+        shaded = c + (1.0 - c) * amount
+    else:
+        shaded = np.clip(c * (1.0 + amount), 0.0, 1.0)
+    return tuple(float(channel) for channel in shaded)
+
+
+def window_sticker_method_color_map(labels: Iterable[str]) -> dict[str, object]:
+    """Return method colors with small depth-based shade offsets for duplicates."""
+    label_list = [str(label) for label in labels]
+    grouped: dict[str, list[str]] = {}
+    for label in label_list:
+        grouped.setdefault(_window_sticker_label_base(label), []).append(label)
+
+    color_map: dict[str, object] = {}
+    for group_labels in grouped.values():
+        unique_group_labels = sorted(
+            set(group_labels),
+            key=lambda item: (
+                _window_sticker_label_depth(item) is None,
+                _window_sticker_label_depth(item) if _window_sticker_label_depth(item) is not None else 10**9,
+                item,
+            ),
+        )
+        if len(unique_group_labels) == 1:
+            color_map[unique_group_labels[0]] = window_sticker_method_color(unique_group_labels[0])
+            continue
+
+        midpoint = (len(unique_group_labels) - 1) / 2.0
+        for idx, label in enumerate(unique_group_labels):
+            # Keep variants close to the method's canonical color while separating depths.
+            offset = (idx - midpoint) * 0.22
+            offset = float(np.clip(offset, -0.26, 0.26))
+            color_map[label] = _shade_color(window_sticker_method_color(label), offset)
+    return color_map
+
+
+def window_sticker_curve_colors(label: str) -> dict[str, object]:
+    """Return distinct same-family colors for Window Sticker curves for one method."""
+    base = window_sticker_method_color(label)
+    return {
+        "base": base,
+        "virtual_best": base,
+        "averaged_prescription": _lighten_color(base, 0.28),
+        "actionable_prescription": _lighten_color(base, 0.48),
+    }
 
 
 def _marker_from_training_method(label: str) -> str:
@@ -866,7 +978,7 @@ def plot_ibm_qaoa_performance_panels(
     fs_legend = 14
     raw_marker_size = 8.0
     centroid_marker_size = 18.0
-    legend_marker_size = 7.5
+    legend_marker_size = 8.5
     y_scale = 100.0
     y_cushion = 3.0
     eb_opts = {"ecolor": "k", "capsize": 3, "elinewidth": 1.2}
@@ -926,9 +1038,6 @@ def plot_ibm_qaoa_performance_panels(
     method_legend_dict = {}
     evaluator_legend_dict = {}
 
-    def _visible_method_label(color_label: str) -> str:
-        return _method_label_from_training_method(color_label, format="latex")
-
     for ax_idx, (ax, p) in enumerate(zip(axs, p_vals)):
         d = df_points[df_points["job_p"] == p]
 
@@ -977,7 +1086,7 @@ def plot_ibm_qaoa_performance_panels(
                 **eb_opts,
             )
 
-            method_label = _visible_method_label(color_label)
+            method_label = _method_label_from_training_method(color_label, format="latex")
             if method_label not in method_legend_dict:
                 method_style = _style_plot_kwargs(color_label)
                 method_legend_dict[method_label] = Line2D(
@@ -1026,48 +1135,36 @@ def plot_ibm_qaoa_performance_panels(
         ax.yaxis.set_major_locator(MultipleLocator(y_major))
         ax.grid(True)
 
-    axs[0].set_ylabel("Hardware approximation ratio (%)", fontsize=fs_label, labelpad=8)
+    axs[0].set_ylabel("Hardware approximation\nratio (%)", fontsize=fs_label, labelpad=10)
 
     method_items = sorted(method_legend_dict.items(), key=lambda x: x[0])
     evaluator_items = sorted(evaluator_legend_dict.items(), key=lambda x: x[0])
-    notation_handles = [
-        Line2D([0], [0], linestyle="", color="none", label="†: no optimization"),
-        Line2D(
-            [0],
-            [0],
-            linestyle="",
-            color="none",
-            label="no superscript: method-parameter optimization",
-        ),
-        Line2D([0], [0], linestyle="", color="none", label="*: full angle optimization"),
-    ]
-    method_legend = fig.legend(
+    method_legend = axs[0].legend(
         handles=[handle for _, handle in method_items],
-        loc="upper left",
-        bbox_to_anchor=(0.04, 0.06),
+        loc="lower left",
         ncol=4,
-        borderaxespad=0,
+        borderaxespad=0.7,
         frameon=True,
         fontsize=fs_legend,
-        handletextpad=0.7,
-        columnspacing=1.2,
+        handlelength=1.5,
+        handletextpad=0.35,
+        columnspacing=0.4,
+        labelspacing=0.25,
     )
-    evaluator_legend = fig.legend(
-        handles=[handle for _, handle in evaluator_items] + notation_handles,
-        loc="upper left",
-        bbox_to_anchor=(0.62, 0.06),
+    evaluator_legend = axs[-1].legend(
+        handles=[handle for _, handle in evaluator_items],
+        loc="lower left",
         ncol=1,
-        borderaxespad=0,
+        borderaxespad=0.7,
         frameon=True,
         fontsize=fs_legend,
-        handletextpad=0.7,
-        columnspacing=1.2,
+        handletextpad=0.6,
+        columnspacing=0.9,
+        labelspacing=0.35,
     )
-    fig.add_artist(method_legend)
-    fig.add_artist(evaluator_legend)
 
-    fig.tight_layout(rect=[0.035, 0.20, 1, 0.90])
-    fig.subplots_adjust(left=0.08, bottom=0.28, top=0.88)
+    fig.tight_layout(rect=[0.06, 0.03, 1, 0.92])
+    fig.subplots_adjust(left=0.11, bottom=0.14, top=0.88)
 
     if save_dir:
         fname = f"{graph_id}_performance"
@@ -1319,18 +1416,6 @@ def plot_ibm_qaoa_overlay(
     ]
     method_items = sorted(method_legend_dict.items(), key=lambda item: item[0])
     evaluator_items = sorted(evaluator_legend_dict.items(), key=lambda item: item[0])
-    notation_handles = [
-        Line2D([0], [0], linestyle="", color="none", label="†: no optimization"),
-        Line2D(
-            [0],
-            [0],
-            linestyle="",
-            color="none",
-            label="no superscript: method-parameter optimization",
-        ),
-        Line2D([0], [0], linestyle="", color="none", label="*: full angle optimization"),
-    ]
-
     method_legend = fig.legend(
         handles=[handle for _, handle in method_items],
         loc="upper left",
@@ -1343,7 +1428,7 @@ def plot_ibm_qaoa_overlay(
         columnspacing=1.2,
     )
     evaluator_legend = fig.legend(
-        handles=[handle for _, handle in evaluator_items] + notation_handles,
+        handles=[handle for _, handle in evaluator_items],
         loc="upper left",
         bbox_to_anchor=(0.62, 0.11),
         ncol=1,
@@ -1694,18 +1779,6 @@ def plot_ibm_qaoa_training_bricks(
     for handle in evaluator_handles:
         deduped_evaluator_handles.setdefault(handle.get_label(), handle)
 
-    notation_handles = [
-        Line2D([0], [0], linestyle="", color="none", label="†: no optimization"),
-        Line2D(
-            [0],
-            [0],
-            linestyle="",
-            color="none",
-            label="no superscript: method-parameter optimization",
-        ),
-        Line2D([0], [0], linestyle="", color="none", label="*: full angle optimization"),
-    ]
-
     method_legend = fig.legend(
         handles=list(method_legend_items.values()),
         labels=list(method_legend_items.keys()),
@@ -1719,7 +1792,7 @@ def plot_ibm_qaoa_training_bricks(
         columnspacing=1.2,
     )
     evaluator_legend = fig.legend(
-        handles=list(deduped_evaluator_handles.values()) + notation_handles,
+        handles=list(deduped_evaluator_handles.values()),
         loc="upper left",
         bbox_to_anchor=(0.62, 0.06),
         ncol=1,
@@ -2321,7 +2394,9 @@ def plot_ibm_qaoa_recommendation(
                 avoid_frontier=True,
                 force_fallback=False,
             )
-            inset_ax.xaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0,), numticks=3))
+            inset_ax.xaxis.set_major_locator(
+                LogLocator(base=10.0, subs=(1.0, 2.0, 5.0), numticks=6)
+            )
             inset_ax.xaxis.set_major_formatter(LogFormatterMathtext(base=10.0, labelOnlyBase=False))
             inset_ax.yaxis.set_major_locator(MaxNLocator(nbins=3))
             inset_ax.tick_params(axis="both", which="major", labelsize=fs_tick, length=3)
@@ -2374,59 +2449,27 @@ def plot_ibm_qaoa_recommendation(
         linestyle="--",
         label="Pareto Frontier",
     )
-    no_opt_note = Line2D(
-        [0],
-        [0],
-        linestyle="",
-        color="none",
-        label="†: no optimization",
-    )
-    dagger_note = Line2D(
-        [0],
-        [0],
-        linestyle="",
-        color="none",
-        label="no superscript: method-parameter optimization",
-    )
-    star_note = Line2D(
-        [0],
-        [0],
-        linestyle="",
-        color="none",
-        label="*: full angle optimization",
-    )
     method_items = sorted(method_legend_dict.items(), key=lambda item: item[0])
     evaluator_items = sorted(evaluator_legend_dict.items(), key=lambda item: item[0])
 
-    method_legend = fig.legend(
-        handles=[handle for _, handle in method_items],
-        loc="upper left",
-        bbox_to_anchor=(0.04, -0.01),
-        ncol=4,
-        borderaxespad=0,
-        frameon=True,
-        fontsize=fs_legend,
-        handletextpad=0.7,
-        columnspacing=1.2,
-    )
-    evaluator_legend = fig.legend(
-        handles=[handle for _, handle in evaluator_items]
-        + [frontier_handle, no_opt_note, dagger_note, star_note],
-        loc="upper left",
-        bbox_to_anchor=(0.62, -0.01),
-        ncol=1,
-        borderaxespad=0,
+    legend_handles = [handle for _, handle in method_items]
+    legend_handles += [handle for _, handle in evaluator_items]
+    legend_handles.append(frontier_handle)
+    ax.legend(
+        handles=legend_handles,
+        loc="lower left",
+        bbox_to_anchor=(0.06, 0.02),
+        ncol=min(4, max(1, len(legend_handles))),
+        borderaxespad=0.0,
         frameon=True,
         fontsize=fs_legend,
         handlelength=2.0,
         handletextpad=0.7,
-        columnspacing=1.2,
+        columnspacing=1.0,
     )
-    fig.add_artist(method_legend)
-    fig.add_artist(evaluator_legend)
 
     fig.tight_layout()
-    fig.subplots_adjust(left=0.08, bottom=0.18)
+    fig.subplots_adjust(left=0.08, bottom=0.11)
 
     if save_dir:
         fname = f"{graph_id}_recommendation"
@@ -2533,27 +2576,127 @@ def apply_shared_approx_axis(
     axis.yaxis.set_major_formatter(FormatStrFormatter("%.3f"))
 
 
+def _percent_approx_ylabel(ylabel: str) -> str:
+    """Convert an approximation-ratio label to a percentage label."""
+    label = str(ylabel)
+    label = label.replace("Approximation ratio", "Approximation ratio (%)")
+    label = label.replace("approximation ratio", "approximation ratio (%)")
+    if "(%)" not in label:
+        label = f"{label} (%)"
+    return label
+
+
+def _percent_axis_values(
+    ylim: tuple[float, float] | None,
+    yticks: list[float] | None,
+) -> tuple[tuple[float, float] | None, list[float] | None]:
+    """Convert optional ratio y-axis limits/ticks to percentage units."""
+    percent_ylim = None if ylim is None else (ylim[0] * 100.0, ylim[1] * 100.0)
+    percent_yticks = None if yticks is None else [tick * 100.0 for tick in yticks]
+    return percent_ylim, percent_yticks
+
+
+def _ws_display_method_label(label: str) -> str:
+    """Convert an internal method label to a compact Window Sticker legend entry.
+
+    The incoming label may carry LaTeX optimization markers (``$^\\star$``,
+    ``$^\\dagger$``) produced by :func:`_method_label_from_training_method`.
+    This function converts them to their plain Unicode equivalents and preserves
+    the depth suffix ``(p = N)`` when present.
+
+    Parameters
+    ----------
+    label : str
+        Method label as stored in the ``method_label`` column, e.g.
+        ``"Fixed Angles$^\\star$ (p=5)"``.
+
+    Returns
+    -------
+    str
+        Display label with the correct optimization marker:
+
+        - ``*``  — full angle reoptimization via a Scipy trainer (e.g. COBYLA).
+        - ``†``  — no angle optimization.
+        - *(none)* — method-parameter optimization only (e.g. Linear Ramp's
+          ramp-parameter sweep, or Parameter Transfer's classical preprocessing).
+    """
+    label_str = str(label)
+    depth_match = re.search(r"\s*(\(p\s*=\s*\d+\))\s*$", label_str)
+    depth_suffix = f" {depth_match.group(1)}" if depth_match else ""
+    cleaned = re.sub(r"\s*\(p\s*=\s*\d+\)\s*$", "", label_str)
+
+    has_star = bool(re.search(r"\$\^\\star\$|[\*★⋆]", cleaned))
+    has_dagger = bool(re.search(r"\$\^\\dagger\$|[†]", cleaned))
+
+    base_label = re.sub(r"\$?\s*\^?\s*\{?\s*\\(?:star|dagger)\s*\}?\s*\$?", "", cleaned)
+    base_label = re.sub(r"[\*†★⋆]", "", base_label).strip()
+    base_label = re.sub(r"\s+", " ", base_label)
+
+    opt_marker = "†" if has_dagger else ("*" if has_star else "")
+    return f"{base_label}{opt_marker}{depth_suffix}"
+
+
+def _is_no_opt_metadata(value: object) -> bool:
+    """Return whether a method/config/tag explicitly denotes no optimization."""
+    text = str(value).lower()
+    compact = re.sub(r"[^a-z0-9]+", "_", text)
+    return "no_opt" in compact or "no_optimization" in compact or "noopt" in compact
+
+
+def _force_dagger_label(label: str) -> str:
+    """Replace optimization markers in a display label with a dagger marker."""
+    text = str(label)
+    suffix = ""
+    suffix_match = re.search(r"\s+\([^)]*\)$", text)
+    if suffix_match:
+        suffix = suffix_match.group(0)
+        text = text[: suffix_match.start()]
+
+    text = re.sub(r"\$\^\\(?:star|dagger)\$", "", text)
+    text = re.sub(r"\^\\(?:star|dagger)", "", text)
+    text = text.replace(r"$^\star$", "").replace(r"$^\dagger$", "")
+    text = text.replace("*", "").replace("†", "").strip()
+    return f"{text}†{suffix}"
+
+
 def curve_label(df: pd.DataFrame, default: str) -> str:
     """Build a compact method label from strategy, simulator, and depth columns."""
     if df.empty:
+        if _is_no_opt_metadata(default):
+            return _force_dagger_label(default)
         return default
+    metadata_values = [default]
+    for col in [
+        "strategy",
+        "method_label",
+        "result_tag",
+        "result_root",
+        "root",
+        "trainer_config",
+        "training_method",
+        "method_name",
+        "config",
+        "config_path",
+    ]:
+        if col in df and df[col].notna().any():
+            metadata_values.extend(df[col].dropna().astype(str).head(5).tolist())
     strategy = (
         df["strategy"].dropna().astype(str).iloc[0]
         if "strategy" in df and df["strategy"].notna().any()
         else default
     )
-    simulator = (
-        df["simulation_method"].dropna().astype(str).iloc[0]
-        if "simulation_method" in df and df["simulation_method"].notna().any()
-        else None
-    )
     p_val = float(df["p"].dropna().iloc[0]) if "p" in df and df["p"].notna().any() else None
+    try:
+        label = _method_label_from_training_method(strategy, format="latex")
+    except Exception:
+        label = strategy
     parts = []
-    if simulator is not None:
-        parts.append(simulator)
     if p_val is not None:
         parts.append(f"p={p_val:g}")
-    return f"{strategy} ({', '.join(parts)})" if parts else strategy
+    label = f"{label} ({', '.join(parts)})" if parts else label
+    if any(_is_no_opt_metadata(value) for value in metadata_values):
+        label = _force_dagger_label(label)
+    return label
 
 
 def prepare_monotone_curve(
@@ -2594,6 +2737,40 @@ def read_summary_csv(root: str | Path, name: str) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+def read_first_summary_csv(root: str | Path, names: list[str]) -> pd.DataFrame:
+    """Read the first present summary CSV from a list of compatible filenames."""
+    for name in names:
+        df = read_summary_csv(root, name)
+        if not df.empty:
+            return df
+    return pd.DataFrame()
+
+
+def rebuild_strategy_budget_summary(root: str | Path) -> pd.DataFrame:
+    """Rebuild the training budget summary from the saved raw frontier when needed."""
+    root = Path(root)
+    frontier_path = root / "pss_exp_raw_frontier.pkl"
+    frontier_csv_path = root / "pss_exp_raw_frontier.csv"
+    if not frontier_path.exists() and not frontier_csv_path.exists():
+        return pd.DataFrame()
+
+    try:
+        from .simulation_validation import build_strategy_budget_summary
+    except Exception:
+        return pd.DataFrame()
+
+    try:
+        frontier_df = pd.read_pickle(frontier_path)
+    except Exception:
+        if not frontier_csv_path.exists():
+            return pd.DataFrame()
+        frontier_df = pd.read_csv(frontier_csv_path)
+    strategy_budget = build_strategy_budget_summary(frontier_df, split="train")
+    if not strategy_budget.empty:
+        strategy_budget.to_csv(root / "strategy_budget_summary_train.csv", index=False)
+    return strategy_budget
+
+
 def attach_result_metadata(
     df: pd.DataFrame,
     result_tag: str,
@@ -2624,11 +2801,22 @@ def load_multi_strategy_summaries(
             continue
 
         strategy_budget = read_summary_csv(root, "strategy_budget_summary_train.csv")
-        actionable_lookup = read_summary_csv(root, "actionable_pss_lookup_train.csv")
-        actionable_fit = read_summary_csv(root, "actionable_pss_fit_train.csv")
+        if strategy_budget.empty:
+            strategy_budget = rebuild_strategy_budget_summary(root)
+        actionable_lookup = read_first_summary_csv(
+            root,
+            ["actionable_pss_lookup_train.csv", "actionable_recipe_train.csv"],
+        )
+        actionable_fit = read_first_summary_csv(
+            root,
+            ["actionable_pss_fit_train.csv", "fitted_actionable_recipe_train.csv"],
+        )
         window_sticker = read_summary_csv(root, "window_sticker_summary.csv")
         projection = read_summary_csv(root, "projection_summary.csv")
+        fitted_projection_test = read_summary_csv(root, "fitted_actionable_projection_test.csv")
+        fitted_projection_train = read_summary_csv(root, "fitted_actionable_projection_train.csv")
         virtual_best = read_summary_csv(root, "virtual_best_summary.csv")
+        virtual_best_train = read_summary_csv(root, "virtual_best_lookup_train.csv")
 
         label_source = strategy_budget
         for candidate in [
@@ -2642,8 +2830,11 @@ def load_multi_strategy_summaries(
             if not candidate.empty:
                 label_source = candidate
                 break
-        label = curve_label(label_source, Path(tag).name)
         result_tag = Path(tag).name
+        label_source_for_label = label_source.copy()
+        label_source_for_label["result_tag"] = result_tag
+        label_source_for_label["result_root"] = str(root)
+        label = curve_label(label_source_for_label, result_tag)
 
         rows.append(
             {
@@ -2655,7 +2846,10 @@ def load_multi_strategy_summaries(
                 "actionable_fit": attach_result_metadata(actionable_fit, result_tag, root, label),
                 "window_sticker": attach_result_metadata(window_sticker, result_tag, root, label),
                 "projection": attach_result_metadata(projection, result_tag, root, label),
+                "fitted_projection_test": attach_result_metadata(fitted_projection_test, result_tag, root, label),
+                "fitted_projection_train": attach_result_metadata(fitted_projection_train, result_tag, root, label),
                 "virtual_best": attach_result_metadata(virtual_best, result_tag, root, label),
+                "virtual_best_train": attach_result_metadata(virtual_best_train, result_tag, root, label),
             }
         )
     if missing:
@@ -2678,15 +2872,24 @@ def curve_from_training_summary(df: pd.DataFrame) -> pd.DataFrame:
     required = {"method_label", "T", "response_mean"}
     if df.empty or not required.issubset(df.columns):
         return pd.DataFrame(columns=["method_label", "T", "response"])
+    keep_cols = ["method_label", "T", "response_mean"]
+    optional_cols = [col for col in ["response_std", "n_instances"] if col in df.columns]
     curve = (
-        df.loc[:, ["method_label", "T", "response_mean"]]
+        df.loc[:, keep_cols + optional_cols]
         .dropna(subset=["T", "response_mean"])
         .sort_values(["method_label", "T"])
         .groupby(["method_label", "T"], as_index=False)
-        .first()
+        .mean(numeric_only=True)
         .rename(columns={"response_mean": "response"})
     )
     curve["response_monotone"] = curve.groupby("method_label")["response"].cummax()
+    if {"response_std", "n_instances"}.issubset(curve.columns):
+        counts = pd.to_numeric(curve["n_instances"], errors="coerce").clip(lower=1)
+        sem = pd.to_numeric(curve["response_std"], errors="coerce").fillna(0.0) / np.sqrt(counts)
+        curve["response_lower"] = curve["response"] - 1.96 * sem
+        curve["response_upper"] = curve["response"] + 1.96 * sem
+        curve["response_lower_monotone"] = curve.groupby("method_label")["response_lower"].cummax()
+        curve["response_upper_monotone"] = curve.groupby("method_label")["response_upper"].cummax()
     return curve
 
 
@@ -2695,15 +2898,25 @@ def curve_from_window_summary(df: pd.DataFrame) -> pd.DataFrame:
     required = {"method_label", "resource", "response"}
     if df.empty or not required.issubset(df.columns):
         return pd.DataFrame(columns=["method_label", "resource", "response"])
+    keep_cols = ["method_label", "resource", "response"]
+    optional_cols = [col for col in ["response_lower", "response_upper"] if col in df.columns]
     curve = (
-        df.loc[:, ["method_label", "resource", "response"]]
+        df.loc[:, keep_cols + optional_cols]
         .dropna(subset=["resource", "response"])
         .sort_values(["method_label", "resource"])
         .groupby(["method_label", "resource"], as_index=False)
-        .first()
+        .mean(numeric_only=True)
     )
     curve["response_monotone"] = curve.groupby("method_label")["response"].cummax()
+    for col in ["response_lower", "response_upper"]:
+        if col in curve.columns:
+            curve[f"{col}_monotone"] = curve.groupby("method_label")[col].cummax()
     return curve
+
+
+def curve_from_response_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """Build a monotone response curve from a summary table with resource/response columns."""
+    return curve_from_window_summary(df)
 
 
 def cross_strategy_envelope(
@@ -2738,6 +2951,68 @@ def cross_strategy_envelope(
     return pd.DataFrame(rows)
 
 
+def _display_cross_strategy_envelope(
+    curve_df: pd.DataFrame,
+    resource_col: str,
+    response_col: str = "response_monotone",
+    *,
+    num_points: int = 1000,
+) -> pd.DataFrame:
+    """Build an upper envelope of the linearly displayed method curves."""
+    if curve_df.empty or resource_col not in curve_df or response_col not in curve_df:
+        return pd.DataFrame(columns=[resource_col, response_col])
+
+    valid = curve_df.copy()
+    valid[resource_col] = pd.to_numeric(valid[resource_col], errors="coerce")
+    valid[response_col] = pd.to_numeric(valid[response_col], errors="coerce")
+    valid = valid.dropna(subset=[resource_col, response_col])
+    valid = valid[valid[resource_col] > 0]
+    if valid.empty:
+        return pd.DataFrame(columns=[resource_col, response_col])
+
+    x_min = float(valid[resource_col].min())
+    x_max = float(valid[resource_col].max())
+    if not np.isfinite(x_min) or not np.isfinite(x_max) or x_min <= 0 or x_max < x_min:
+        return pd.DataFrame(columns=[resource_col, response_col])
+
+    if np.isclose(x_min, x_max):
+        grid = np.array([x_min])
+    else:
+        grid = np.geomspace(x_min, x_max, num_points)
+
+    interpolated = []
+    log_grid = np.log10(grid)
+    for _, group in valid.groupby("method_label"):
+        group = (
+            group.sort_values(resource_col)
+            .drop_duplicates(subset=[resource_col], keep="first")
+        )
+        if group.empty:
+            continue
+        x = group[resource_col].to_numpy(dtype=float)
+        y = group[response_col].to_numpy(dtype=float)
+        if len(x) == 1:
+            interp_y = np.full_like(grid, np.nan, dtype=float)
+            interp_y[grid >= x[0]] = y[0]
+        else:
+            interp_y = np.interp(log_grid, np.log10(x), y, left=np.nan, right=y[-1])
+            interp_y[grid < x[0]] = np.nan
+        interpolated.append(interp_y)
+
+    if not interpolated:
+        return pd.DataFrame(columns=[resource_col, response_col])
+
+    values = np.vstack(interpolated)
+    finite_cols = np.isfinite(values).any(axis=0)
+    if not finite_cols.any():
+        return pd.DataFrame(columns=[resource_col, response_col])
+
+    envelope = np.full(grid.shape, np.nan, dtype=float)
+    envelope[finite_cols] = np.nanmax(values[:, finite_cols], axis=0)
+    envelope[finite_cols] = np.maximum.accumulate(envelope[finite_cols])
+    return pd.DataFrame({resource_col: grid[finite_cols], response_col: envelope[finite_cols]})
+
+
 def plot_method_curves(
     curve_df: pd.DataFrame,
     envelope_df: pd.DataFrame,
@@ -2749,31 +3024,581 @@ def plot_method_curves(
     plot_dir: str | Path,
     approx_ylim: tuple[float, float] | None = None,
     approx_yticks: list[float] | None = None,
+    envelope_label: str = "Virtual best",
 ) -> None:
-    """Plot per-method curves and their cross-strategy envelope."""
+    """Plot per-method Window Sticker curves and their cross-method virtual best."""
     if curve_df.empty:
         print(f"Skipping {title}: no curve data found.")
         return
+    percent_ylim, percent_yticks = _percent_axis_values(approx_ylim, approx_yticks)
     plt.figure(figsize=(8.5, 5))
     for label, group in curve_df.groupby("method_label"):
         group = group.sort_values(resource_col)
-        plt.plot(group[resource_col], group["response_monotone"], linewidth=2.0, label=label)
-    if not envelope_df.empty:
+        color = window_sticker_method_color(label)
+        lower_col = "response_lower_monotone" if "response_lower_monotone" in group.columns else "response_lower"
+        upper_col = "response_upper_monotone" if "response_upper_monotone" in group.columns else "response_upper"
+        if lower_col in group.columns and upper_col in group.columns:
+            band = group.copy()
+            band[resource_col] = pd.to_numeric(band[resource_col], errors="coerce")
+            band[lower_col] = pd.to_numeric(band[lower_col], errors="coerce")
+            band[upper_col] = pd.to_numeric(band[upper_col], errors="coerce")
+            band = band.dropna(subset=[resource_col, lower_col, upper_col])
+            if not band.empty:
+                plt.fill_between(
+                    band[resource_col].to_numpy(dtype=float),
+                    band[lower_col].to_numpy(dtype=float) * 100.0,
+                    band[upper_col].to_numpy(dtype=float) * 100.0,
+                    color=color,
+                    alpha=0.14,
+                    linewidth=0,
+                )
         plt.plot(
-            envelope_df[resource_col],
-            envelope_df["response_monotone"],
+            group[resource_col],
+            pd.to_numeric(group["response_monotone"], errors="coerce") * 100.0,
+            color=color,
+            linewidth=2.0,
+            marker="o",
+            markersize=3.5,
+            label=label,
+        )
+    if not envelope_df.empty:
+        display_envelope_df = _display_cross_strategy_envelope(
+            curve_df,
+            resource_col,
+        )
+        if display_envelope_df.empty:
+            display_envelope_df = envelope_df
+        plt.plot(
+            display_envelope_df[resource_col],
+            pd.to_numeric(display_envelope_df["response_monotone"], errors="coerce") * 100.0,
             color="black",
             linewidth=2.8,
             linestyle="--",
-            label="Envelope across strategies",
+            label=envelope_label,
         )
     plt.xscale("log")
-    plt.xlabel(r"Resource $T_{\mathrm{proxy}}$")
-    plt.ylabel(ylabel)
-    apply_shared_approx_axis(ylim=approx_ylim, yticks=approx_yticks)
-    plt.title(title)
+    plt.xlabel(
+        r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + NMt_{\mathrm{shot}} + Qt_{\mathrm{shot}}$) [s]",
+        fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
+    )
+    plt.ylabel(_percent_approx_ylabel(ylabel), fontsize=WINDOW_STICKER_LABEL_FONTSIZE)
+    plt.tick_params(axis="both", labelsize=WINDOW_STICKER_TICK_FONTSIZE)
+    apply_shared_approx_axis(ylim=percent_ylim, yticks=percent_yticks)
+    plt.gca().yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+    if title:
+        plt.title(title)
     plt.grid(alpha=0.25)
-    plt.legend()
+    plt.legend(loc="best", frameon=True, fontsize=WINDOW_STICKER_LEGEND_FONTSIZE)
+    save_current_plot(filename, plot_dir)
+    plt.show()
+
+
+def plot_multi_method_window_sticker_components(
+    *,
+    virtual_best_df: pd.DataFrame,
+    averaged_prescription_df: pd.DataFrame | None = None,
+    fitted_prescription_df: pd.DataFrame,
+    plot_dir: str | Path,
+    filename: str,
+    ylabel: str,
+    title: str | None = None,
+    approx_ylim: tuple[float, float] | None = None,
+    approx_yticks: list[float] | None = None,
+    show_ci: bool = True,
+) -> None:
+    """Overlay each method's virtual best and actionable fitted prescription curves."""
+    # Kept in the signature for older notebook calls; intentionally not plotted here.
+    _ = averaged_prescription_df
+
+    def _local_method_color(label: str, color_fn=window_sticker_method_color) -> str:
+        return color_fn(label)
+
+    curves = {
+        "Actionable fit prescription": curve_from_response_summary(fitted_prescription_df),
+        "Virtual best": curve_from_response_summary(virtual_best_df),
+    }
+    if all(curve.empty for curve in curves.values()):
+        print(f"Skipping {filename}: no multi-method Window Sticker curves found.")
+        return
+    percent_ylim, percent_yticks = _percent_axis_values(approx_ylim, approx_yticks)
+
+    labels = sorted(
+        {
+            label
+            for curve in curves.values()
+            if not curve.empty
+            for label in curve["method_label"].dropna().astype(str).unique()
+        }
+    )
+    color_map = window_sticker_method_color_map(labels)
+    style_map = {
+        "Virtual best": {
+            "linestyle": "-",
+            "marker": "o",
+            "linewidth": 3.0,
+            "markersize": 4.6,
+            "alpha": 1.0,
+            "zorder": 6,
+        },
+        "Actionable fit prescription": {
+            "linestyle": "-.",
+            "marker": "s",
+            "linewidth": 1.8,
+            "markersize": 3.6,
+            "alpha": 0.8,
+            "zorder": 3,
+        },
+    }
+
+    fig, ax = plt.subplots(figsize=(8.5, 5))
+    plotted_x: list[float] = []
+    plotted_y: list[float] = []
+    for curve_name, curve in curves.items():
+        if curve.empty:
+            continue
+        style = style_map[curve_name]
+        for label, group in curve.groupby("method_label"):
+            group = group.loc[:, ~group.columns.duplicated()].copy()
+            group["resource"] = pd.to_numeric(group["resource"], errors="coerce")
+            group["response_monotone"] = pd.to_numeric(group["response_monotone"], errors="coerce")
+            group = group.dropna(subset=["resource", "response_monotone"])
+            group = group[group["resource"] > 0].sort_values("resource")
+            if group.empty:
+                continue
+            lower_col = "response_lower_monotone" if "response_lower_monotone" in group.columns else "response_lower"
+            upper_col = "response_upper_monotone" if "response_upper_monotone" in group.columns else "response_upper"
+            if show_ci and lower_col in group.columns and upper_col in group.columns:
+                lower = pd.to_numeric(group[lower_col], errors="coerce")
+                upper = pd.to_numeric(group[upper_col], errors="coerce")
+                band = group.assign(_lower=lower, _upper=upper).dropna(
+                    subset=["resource", "_lower", "_upper"]
+                )
+                if not band.empty:
+                    band_lower = band["_lower"].to_numpy(dtype=float) * 100.0
+                    band_upper = band["_upper"].to_numpy(dtype=float) * 100.0
+                    ax.fill_between(
+                        band["resource"].to_numpy(dtype=float),
+                        band_lower,
+                        band_upper,
+                        color=color_map[str(label)],
+                        alpha=0.14 if curve_name == "Virtual best" else 0.08,
+                        linewidth=0,
+                        zorder=max(1, style["zorder"] - 2),
+                    )
+                    plotted_y.extend(band_lower)
+                    plotted_y.extend(band_upper)
+            response_percent = group["response_monotone"].to_numpy(dtype=float) * 100.0
+            ax.plot(
+                group["resource"],
+                response_percent,
+                color=color_map[str(label)],
+                label=None,
+                **style,
+            )
+            plotted_x.extend(group["resource"].to_numpy(dtype=float))
+            plotted_y.extend(response_percent)
+
+    ax.set_xscale("log")
+    ax.set_xlabel(
+        r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + NMt_{\mathrm{shot}} + Qt_{\mathrm{shot}}$) [s]",
+        fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
+    )
+    display_ylabel = _percent_approx_ylabel(ylabel).replace(" on ", "\non ", 1)
+    ax.set_ylabel(display_ylabel, fontsize=WINDOW_STICKER_LABEL_FONTSIZE, labelpad=10)
+    ax.tick_params(axis="both", labelsize=WINDOW_STICKER_TICK_FONTSIZE)
+    finite_x = np.asarray([x for x in plotted_x if np.isfinite(x) and x > 0], dtype=float)
+    finite_y = np.asarray([y for y in plotted_y if np.isfinite(y)], dtype=float)
+    if finite_x.size:
+        ax.set_xlim(float(finite_x.min()), float(finite_x.max()))
+    if percent_ylim is not None:
+        apply_shared_approx_axis(ax, ylim=percent_ylim, yticks=percent_yticks)
+    elif finite_y.size:
+        y_min = float(finite_y.min())
+        y_max = float(finite_y.max())
+        y_span = y_max - y_min
+        y_pad = max(0.3, 0.06 * y_span) if y_span > 0 else 0.3
+        ax.set_ylim(y_min - y_pad, y_max + y_pad)
+    ax.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+    _ = title
+    ax.grid(alpha=0.25)
+
+    method_handles = [
+        Line2D([0], [0], color=color_map[label], linewidth=2.6, label=_ws_display_method_label(label))
+        for label in labels
+    ]
+    curve_handles = [
+        Line2D([0], [0], color="black", label=name, **style)
+        for name, style in style_map.items()
+    ]
+    ax.legend(
+        handles=[*curve_handles, *method_handles],
+        loc="lower right",
+        bbox_to_anchor=(0.98, 0.04),
+        frameon=True,
+        ncol=1,
+        fontsize=max(10, WINDOW_STICKER_LEGEND_FONTSIZE - 2),
+        handlelength=2.4,
+        handletextpad=0.6,
+        labelspacing=0.35,
+    )
+    fig.tight_layout()
+    save_current_plot(filename, plot_dir)
+    plt.show()
+
+
+def plot_multi_method_window_sticker_component_panels(
+    *,
+    training_virtual_best_df: pd.DataFrame,
+    training_fitted_prescription_df: pd.DataFrame,
+    test_virtual_best_df: pd.DataFrame,
+    test_fitted_prescription_df: pd.DataFrame,
+    plot_dir: str | Path,
+    filename: str,
+    approx_ylim: tuple[float, float] | None = None,
+    approx_yticks: list[float] | None = None,
+    show_ci: bool = True,
+) -> None:
+    """Plot training and test multi-method Window Sticker curves as shared-y panels.
+
+    Depths are annotated in red on each virtual-best curve so the legend can be
+    collapsed to one entry per method family.  The legend is placed in the gap
+    between the two panels.
+    """
+
+    style_map = {
+        "Virtual best": {
+            "linestyle": "-",
+            "marker": "o",
+            "linewidth": 2.6,
+            "markersize": 3.8,
+            "alpha": 1.0,
+            "zorder": 6,
+        },
+        "Actionable fit prescription": {
+            "linestyle": "-.",
+            "marker": "s",
+            "linewidth": 1.7,
+            "markersize": 3.0,
+            "alpha": 0.85,
+            "zorder": 3,
+        },
+    }
+
+    panel_data = [
+        (
+            "Training instances",
+            {
+                "Actionable fit prescription": curve_from_response_summary(training_fitted_prescription_df),
+                "Virtual best": curve_from_response_summary(training_virtual_best_df),
+            },
+        ),
+        (
+            "Test instances",
+            {
+                "Actionable fit prescription": curve_from_response_summary(test_fitted_prescription_df),
+                "Virtual best": curve_from_response_summary(test_virtual_best_df),
+            },
+        ),
+    ]
+    if all(curve.empty for _, curves in panel_data for curve in curves.values()):
+        print(f"Skipping {filename}: no multi-method Window Sticker curves found.")
+        return
+
+    labels = sorted(
+        {
+            label
+            for _, curves in panel_data
+            for curve in curves.values()
+            if not curve.empty
+            for label in curve["method_label"].dropna().astype(str).unique()
+        }
+    )
+    # Same base color for every depth of the same method family so the legend
+    # only needs one entry per method rather than one per (method, depth) pair.
+    # Fixed Angles† (no-opt) gets a lighter blue to visually distinguish it
+    # from Fixed Angles* (full COBYLA optimisation).
+    def _family_color(lbl: str) -> str:
+        if "fixed angles" in str(lbl).lower() and re.search(r"\$\^\\dagger\$|[†]", str(lbl)):
+            return _shade_color("#4477AA", 0.40)
+        return window_sticker_method_color(lbl)
+
+    color_map = {label: _family_color(label) for label in labels}
+    _ = approx_ylim, approx_yticks
+
+    def _pareto_frontier_from_curves(curves: list[pd.DataFrame]) -> pd.DataFrame:
+        """Build the non-dominated upper envelope across method curves."""
+        frames = []
+        for curve in curves:
+            if curve.empty or not {"resource", "response_percent", "method_label"}.issubset(curve.columns):
+                continue
+            frame = curve.loc[:, ["resource", "response_percent", "method_label"]].copy()
+            frame["resource"] = pd.to_numeric(frame["resource"], errors="coerce")
+            frame["response_percent"] = pd.to_numeric(frame["response_percent"], errors="coerce")
+            frame = frame.dropna(subset=["resource", "response_percent"])
+            frame = frame[frame["resource"] > 0]
+            if not frame.empty:
+                frames.append(frame)
+        if not frames:
+            return pd.DataFrame(columns=["resource", "response_percent", "method_label"])
+
+        candidates = (
+            pd.concat(frames, ignore_index=True)
+            .sort_values(["resource", "response_percent"], ascending=[True, False])
+            .drop_duplicates(subset=["resource"], keep="first")
+            .sort_values("resource")
+            .reset_index(drop=True)
+        )
+        rows = []
+        best_response = -np.inf
+        best_label = None
+        for row in candidates.itertuples(index=False):
+            response = float(row.response_percent)
+            label = str(row.method_label)
+            if response > best_response:
+                best_response = response
+                best_label = label
+            rows.append(
+                {
+                    "resource": float(row.resource),
+                    "response_percent": best_response,
+                    "method_label": best_label,
+                }
+            )
+        pareto = pd.DataFrame(rows)
+        return pareto.drop_duplicates(
+            subset=["resource", "response_percent", "method_label"],
+            keep="last",
+        )
+
+    def _plot_actionable_pareto(ax, pareto: pd.DataFrame) -> None:
+        """Draw the actionable Pareto frontier as a high-contrast overlay."""
+        if pareto.empty:
+            return
+        pareto = pareto.sort_values("resource").reset_index(drop=True)
+        ax.plot(
+            pareto["resource"],
+            pareto["response_percent"],
+            color="black",
+            linestyle="-",
+            linewidth=4.4,
+            alpha=0.98,
+            solid_capstyle="round",
+            label=None,
+            zorder=12,
+        )
+
+    # Pre-compute global x_max so every curve extends to the same right border.
+    global_x_max: float | None = None
+    for _, curves in panel_data:
+        for curve in curves.values():
+            if curve.empty:
+                continue
+            x_vals = pd.to_numeric(curve["resource"], errors="coerce").dropna()
+            x_vals = x_vals[x_vals > 0]
+            if not x_vals.empty:
+                candidate = float(x_vals.max())
+                if global_x_max is None or candidate > global_x_max:
+                    global_x_max = candidate
+
+    fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.8), sharey=True)
+
+    all_y: list[float] = []
+    panel_pareto_sources: list[list[pd.DataFrame]] = [[], []]
+    panel_annotations: list[list[tuple[float, float, str]]] = [[], []]
+
+    for panel_idx, (panel_label, curves) in enumerate(panel_data):
+        ax = axes[panel_idx]
+        panel_x: list[float] = []
+        panel_y: list[float] = []
+        for curve_name, curve in curves.items():
+            if curve.empty:
+                continue
+            style = style_map[curve_name]
+            for label, group in curve.groupby("method_label"):
+                group = group.loc[:, ~group.columns.duplicated()].copy()
+                group["resource"] = pd.to_numeric(group["resource"], errors="coerce")
+                group["response_monotone"] = pd.to_numeric(group["response_monotone"], errors="coerce")
+                group = group.dropna(subset=["resource", "response_monotone"])
+                group = group[group["resource"] > 0].sort_values("resource")
+                if group.empty:
+                    continue
+
+                # Save the natural endpoint before extending the tail.
+                natural_last_x = float(group["resource"].iloc[-1])
+                natural_last_y = float(group["response_monotone"].iloc[-1]) * 100.0
+
+                # Extend flat monotone tail to the global right border.
+                if global_x_max is not None and natural_last_x < global_x_max:
+                    tail = group.iloc[[-1]].copy()
+                    tail["resource"] = global_x_max
+                    group = pd.concat([group, tail], ignore_index=True)
+
+                lower_col = "response_lower_monotone" if "response_lower_monotone" in group.columns else "response_lower"
+                upper_col = "response_upper_monotone" if "response_upper_monotone" in group.columns else "response_upper"
+                if show_ci and lower_col in group.columns and upper_col in group.columns:
+                    lower = pd.to_numeric(group[lower_col], errors="coerce")
+                    upper = pd.to_numeric(group[upper_col], errors="coerce")
+                    band = group.assign(_lower=lower, _upper=upper).dropna(
+                        subset=["resource", "_lower", "_upper"]
+                    )
+                    if not band.empty:
+                        band_lower = band["_lower"].to_numpy(dtype=float) * 100.0
+                        band_upper = band["_upper"].to_numpy(dtype=float) * 100.0
+                        ax.fill_between(
+                            band["resource"].to_numpy(dtype=float),
+                            band_lower,
+                            band_upper,
+                            color=color_map[str(label)],
+                            alpha=0.14 if curve_name == "Virtual best" else 0.08,
+                            linewidth=0,
+                            zorder=max(1, style["zorder"] - 2),
+                        )
+                response_percent = group["response_monotone"].to_numpy(dtype=float) * 100.0
+                ax.plot(
+                    group["resource"],
+                    response_percent,
+                    color=color_map[str(label)],
+                    label=None,
+                    **style,
+                )
+                panel_x.extend(group["resource"].to_numpy(dtype=float))
+                panel_y.extend(response_percent)
+
+                # Build the actionable Pareto frontier from realizable fitted prescriptions.
+                if curve_name == "Actionable fit prescription":
+                    panel_pareto_sources[panel_idx].append(
+                        pd.DataFrame(
+                            {
+                                "resource": group["resource"].to_numpy(dtype=float),
+                                "response_percent": response_percent,
+                                "method_label": str(label),
+                            }
+                        )
+                    )
+
+                # Collect depth annotation for virtual-best curves only.
+                if curve_name == "Virtual best":
+                    depth_match = re.search(r"\(p\s*=\s*(\d+)\)", str(label))
+                    if depth_match:
+                        panel_annotations[panel_idx].append(
+                            (natural_last_x, natural_last_y, f"p={depth_match.group(1)}")
+                        )
+
+        pareto = _pareto_frontier_from_curves(panel_pareto_sources[panel_idx])
+        if not pareto.empty:
+            _plot_actionable_pareto(ax, pareto)
+            panel_x.extend(pareto["resource"].to_numpy(dtype=float))
+            panel_y.extend(pareto["response_percent"].to_numpy(dtype=float))
+
+        finite_x = np.asarray([x for x in panel_x if np.isfinite(x) and x > 0], dtype=float)
+        if finite_x.size:
+            ax.set_xlim(float(finite_x.min()), float(finite_x.max()))
+        all_y.extend(panel_y)
+        ax.set_xscale("log")
+        ax.set_xlabel(
+            r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + NMt_{\mathrm{shot}} + Qt_{\mathrm{shot}}$) [s]",
+            fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
+        )
+        ax.tick_params(axis="both", labelsize=WINDOW_STICKER_TICK_FONTSIZE)
+        ax.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+        ax.grid(alpha=0.25)
+        ax.text(
+            0.03,
+            0.94,
+            f"({chr(ord('a') + panel_idx)}) {panel_label}",
+            transform=ax.transAxes,
+            fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
+            va="top",
+            ha="left",
+        )
+
+    if all_y:
+        finite_y = np.asarray([y for y in all_y if np.isfinite(y)], dtype=float)
+        if finite_y.size:
+            y_min = float(finite_y.min())
+            y_max = float(finite_y.max())
+            y_span = y_max - y_min
+            y_pad_low = max(0.05, 0.01 * y_span) if y_span > 0 else 0.05
+            y_pad_high = max(0.15, 0.025 * y_span) if y_span > 0 else 0.15
+            for ax in axes:
+                ax.set_ylim(y_min - y_pad_low, y_max + y_pad_high)
+                ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+                ax.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+
+    axes[0].set_ylabel(
+        "Approximation ratio (%)",
+        fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
+        labelpad=10,
+    )
+
+    # Draw depth annotations in red on each panel.  Sort by y descending and
+    # apply a minimum vertical separation to avoid label overlap.
+    for panel_idx, ax in enumerate(axes):
+        annotations = sorted(panel_annotations[panel_idx], key=lambda a: a[1], reverse=True)
+        spaced: list[tuple[float, float, str]] = []
+        min_sep = 0.35
+        last_y: float | None = None
+        for ann_x, ann_y, text in annotations:
+            if last_y is not None and last_y - ann_y < min_sep:
+                ann_y = last_y - min_sep
+            spaced.append((ann_x, ann_y, text))
+            last_y = ann_y
+        for ann_x, ann_y, text in spaced:
+            ax.annotate(
+                text,
+                xy=(ann_x, ann_y),
+                xytext=(4, 0),
+                textcoords="offset points",
+                fontsize=9,
+                color="red",
+                va="center",
+                ha="left",
+                clip_on=True,
+                zorder=10,
+            )
+
+    # Build compact legend: one entry per unique method base (depth stripped) +
+    # one entry per curve type.  Place it in the gap between the two panels.
+    seen_bases: set[str] = set()
+    method_handles: list[Line2D] = []
+    for label in sorted(labels):
+        display = _ws_display_method_label(label)
+        base = re.sub(r"\s*\(p\s*=\s*\d+\)\s*$", "", display).strip()
+        if base not in seen_bases:
+            seen_bases.add(base)
+            # Render * and † as proper LaTeX superscripts in the legend.
+            legend_label = base.replace("*", r"$^*$").replace("†", r"$^\dagger$")
+            method_handles.append(
+                Line2D([0], [0], color=_family_color(label), linewidth=2.6, label=legend_label)
+            )
+    pareto_handle = Line2D(
+        [0],
+        [0],
+        color="0.2",
+        linestyle="-",
+        linewidth=4.4,
+        label="Actionable Pareto frontier",
+    )
+    curve_handles = [
+        Line2D([0], [0], color="black", label=name, **style)
+        for name, style in style_map.items()
+    ]
+
+    fig.legend(
+        handles=[pareto_handle] + curve_handles + method_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.0),
+        bbox_transform=fig.transFigure,
+        frameon=True,
+        ncol=3,
+        fontsize=WINDOW_STICKER_LEGEND_FONTSIZE,
+        handlelength=1.8,
+        handletextpad=0.5,
+        columnspacing=1.2,
+        labelspacing=0.4,
+    )
+
+    fig.tight_layout(rect=[0.0, 0.17, 1.0, 1.0], w_pad=2.0)
     save_current_plot(filename, plot_dir)
     plt.show()
 
@@ -2900,72 +3725,102 @@ def plot_parameter_prescriptions_by_resource(
     parameter_cols: tuple[str, ...] = ("N", "M", "Q"),
     parameter_ylims: dict[str, tuple[float, float]] | None = None,
     connect_points: bool = True,
+    connect_lookup: bool = True,
     show_virtual_best: bool = True,
-    show_lookup: bool = True,
+    show_lookup: bool = False,
     actionable_marker: str | None = "s",
 ) -> None:
     """Plot N/M/Q prescriptions against a resource axis."""
     parameter_ylims = parameter_ylims or {}
-    required_candidate = {candidate_resource_col, *parameter_cols}
-    if candidate_df.empty or not required_candidate.issubset(candidate_df.columns):
+    if candidate_df.empty or candidate_resource_col not in candidate_df.columns:
         print(f"Skipping {title}: candidate parameter data not found.")
         return
 
-    candidates = candidate_df.loc[:, [candidate_resource_col, *parameter_cols]].copy()
+    parameter_sources = [candidate_df, virtual_best_df, actionable_df]
+    if lookup_df is not None:
+        parameter_sources.append(lookup_df)
+    active_parameter_cols = tuple(
+        col for col in parameter_cols
+        if any(
+            col in source.columns and (pd.to_numeric(source[col], errors="coerce") > 0).any()
+            for source in parameter_sources
+            if source is not None and not source.empty
+        )
+    )
+    if not active_parameter_cols:
+        print(f"Skipping {title}: no non-empty prescription parameter columns found.")
+        return
+
+    candidate_cols = [candidate_resource_col, *[col for col in active_parameter_cols if col in candidate_df.columns]]
+    candidates = candidate_df.loc[:, candidate_cols].copy()
     candidates[candidate_resource_col] = pd.to_numeric(candidates[candidate_resource_col], errors="coerce")
-    for col in parameter_cols:
+    for col in active_parameter_cols:
+        if col not in candidates.columns:
+            candidates[col] = np.nan
         candidates[col] = pd.to_numeric(candidates[col], errors="coerce")
-    candidates = candidates.dropna(subset=[candidate_resource_col, *parameter_cols])
+    candidates = candidates.dropna(subset=[candidate_resource_col])
     candidates = candidates[candidates[candidate_resource_col] > 0].drop_duplicates()
     if candidates.empty:
         print(f"Skipping {title}: no positive candidate resource values.")
         return
 
+    method_label = None
+    for source in [virtual_best_df, actionable_df, lookup_df, candidate_df]:
+        if source is None or source.empty:
+            continue
+        if "method_label" in source.columns and source["method_label"].notna().any():
+            method_label = str(source["method_label"].dropna().iloc[0])
+            break
+        if "strategy" in source.columns and source["strategy"].notna().any():
+            method_label = str(source["strategy"].dropna().iloc[0])
+            break
+    curve_colors = window_sticker_curve_colors(method_label or "")
     curves = {}
     if show_virtual_best:
         curves["Average virtual-best winner"] = (
             _prepare_parameter_curve(
                 virtual_best_df,
                 resource_col=curve_resource_col,
-                parameter_cols=parameter_cols,
+                parameter_cols=active_parameter_cols,
             ),
-            {"color": "tab:blue", "marker": "o", "linewidth": 2.1, "linestyle": "-"},
+            {"color": curve_colors["virtual_best"], "marker": "o", "linewidth": 2.1, "linestyle": "-"},
         )
     if show_lookup and lookup_df is not None:
-        curves["Lookup prescription"] = (
+        curves["Averaged virtual-best prescription"] = (
             _prepare_parameter_curve(
                 lookup_df,
                 resource_col=curve_resource_col,
-                parameter_cols=parameter_cols,
+                parameter_cols=active_parameter_cols,
             ),
-            {"color": "tab:green", "marker": "^", "linewidth": 1.8, "linestyle": "--"},
+            {"color": curve_colors["averaged_prescription"], "marker": "^", "linewidth": 1.8, "linestyle": "--"},
         )
-    curves["Actionable prescription"] = (
+    curves["Actionable fit prescription"] = (
         _prepare_parameter_curve(
             actionable_df,
             resource_col=curve_resource_col,
-            parameter_cols=parameter_cols,
+            parameter_cols=active_parameter_cols,
         ),
-        {"color": "tab:orange", "marker": actionable_marker, "linewidth": 2.1, "linestyle": "-"},
+        {"color": "black", "marker": actionable_marker, "linewidth": 3.2, "linestyle": "-"},
     )
 
     fig, axes = plt.subplots(
-        len(parameter_cols),
+        len(active_parameter_cols),
         1,
-        figsize=(13.5, 10),
+        figsize=(13.5, 3.6 * len(active_parameter_cols) + 1.0),
         sharex=True,
         constrained_layout=True,
     )
-    if len(parameter_cols) == 1:
+    if len(active_parameter_cols) == 1:
         axes = [axes]
 
-    for ax, parameter in zip(axes, parameter_cols):
+    for ax, parameter in zip(axes, active_parameter_cols):
+        candidate_points = candidates.dropna(subset=[parameter])
         ax.scatter(
-            candidates[candidate_resource_col],
-            candidates[parameter],
+            candidate_points[candidate_resource_col],
+            candidate_points[parameter],
             s=24,
-            color="0.55",
-            alpha=0.45,
+            color="0.28",
+            alpha=0.55,
             linewidths=0,
             label="Candidate settings",
             zorder=1,
@@ -2973,7 +3828,10 @@ def plot_parameter_prescriptions_by_resource(
         for label, (curve, style) in curves.items():
             if curve.empty:
                 continue
-            if connect_points:
+            draw_connected = connect_points
+            if label == "Averaged virtual-best prescription":
+                draw_connected = connect_lookup
+            if draw_connected:
                 ax.plot(
                     curve[curve_resource_col],
                     curve[parameter],
@@ -2995,23 +3853,41 @@ def plot_parameter_prescriptions_by_resource(
                 )
         ax.set_xscale("log")
         ax.set_yscale("log")
-        ax.set_ylabel(parameter, fontsize=13)
+        ax.set_ylabel(parameter, fontsize=WINDOW_STICKER_LABEL_FONTSIZE)
+        ax.tick_params(axis="both", labelsize=WINDOW_STICKER_TICK_FONTSIZE)
         if parameter in parameter_ylims:
             ax.set_ylim(*parameter_ylims[parameter])
+        else:
+            y_values = []
+            y_values.extend(pd.to_numeric(candidate_points[parameter], errors="coerce").dropna().tolist())
+            for curve, _style in curves.values():
+                if curve.empty or parameter not in curve.columns:
+                    continue
+                y_values.extend(pd.to_numeric(curve[parameter], errors="coerce").dropna().tolist())
+            y_values = [float(value) for value in y_values if np.isfinite(value) and value > 0]
+            if y_values:
+                y_min = min(y_values)
+                y_max = max(y_values)
+                if np.isclose(y_min, y_max):
+                    ax.set_ylim(y_min / 1.5, y_max * 1.5)
+                else:
+                    ax.set_ylim(y_min / 1.25, y_max * 1.25)
         ax.grid(alpha=0.35, which="major", linestyle="-.")
         ax.grid(alpha=0.12, which="minor", linestyle=":")
 
-    axes[-1].set_xlabel(xlabel, fontsize=13)
-    fig.suptitle(title, fontsize=17)
+    axes[-1].set_xlabel(xlabel, fontsize=WINDOW_STICKER_LABEL_FONTSIZE)
+    if title:
+        fig.suptitle(title, fontsize=WINDOW_STICKER_TITLE_FONTSIZE)
 
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(
         handles,
         labels,
         loc="lower center",
-        bbox_to_anchor=(0.5, -0.02),
+        bbox_to_anchor=(0.5, -0.06),
         ncol=4,
         frameon=True,
+        fontsize=WINDOW_STICKER_LEGEND_FONTSIZE,
     )
     save_current_plot(filename, plot_dir)
     plt.show()

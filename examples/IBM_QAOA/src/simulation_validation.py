@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import re
+import statistics
 import sys
 import time
 from dataclasses import dataclass
@@ -31,6 +32,10 @@ from .approx_ratio_calc import (
 DEFAULT_MAIN_REPO = Path(__file__).resolve().parents[3] / "QAOA-Parameter-Setting"
 DEFAULT_PIPELINE_REPO = Path(__file__).resolve().parents[3] / "qaoa_training_pipeline"
 DEFAULT_INSTANCE_CACHE_ROOT = Path(__file__).resolve().parents[1] / "data" / "generated_instances"
+STRATEGY_RAW_POINTS_FILENAME = "strategy_raw_points.pkl"
+TRANSFER_RAW_POINTS_FILENAME = "transfer_raw_points.pkl"
+LEGACY_FA_RAW_POINTS_FILENAME = "fa_raw_points.pkl"
+LEGACY_PT_RAW_POINTS_FILENAME = "pt_raw_points.pkl"
 
 TRAINING_INDEPENDENT = "training-independent"
 SCHEDULE_REFINED = "schedule-generated but optimizer-refined"
@@ -91,6 +96,153 @@ def instance_cache_root_path(instance_cache_root: str | Path | None = None) -> P
         instance_cache_root
         or os.environ.get("IBM_QAOA_INSTANCE_CACHE_ROOT", DEFAULT_INSTANCE_CACHE_ROOT)
     ).expanduser()
+
+
+def estimate_hardware_time_per_shot(
+    hardware_root: str | Path,
+    *,
+    graph_type: str = "heavy_hex",
+    num_nodes: int | None = None,
+    job_p: int | None = None,
+    statistic: str = "median",
+    normalize_by_pubs: bool = True,
+) -> float:
+    """Estimate effective hardware seconds per circuit/PUB shot from saved IBM results."""
+    def _result_depths(result_path: Path, payload: list[dict]) -> set[int]:
+        # Keep this local so notebook sessions holding a reloaded function do not
+        # depend on a separately imported helper from an older module namespace.
+        depths: set[int] = set()
+
+        stem_parts = result_path.stem.split("_")
+        for token in stem_parts[1:3]:
+            if re.fullmatch(r"\d+", token):
+                depths.add(int(token))
+
+        for record in payload:
+            if not isinstance(record, dict):
+                continue
+            for key in ("job_p", "p", "depth", "qaoa_depth", "reps"):
+                value = record.get(key)
+                try:
+                    if value is not None:
+                        depths.add(int(value))
+                except (TypeError, ValueError):
+                    pass
+
+            metadata = record.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            for key in ("job_p", "p", "depth", "qaoa_depth", "reps"):
+                value = metadata.get(key)
+                try:
+                    if value is not None:
+                        depths.add(int(value))
+                except (TypeError, ValueError):
+                    pass
+            method = str(metadata.get("method", ""))
+            match = re.search(r"_(\d+)$", method)
+            if match:
+                depths.add(int(match.group(1)))
+            result_file = str(metadata.get("result_file", ""))
+            match = re.search(r"_(\d+)\.json$", result_file)
+            if match:
+                depths.add(int(match.group(1)))
+
+        return depths
+
+    root = Path(hardware_root).expanduser()
+    search_root = root / graph_type if (root / graph_type).exists() else root
+    if not search_root.exists():
+        raise FileNotFoundError(f"Hardware results root does not exist: {search_root}")
+
+    node_pattern = re.compile(rf"N{int(num_nodes)}(?!\d)") if num_nodes is not None else None
+    job_p_value = int(job_p) if job_p is not None else None
+    values: list[float] = []
+    for result_path in sorted(search_root.rglob("*.json")):
+        if node_pattern is not None and node_pattern.search(result_path.name) is None:
+            continue
+        try:
+            payload = load_json(result_path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
+            continue
+        if job_p_value is not None and job_p_value not in _result_depths(result_path, payload):
+            continue
+
+        summary = payload[0]
+        if "total_time" not in summary or "num_shots" not in summary:
+            continue
+        try:
+            total_time = float(summary["total_time"])
+            num_shots = float(summary["num_shots"])
+            num_pubs = float(summary.get("num_pubs", 1.0) or 1.0)
+        except (TypeError, ValueError):
+            continue
+
+        denominator = num_shots * num_pubs if normalize_by_pubs else num_shots
+        if total_time > 0 and denominator > 0:
+            values.append(total_time / denominator)
+
+    if not values:
+        raise ValueError(
+            "No hardware summary records with total_time and num_shots were found "
+            f"under {search_root} for graph_type={graph_type!r}, num_nodes={num_nodes!r}, "
+            f"job_p={job_p!r}."
+        )
+
+    statistic_key = str(statistic).lower()
+    if statistic_key == "median":
+        return float(statistics.median(values))
+    if statistic_key == "mean":
+        return float(statistics.mean(values))
+    if statistic_key == "min":
+        return float(min(values))
+    if statistic_key == "max":
+        return float(max(values))
+    raise ValueError(f"Unsupported hardware time-per-shot statistic: {statistic!r}")
+
+
+def _hardware_result_depths(result_path: Path, payload: list[dict]) -> set[int]:
+    """Infer QAOA depths represented by a saved hardware result JSON."""
+    depths: set[int] = set()
+
+    stem_parts = result_path.stem.split("_")
+    for token in stem_parts[1:3]:
+        if re.fullmatch(r"\d+", token):
+            depths.add(int(token))
+
+    for record in payload:
+        if not isinstance(record, dict):
+            continue
+        for key in ("job_p", "p", "depth", "qaoa_depth", "reps"):
+            value = record.get(key)
+            try:
+                if value is not None:
+                    depths.add(int(value))
+            except (TypeError, ValueError):
+                pass
+
+        metadata = record.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        for key in ("job_p", "p", "depth", "qaoa_depth", "reps"):
+            value = metadata.get(key)
+            try:
+                if value is not None:
+                    depths.add(int(value))
+            except (TypeError, ValueError):
+                pass
+        method = str(metadata.get("method", ""))
+        match = re.search(r"_(\d+)$", method)
+        if match:
+            depths.add(int(match.group(1)))
+        result_file = str(metadata.get("result_file", ""))
+        match = re.search(r"_(\d+)\.json$", result_file)
+        if match:
+            depths.add(int(match.group(1)))
+
+    return depths
 
 
 def generated_instance_cache_key(
@@ -2313,6 +2465,47 @@ def _prepare_prefix_rows(
     return rows
 
 
+def _instance_average_degree(graph_path: str | Path, num_nodes: int) -> float:
+    graph_data = load_json(graph_path)
+    if "edge list" not in graph_data:
+        raise KeyError(f"Expected 'edge list' in graph file: {graph_path}")
+    return 2.0 * float(len(graph_data["edge list"])) / float(num_nodes)
+
+
+def _load_depth_matched_pt_angles(
+    database_path: str | Path,
+    *,
+    reps: int,
+    graph_path: str | Path,
+    num_nodes: int,
+) -> list[float]:
+    database = load_json(database_path)
+    avg_degree = _instance_average_degree(graph_path, num_nodes)
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for key, value in database.items():
+        features = tuple(float(part.strip()) for part in str(key).split(","))
+        if not features or int(round(features[0])) != int(reps):
+            continue
+        degree_distance = abs(float(features[1]) - avg_degree) if len(features) > 1 else 0.0
+        candidates.append((degree_distance, value))
+
+    if not candidates:
+        raise ValueError(
+            f"No PT transfer angles with QAOA depth p={reps} were found in {database_path}."
+        )
+
+    _, selected = min(candidates, key=lambda item: item[0])
+    angles = np.asarray(selected["qaoa_angles"], dtype=float)
+    if angles.ndim == 2:
+        angles = np.mean(angles, axis=0)
+    angles = np.ravel(angles)
+    if len(angles) // 2 != int(reps):
+        raise ValueError(
+            "Depth-matched PT database lookup returned angles for the wrong QAOA depth."
+        )
+    return angles.tolist()
+
+
 def run_pt_pss_exact_points(
     spec: InstanceSpec,
     *,
@@ -2346,22 +2539,47 @@ def run_pt_pss_exact_points(
     context = load_instance_context(spec, main_repo)
     cost_op = build_cost_operator_from_graph(context["graph_path"], pipeline_repo)
     method_config = load_method_config(method_configs[method_name])
-    result_bundle = run_method_from_config(
-        cost_op,
-        method_config,
-        main_repo=main_repo,
-        pipeline_repo=pipeline_repo,
-        train_kwargs_overrides=native_train_kwargs_overrides(
-            method_config,
+    transfer_start = time.perf_counter()
+    if method_name == "PT_PP_AAA":
+        qaoa_angles = _load_depth_matched_pt_angles(
+            required_transfer_db,
             reps=reps,
-            spec=spec,
             graph_path=context["graph_path"],
-        ),
-        disable_transfer_evaluator=True,
-        allow_transfer_fallback=False,
-    )
-    stage = latest_stage_data(result_bundle)
-    circuit = build_bound_qaoa_circuit(cost_op, stage["optimized_qaoa_angles"])
+            num_nodes=spec.num_nodes,
+        )
+        runtime_train_wallclock = time.perf_counter() - transfer_start
+    else:
+        def _strip_evaluators(config: dict) -> dict:
+            # FixedAngleConjecture computes angles from an analytic formula and
+            # does not need a circuit evaluator.  Stripping it here prevents PP
+            # (or any other evaluator) from running a full circuit simulation
+            # during angle generation for training-independent methods.
+            for stage in config.get("trainer_chain", []):
+                if stage.get("trainer") == "FixedAngleConjecture":
+                    stage.get("trainer_init", {}).pop("evaluator", None)
+                    stage.get("trainer_init", {}).pop("evaluator_init", None)
+            return config
+
+        result_bundle = run_method_from_config(
+            cost_op,
+            method_config,
+            main_repo=main_repo,
+            pipeline_repo=pipeline_repo,
+            train_kwargs_overrides=native_train_kwargs_overrides(
+                method_config,
+                reps=reps,
+                spec=spec,
+                graph_path=context["graph_path"],
+            ),
+            disable_transfer_evaluator=True,
+            allow_transfer_fallback=False,
+            config_mutator=_strip_evaluators,
+        )
+        stage = latest_stage_data(result_bundle)
+        qaoa_angles = stage["optimized_qaoa_angles"]
+        runtime_train_wallclock = float(total_train_duration_from_bundle(result_bundle))
+
+    circuit = build_bound_qaoa_circuit(cost_op, qaoa_angles)
     q_max = max(int(q) for q in q_values)
     sample_start = time.perf_counter()
     sample_stream = sample_bound_circuit_memory(
@@ -2372,7 +2590,6 @@ def run_pt_pss_exact_points(
     )
     sample_runtime = time.perf_counter() - sample_start
     sample_time_per_shot = float(sample_runtime) / float(q_max)
-    runtime_train_wallclock = float(total_train_duration_from_bundle(result_bundle))
 
     rows = _prepare_prefix_rows(
         sample_stream=sample_stream,
@@ -3105,15 +3322,20 @@ def _write_exact_cache_checkpoints(
     root = Path(output_root)
     root.mkdir(parents=True, exist_ok=True)
 
+    def _atomic_to_pickle(df: pd.DataFrame, path: Path) -> None:
+        tmp_path = path.with_name(f".{path.name}.tmp")
+        df.to_pickle(tmp_path)
+        tmp_path.replace(path)
+
     if fa_method_name is not None:
         fa_df = exact_df[exact_df["strategy"].eq(fa_method_name)].copy()
         if not fa_df.empty:
-            fa_df.to_pickle(root / "fa_raw_points.pkl")
+            _atomic_to_pickle(fa_df, root / STRATEGY_RAW_POINTS_FILENAME)
 
     if pt_method_name is not None:
         pt_df = exact_df[exact_df["strategy"].eq(pt_method_name)].copy()
         if not pt_df.empty:
-            pt_df.to_pickle(root / "pt_raw_points.pkl")
+            _atomic_to_pickle(pt_df, root / TRANSFER_RAW_POINTS_FILENAME)
 
 
 def generate_pss_exact_points(
@@ -3901,14 +4123,19 @@ def run_stochastic_benchmark_pss(
     if "resource" not in projection_eval_df.columns:
         projection_eval_df = projection_eval_df.reset_index()
 
-    virtual_best_df = decode_ws_params(
-        virtual_best_params_df.merge(virtual_best_eval_df, on="resource", how="left"),
-        codebooks,
-    )
-    projection_summary_df = decode_ws_params(
-        projection_params_df.merge(projection_eval_df, on="resource", how="outer"),
-        codebooks,
-    ).sort_values("resource").reset_index(drop=True)
+    virtual_best_df = build_virtual_best_summary(sb, codebooks)
+    if virtual_best_df.empty:
+        virtual_best_df = decode_ws_params(
+            virtual_best_params_df.merge(virtual_best_eval_df, on="resource", how="left"),
+            codebooks,
+        )
+    projection_summary_df = build_projection_summary(sb, codebooks)
+    if projection_summary_df.empty:
+        projection_summary_df = decode_ws_params(
+            projection_params_df.merge(projection_eval_df, on="resource", how="outer"),
+            codebooks,
+        )
+    projection_summary_df = projection_summary_df.sort_values("resource").reset_index(drop=True)
     window_sticker_summary_df = projection_summary_df[
         [
             "resource",
@@ -4173,16 +4400,36 @@ def _build_response_summary_from_rec_params(
 
     eval_df = rec_params.copy()
     eval_df["response"] = eval_df[base]
-    eval_df["response_lower"] = eval_df[CIlower] if CIlower in eval_df.columns else eval_df[base]
-    eval_df["response_upper"] = eval_df[CIupper] if CIupper in eval_df.columns else eval_df[base]
-    eval_df = (
-        eval_df.loc[:, ["resource", "response", "response_lower", "response_upper"]]
-        .groupby("resource")
-        .mean(numeric_only=True)
+    grouped_response = (
+        eval_df.loc[:, ["resource", "response"]]
+        .groupby("resource")["response"]
+        .agg(response="mean", response_std="std", n_instances="count")
         .reset_index()
     )
+    sem = grouped_response["response_std"] / np.sqrt(grouped_response["n_instances"].clip(lower=1))
+    ci_half_width = 1.96 * sem.fillna(0.0)
+    grouped_response["response_lower"] = grouped_response["response"] - ci_half_width
+    grouped_response["response_upper"] = grouped_response["response"] + ci_half_width
+    if CIlower in eval_df.columns and CIupper in eval_df.columns:
+        native_ci = (
+            eval_df.loc[:, ["resource", CIlower, CIupper]]
+            .groupby("resource")
+            .mean(numeric_only=True)
+            .reset_index()
+        )
+        native_ci["_native_ci_nonzero"] = (native_ci[CIupper] - native_ci[CIlower]).abs() > 1e-12
+        if native_ci["_native_ci_nonzero"].any():
+            grouped_response = grouped_response.merge(native_ci, on="resource", how="left")
+            has_nonzero_native_ci = grouped_response["_native_ci_nonzero"].fillna(False)
+            grouped_response.loc[has_nonzero_native_ci, "response_lower"] = grouped_response.loc[
+                has_nonzero_native_ci, CIlower
+            ]
+            grouped_response.loc[has_nonzero_native_ci, "response_upper"] = grouped_response.loc[
+                has_nonzero_native_ci, CIupper
+            ]
+            grouped_response = grouped_response.drop(columns=[CIlower, CIupper, "_native_ci_nonzero"])
 
-    summary = decode_ws_params(params_df.merge(eval_df, on="resource", how="outer"), codebooks)
+    summary = decode_ws_params(params_df.merge(grouped_response, on="resource", how="outer"), codebooks)
     return summary.sort_values("resource").reset_index(drop=True)
 
 

@@ -17,15 +17,23 @@ from src.simulation_validation import (  # noqa: E402
     DEFAULT_INSTANCE_CACHE_ROOT,
     DEFAULT_MAIN_REPO,
     DEFAULT_PIPELINE_REPO,
+    LEGACY_FA_RAW_POINTS_FILENAME,
+    LEGACY_PT_RAW_POINTS_FILENAME,
+    STRATEGY_RAW_POINTS_FILENAME,
+    TRANSFER_RAW_POINTS_FILENAME,
     build_pss_frontier_outputs,
     build_t_grid,
     build_train_test_instance_sets,
     ensure_qiskit_imports,
+    estimate_hardware_time_per_shot,
     filter_pss_exact_points,
     generate_pss_exact_points,
     instance_specs_to_dataframe,
     prepare_pss_exp_raw_dataset,
 )
+
+
+FALLBACK_TIME_PER_SHOT = 2.5e-6
 
 
 def _parse_int_list(raw: str) -> list[int]:
@@ -48,10 +56,18 @@ def _json_dumps_pretty(payload: object) -> str:
 def _load_exact_cache_frames(paths: list[Path]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for root in paths:
-        for filename in ("fa_raw_points.pkl", "pt_raw_points.pkl"):
+        for filename in (
+            STRATEGY_RAW_POINTS_FILENAME,
+            TRANSFER_RAW_POINTS_FILENAME,
+            LEGACY_FA_RAW_POINTS_FILENAME,
+            LEGACY_PT_RAW_POINTS_FILENAME,
+        ):
             candidate = root / filename
             if candidate.exists():
-                frames.append(pd.read_pickle(candidate))
+                try:
+                    frames.append(pd.read_pickle(candidate))
+                except (EOFError, OSError, ValueError) as exc:
+                    print(f"Skipping unreadable exact cache {candidate}: {exc}")
 
     if not frames:
         return pd.DataFrame()
@@ -172,7 +188,48 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fa-m-values", default="10,50,100,200,500")
     parser.add_argument("--q-values", default="100,200,500,1000,5000")
 
-    parser.add_argument("--time-per-shot", type=float, default=2.5e-6)
+    parser.add_argument(
+        "--time-per-shot",
+        type=float,
+        default=None,
+        help=(
+            "Seconds per circuit shot for the proxy resource. If omitted, estimate it "
+            "from <main-repo>/data/hardware summary records; falls back to 2.5e-6 "
+            "if no hardware timing metadata is available."
+        ),
+    )
+    parser.add_argument(
+        "--hardware-results-root",
+        default=None,
+        help=(
+            "Root containing saved hardware result JSON files used to estimate "
+            "--time-per-shot when it is omitted. Defaults to <main-repo>/data/hardware."
+        ),
+    )
+    parser.add_argument(
+        "--hardware-job-p",
+        type=int,
+        default=None,
+        help=(
+            "QAOA depth used to filter hardware result JSON files when estimating "
+            "--time-per-shot. Defaults to the single value in --p-values when exactly one "
+            "depth is requested."
+        ),
+    )
+    parser.add_argument(
+        "--hardware-time-per-shot-statistic",
+        choices=("median", "mean", "min", "max"),
+        default="median",
+        help="Statistic used across hardware jobs when estimating --time-per-shot.",
+    )
+    parser.add_argument(
+        "--hardware-time-per-shot-no-pub-normalization",
+        action="store_true",
+        help=(
+            "Estimate hardware time as total_time / num_shots. By default the estimate "
+            "uses total_time / (num_pubs * num_shots), matching one circuit/PUB shot."
+        ),
+    )
     parser.add_argument("--fa-cobyla-overhead-c", type=float, default=1.0)
     parser.add_argument("--pt-transfer-cost", type=float, default=0.0)
 
@@ -233,13 +290,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-reuse-current-output",
         action="store_true",
-        help="Do not reuse fa_raw_points.pkl/pt_raw_points.pkl already present in the current output directory.",
+        help=(
+            "Do not reuse strategy_raw_points.pkl/transfer_raw_points.pkl "
+            "or legacy fa_raw_points.pkl/pt_raw_points.pkl already present in the current output directory."
+        ),
     )
     parser.add_argument(
         "--restart",
         action="store_true",
         help=(
-            "Resume from fa_raw_points.pkl/pt_raw_points.pkl already present in the current output directory. "
+            "Resume from strategy_raw_points.pkl/transfer_raw_points.pkl "
+            "or legacy fa_raw_points.pkl/pt_raw_points.pkl already present in the current output directory. "
             "This is the explicit restart mode for interrupted runs."
         ),
     )
@@ -313,6 +374,42 @@ def main() -> int:
     pipeline_repo = Path(args.pipeline_repo).expanduser().resolve()
     output_root = resolve_output_root(args)
     instance_cache_root = Path(args.instance_cache_root).expanduser().resolve()
+    hardware_results_root = (
+        Path(args.hardware_results_root).expanduser().resolve()
+        if args.hardware_results_root is not None
+        else main_repo / "data" / "hardware"
+    )
+    hardware_job_p = args.hardware_job_p
+    if hardware_job_p is None and len(p_values) == 1:
+        hardware_job_p = int(p_values[0])
+    if args.time_per_shot is None:
+        try:
+            time_per_shot = estimate_hardware_time_per_shot(
+                hardware_results_root,
+                graph_type=args.graph_type,
+                num_nodes=args.num_nodes,
+                job_p=hardware_job_p,
+                statistic=args.hardware_time_per_shot_statistic,
+                normalize_by_pubs=not args.hardware_time_per_shot_no_pub_normalization,
+            )
+            normalization = (
+                "total_time / (num_pubs * num_shots)"
+                if not args.hardware_time_per_shot_no_pub_normalization
+                else "total_time / num_shots"
+            )
+            print(
+                "Estimated proxy time_per_shot from hardware results: "
+                f"{time_per_shot:.12g} s ({args.hardware_time_per_shot_statistic}, "
+                f"{normalization}, job_p={hardware_job_p}, root={hardware_results_root})"
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            time_per_shot = FALLBACK_TIME_PER_SHOT
+            print(
+                "Could not estimate proxy time_per_shot from hardware results; "
+                f"falling back to {time_per_shot:.12g} s. Reason: {exc}"
+            )
+    else:
+        time_per_shot = float(args.time_per_shot)
     shards_root = (
         Path(args.shards_root).expanduser().resolve()
         if args.shards_root is not None
@@ -369,7 +466,10 @@ def main() -> int:
                 "fa_n_values": fa_n_values,
                 "fa_m_values": fa_m_values,
                 "q_values": q_values,
-                "time_per_shot": args.time_per_shot,
+                "time_per_shot": time_per_shot,
+                "time_per_shot_source": "cli" if args.time_per_shot is not None else "hardware_or_fallback",
+                "hardware_job_p": hardware_job_p,
+                "hardware_results_root": str(hardware_results_root),
                 "fa_cobyla_overhead_c": args.fa_cobyla_overhead_c,
                 "pt_transfer_cost": args.pt_transfer_cost,
                 "t_grid_mode": "explicit" if t_grid is not None else "dense_auto",
@@ -489,7 +589,7 @@ def main() -> int:
             fa_m_values=fa_m_values,
             q_values=q_values,
             sample_config=sample_config,
-            time_per_shot=args.time_per_shot,
+            time_per_shot=time_per_shot,
             cobyla_overhead_c=args.fa_cobyla_overhead_c,
             pt_transfer_cost=args.pt_transfer_cost,
             output_root=run_output_root,
@@ -515,7 +615,7 @@ def main() -> int:
         fa_m_values=fa_m_values,
         q_values=q_values,
         sample_config=sample_config,
-        time_per_shot=args.time_per_shot,
+        time_per_shot=time_per_shot,
         cobyla_overhead_c=args.fa_cobyla_overhead_c,
         pt_transfer_cost=args.pt_transfer_cost,
         output_root=output_root,

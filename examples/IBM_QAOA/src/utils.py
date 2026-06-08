@@ -3325,85 +3325,9 @@ def plot_multi_method_window_sticker_component_panels(
     color_map = {label: _family_color(label) for label in labels}
     _ = approx_ylim, approx_yticks
 
-    def _pareto_frontier_from_curves(curves: list[pd.DataFrame]) -> pd.DataFrame:
-        """Build the non-dominated upper envelope across method curves."""
-        frames = []
-        for curve in curves:
-            if curve.empty or not {"resource", "response_percent", "method_label"}.issubset(curve.columns):
-                continue
-            frame = curve.loc[:, ["resource", "response_percent", "method_label"]].copy()
-            frame["resource"] = pd.to_numeric(frame["resource"], errors="coerce")
-            frame["response_percent"] = pd.to_numeric(frame["response_percent"], errors="coerce")
-            frame = frame.dropna(subset=["resource", "response_percent"])
-            frame = frame[frame["resource"] > 0]
-            if not frame.empty:
-                frames.append(frame)
-        if not frames:
-            return pd.DataFrame(columns=["resource", "response_percent", "method_label"])
-
-        candidates = (
-            pd.concat(frames, ignore_index=True)
-            .sort_values(["resource", "response_percent"], ascending=[True, False])
-            .drop_duplicates(subset=["resource"], keep="first")
-            .sort_values("resource")
-            .reset_index(drop=True)
-        )
-        rows = []
-        best_response = -np.inf
-        best_label = None
-        for row in candidates.itertuples(index=False):
-            response = float(row.response_percent)
-            label = str(row.method_label)
-            if response > best_response:
-                best_response = response
-                best_label = label
-            rows.append(
-                {
-                    "resource": float(row.resource),
-                    "response_percent": best_response,
-                    "method_label": best_label,
-                }
-            )
-        pareto = pd.DataFrame(rows)
-        return pareto.drop_duplicates(
-            subset=["resource", "response_percent", "method_label"],
-            keep="last",
-        )
-
-    def _plot_actionable_pareto(ax, pareto: pd.DataFrame) -> None:
-        """Draw the actionable Pareto frontier as a high-contrast overlay."""
-        if pareto.empty:
-            return
-        pareto = pareto.sort_values("resource").reset_index(drop=True)
-        ax.plot(
-            pareto["resource"],
-            pareto["response_percent"],
-            color="black",
-            linestyle="-",
-            linewidth=4.4,
-            alpha=0.98,
-            solid_capstyle="round",
-            label=None,
-            zorder=12,
-        )
-
-    # Pre-compute global x_max so every curve extends to the same right border.
-    global_x_max: float | None = None
-    for _, curves in panel_data:
-        for curve in curves.values():
-            if curve.empty:
-                continue
-            x_vals = pd.to_numeric(curve["resource"], errors="coerce").dropna()
-            x_vals = x_vals[x_vals > 0]
-            if not x_vals.empty:
-                candidate = float(x_vals.max())
-                if global_x_max is None or candidate > global_x_max:
-                    global_x_max = candidate
-
     fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.8), sharey=True)
 
     all_y: list[float] = []
-    panel_pareto_sources: list[list[pd.DataFrame]] = [[], []]
     panel_annotations: list[list[tuple[float, float, str]]] = [[], []]
 
     for panel_idx, (panel_label, curves) in enumerate(panel_data):
@@ -3423,15 +3347,9 @@ def plot_multi_method_window_sticker_component_panels(
                 if group.empty:
                     continue
 
-                # Save the natural endpoint before extending the tail.
+                # Natural endpoint for depth annotation.
                 natural_last_x = float(group["resource"].iloc[-1])
                 natural_last_y = float(group["response_monotone"].iloc[-1]) * 100.0
-
-                # Extend flat monotone tail to the global right border.
-                if global_x_max is not None and natural_last_x < global_x_max:
-                    tail = group.iloc[[-1]].copy()
-                    tail["resource"] = global_x_max
-                    group = pd.concat([group, tail], ignore_index=True)
 
                 lower_col = "response_lower_monotone" if "response_lower_monotone" in group.columns else "response_lower"
                 upper_col = "response_upper_monotone" if "response_upper_monotone" in group.columns else "response_upper"
@@ -3464,18 +3382,6 @@ def plot_multi_method_window_sticker_component_panels(
                 panel_x.extend(group["resource"].to_numpy(dtype=float))
                 panel_y.extend(response_percent)
 
-                # Build the actionable Pareto frontier from realizable fitted prescriptions.
-                if curve_name == "Actionable fit prescription":
-                    panel_pareto_sources[panel_idx].append(
-                        pd.DataFrame(
-                            {
-                                "resource": group["resource"].to_numpy(dtype=float),
-                                "response_percent": response_percent,
-                                "method_label": str(label),
-                            }
-                        )
-                    )
-
                 # Collect depth annotation for virtual-best curves only.
                 if curve_name == "Virtual best":
                     depth_match = re.search(r"\(p\s*=\s*(\d+)\)", str(label))
@@ -3483,12 +3389,6 @@ def plot_multi_method_window_sticker_component_panels(
                         panel_annotations[panel_idx].append(
                             (natural_last_x, natural_last_y, f"p={depth_match.group(1)}")
                         )
-
-        pareto = _pareto_frontier_from_curves(panel_pareto_sources[panel_idx])
-        if not pareto.empty:
-            _plot_actionable_pareto(ax, pareto)
-            panel_x.extend(pareto["resource"].to_numpy(dtype=float))
-            panel_y.extend(pareto["response_percent"].to_numpy(dtype=float))
 
         finite_x = np.asarray([x for x in panel_x if np.isfinite(x) and x > 0], dtype=float)
         if finite_x.size:
@@ -3571,21 +3471,13 @@ def plot_multi_method_window_sticker_component_panels(
             method_handles.append(
                 Line2D([0], [0], color=_family_color(label), linewidth=2.6, label=legend_label)
             )
-    pareto_handle = Line2D(
-        [0],
-        [0],
-        color="0.2",
-        linestyle="-",
-        linewidth=4.4,
-        label="Actionable Pareto frontier",
-    )
     curve_handles = [
         Line2D([0], [0], color="black", label=name, **style)
         for name, style in style_map.items()
     ]
 
     fig.legend(
-        handles=[pareto_handle] + curve_handles + method_handles,
+        handles=curve_handles + method_handles,
         loc="lower center",
         bbox_to_anchor=(0.5, 0.0),
         bbox_transform=fig.transFigure,

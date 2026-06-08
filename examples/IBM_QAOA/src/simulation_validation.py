@@ -2506,6 +2506,22 @@ def _load_depth_matched_pt_angles(
     return angles.tolist()
 
 
+def _resolve_time_per_shot(time_per_shot: float | dict[int, float], reps: int) -> float:
+    """Return the per-shot time for a given QAOA depth.
+
+    Accepts a depth-independent float or a {depth: seconds} mapping.
+    When the mapping is provided but the exact depth is absent, falls back
+    to the mean of all available depth values so no run silently uses 1.0.
+    """
+    if isinstance(time_per_shot, dict):
+        if int(reps) in time_per_shot:
+            return float(time_per_shot[int(reps)])
+        if time_per_shot:
+            return float(sum(time_per_shot.values()) / len(time_per_shot))
+        return 1.0
+    return float(time_per_shot)
+
+
 def run_pt_pss_exact_points(
     spec: InstanceSpec,
     *,
@@ -2517,10 +2533,11 @@ def run_pt_pss_exact_points(
     pipeline_repo: str | Path | None = None,
     sample_config: dict[str, Any] | None = None,
     transfer_cost: float = 0.0,
-    time_per_shot: float = 1.0,
+    time_per_shot: float | dict[int, float] = 1.0,
 ) -> pd.DataFrame:
     if not q_values:
         return pd.DataFrame()
+    _tps = _resolve_time_per_shot(time_per_shot, reps)
     if method_configs is None or method_name not in method_configs:
         raise ValueError(f"Missing method config for {method_name}.")
     if method_name == "PT_PP_AAA":
@@ -2627,7 +2644,7 @@ def run_pt_pss_exact_points(
     df = pd.DataFrame(rows)
     df["runtime_sample_wallclock"] = df["Q"].astype(float) * sample_time_per_shot
     df["sampling_cost"] = df["runtime_sample_wallclock"].astype(float)
-    df["sampling_cost_proxy"] = df["Q"].astype(float) * float(time_per_shot)
+    df["sampling_cost_proxy"] = df["Q"].astype(float) * _tps
     df["T_exact"] = df["training_cost"].astype(float) + df["sampling_cost"].astype(float)
     df["T_exact_proxy"] = df["training_cost_proxy"].astype(float) + df["sampling_cost_proxy"].astype(float)
     df["Approximation_Ratio"] = df["BestApproximationRatio"]
@@ -2648,7 +2665,7 @@ def run_fa_pss_exact_points(
     main_repo: str | Path | None = None,
     pipeline_repo: str | Path | None = None,
     sample_config: dict[str, Any] | None = None,
-    time_per_shot: float = 1.0,
+    time_per_shot: float | dict[int, float] = 1.0,
     cobyla_overhead_c: float = 1.0,
 ) -> pd.DataFrame:
     if method_configs is None or method_name not in method_configs:
@@ -2656,6 +2673,7 @@ def run_fa_pss_exact_points(
     if not n_values or not m_values or not q_values:
         return pd.DataFrame()
 
+    _tps = _resolve_time_per_shot(time_per_shot, reps)
     context = load_instance_context(spec, main_repo)
     cost_op = build_cost_operator_from_graph(context["graph_path"], pipeline_repo)
     base_config = load_method_config(method_configs[method_name])
@@ -2741,7 +2759,7 @@ def run_fa_pss_exact_points(
                         "sampling_cost": 0.0,
                         "T_exact": 0.0,
                         "classical_setup_cost_proxy": 0.0,
-                        "training_cost_proxy": float(cobyla_overhead_c) * float(n_value) * float(m_value) * float(time_per_shot),
+                        "training_cost_proxy": float(cobyla_overhead_c) * float(n_value) * float(m_value) * _tps,
                         "sampling_cost_proxy": 0.0,
                         "T_exact_proxy": 0.0,
                         "num_objective_evaluations": int(cumulative_evals),
@@ -2765,7 +2783,7 @@ def run_fa_pss_exact_points(
     else:
         df["runtime_sample_wallclock"] = 0.0
     df["sampling_cost"] = df["runtime_sample_wallclock"].astype(float)
-    df["sampling_cost_proxy"] = df["Q"].astype(float) * float(time_per_shot)
+    df["sampling_cost_proxy"] = df["Q"].astype(float) * _tps
     df["T_exact"] = df["training_cost"].astype(float) + df["sampling_cost"].astype(float)
     df["T_exact_proxy"] = df["training_cost_proxy"].astype(float) + df["sampling_cost_proxy"].astype(float)
     df["Approximation_Ratio"] = df["BestApproximationRatio"]
@@ -3491,7 +3509,7 @@ def generate_pss_exact_points(
     fa_m_values: list[int] | None = None,
     q_values: list[int] | None = None,
     sample_config: dict[str, Any] | None = None,
-    time_per_shot: float = 1.0,
+    time_per_shot: float | dict[int, float] = 1.0,
     cobyla_overhead_c: float = 1.0,
     pt_transfer_cost: float = 0.0,
     output_root: str | Path | None = None,
@@ -3717,7 +3735,7 @@ def prepare_pss_exp_raw_dataset(
     fa_m_values: list[int] | None = None,
     q_values: list[int] | None = None,
     sample_config: dict[str, Any] | None = None,
-    time_per_shot: float = 1.0,
+    time_per_shot: float | dict[int, float] = 1.0,
     cobyla_overhead_c: float = 1.0,
     pt_transfer_cost: float = 0.0,
     output_root: str | Path | None = None,
@@ -3975,6 +3993,7 @@ def snap_actionable_fit_to_feasible_grid(
     parameter_fit_cols: tuple[str, ...] = ("N_fit", "M_fit", "Q_fit"),
     budget_col: str = "T_exact_proxy",
     distance_scale: str = "log",
+    resource_col: str = "T",
 ) -> pd.DataFrame:
     if exact_df.empty or actionable_fit_df.empty:
         return pd.DataFrame()
@@ -3986,7 +4005,7 @@ def snap_actionable_fit_to_feasible_grid(
         strategy = row.get("strategy")
         simulation_method = row.get("simulation_method")
         p_value = row.get("p")
-        target_t = float(row["T"])
+        target_t = float(row[resource_col])
         key = (strategy, simulation_method, p_value)
         if key not in grouped_exact.groups:
             continue
@@ -4025,13 +4044,16 @@ def snap_actionable_fit_to_feasible_grid(
             distance += ((feasible[exact_col].astype(float) - float(row[col])) / scale) ** 2
 
         feasible = feasible.assign(_fit_distance=distance)
+        _secondary_sort = [c for c in [budget_col, "Q"] if c in feasible.columns]
         best_row = feasible.sort_values(
-            ["_fit_distance", "BestApproximationRatio", "T_exact_proxy", "Q"],
-            ascending=[True, False, True, True],
+            ["_fit_distance", "BestApproximationRatio"] + _secondary_sort,
+            ascending=[True, False] + [True] * len(_secondary_sort),
         ).iloc[0].to_dict()
         best_row["T"] = target_t
         rows.append(best_row)
 
+    if not rows:
+        return pd.DataFrame()
     return pd.DataFrame(rows).sort_values("T").reset_index(drop=True)
 
 
@@ -4212,6 +4234,31 @@ def run_stochastic_benchmark_pss(
         resource_col="resource",
     )
     fitted_recipe_df = decode_ws_params(fitted_recipe_raw_df.copy(), codebooks)
+
+    # Snap the continuous polynomial fit back to the nearest feasible (N, M, Q) grid point
+    # so the final prescription is always an exactly-computable parameter set.
+    _snap_budget_col = next(
+        (c for c in ("T_exact_proxy", "selected_exact_T_proxy") if c in exp_raw_df.columns),
+        None,
+    )
+    snapped_recipe_raw_df: pd.DataFrame = pd.DataFrame()
+    if _snap_budget_col is not None and not fitted_recipe_df.empty:
+        # Use the decoded recipe (string strategy/simulation_method) so the groupby
+        # keys match the string columns in exp_raw_df.
+        _snapped = snap_actionable_fit_to_feasible_grid(
+            exp_raw_df,
+            fitted_recipe_df,
+            parameter_fit_cols=("N", "M", "Q"),
+            budget_col=_snap_budget_col,
+            distance_scale="log",
+            resource_col="resource",
+        )
+        if not _snapped.empty:
+            _snapped = _snapped.copy()
+            _snapped["resource"] = _snapped["T"]
+            snapped_recipe_raw_df = _snapped
+    snapped_recipe_df = decode_ws_params(snapped_recipe_raw_df.copy(), codebooks) if not snapped_recipe_raw_df.empty else pd.DataFrame()
+
     train_results = sb.interp_results[sb.interp_results["train"] == 1].copy()
     train_rec_params = training.evaluate(
         train_results,
@@ -4256,6 +4303,38 @@ def run_stochastic_benchmark_pss(
         codebooks,
         response_key=sb.response_key,
     )
+
+    snapped_train_eval_df: pd.DataFrame = pd.DataFrame()
+    snapped_test_eval_df: pd.DataFrame = pd.DataFrame()
+    if not snapped_recipe_raw_df.empty:
+        snapped_train_rec_params = training.evaluate(
+            train_results,
+            snapped_recipe_raw_df,
+            training.scaled_distance,
+            parameter_names=sb.parameter_names,
+            resource_col="resource",
+            group_on=sb.instance_cols,
+        )
+        snapped_train_eval_df = _build_response_summary_from_rec_params(
+            snapped_train_rec_params,
+            sb.parameter_names,
+            codebooks,
+            response_key=sb.response_key,
+        )
+        snapped_test_rec_params = training.evaluate(
+            test_results,
+            snapped_recipe_raw_df,
+            training.scaled_distance,
+            parameter_names=sb.parameter_names,
+            resource_col="resource",
+            group_on=sb.instance_cols,
+        )
+        snapped_test_eval_df = _build_response_summary_from_rec_params(
+            snapped_test_rec_params,
+            sb.parameter_names,
+            codebooks,
+            response_key=sb.response_key,
+        )
 
     if "resource" not in virtual_best_params_df.columns:
         virtual_best_params_df = virtual_best_params_df.reset_index()
@@ -4304,6 +4383,12 @@ def run_stochastic_benchmark_pss(
     fitted_recipe_model_df.to_csv(output_dir.parent / "fitted_actionable_recipe_model.csv", index=False)
     fitted_train_eval_df.to_csv(output_dir.parent / "fitted_actionable_projection_train.csv", index=False)
     fitted_test_eval_df.to_csv(output_dir.parent / "fitted_actionable_projection_test.csv", index=False)
+    if not snapped_recipe_df.empty:
+        snapped_recipe_df.to_csv(output_dir.parent / "snapped_actionable_recipe_train.csv", index=False)
+    if not snapped_train_eval_df.empty:
+        snapped_train_eval_df.to_csv(output_dir.parent / "snapped_actionable_projection_train.csv", index=False)
+    if not snapped_test_eval_df.empty:
+        snapped_test_eval_df.to_csv(output_dir.parent / "snapped_actionable_projection_test.csv", index=False)
     pd.DataFrame({"path": [str(path) for path in written_files]}).to_csv(
         output_dir.parent / "campaign_exp_raw_manifest.csv",
         index=False,
@@ -4322,6 +4407,9 @@ def run_stochastic_benchmark_pss(
         "fitted_recipe_model_df": fitted_recipe_model_df,
         "fitted_train_eval_df": fitted_train_eval_df,
         "fitted_test_eval_df": fitted_test_eval_df,
+        "snapped_recipe_df": snapped_recipe_df,
+        "snapped_train_eval_df": snapped_train_eval_df,
+        "snapped_test_eval_df": snapped_test_eval_df,
     }
 
 
@@ -4447,7 +4535,7 @@ def setup_stochastic_benchmark_campaign(
     parameter_names: list[str] | None = None,
     *,
     response_col: str = "BestApproximationRatio",
-    resource_col: str = "TotalTime",
+    resource_col: str = "T",
     bootstrap_range: range | None = None,
     response_key: str = "Response",
     keep_cols: list[str] | None = None,

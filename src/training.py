@@ -282,7 +282,7 @@ def scaled_distance(
                 maxval - minval
             )
             local_df_eval.loc[:, "distance_scaled"] += (
-                local_df_eval[colname + "_scaled"] - recipe[colname + "_scaled"].copy()
+                local_df_eval[colname + "_scaled"] - float(recipe[colname + "_scaled"])
             ) ** 2
     return local_df_eval
 

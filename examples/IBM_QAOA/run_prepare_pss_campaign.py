@@ -382,32 +382,84 @@ def main() -> int:
     hardware_job_p = args.hardware_job_p
     if hardware_job_p is None and len(p_values) == 1:
         hardware_job_p = int(p_values[0])
+
+    normalization = (
+        "total_time / (num_pubs * num_shots)"
+        if not args.hardware_time_per_shot_no_pub_normalization
+        else "total_time / num_shots"
+    )
+
+    def _estimate_tps(job_p):
+        return estimate_hardware_time_per_shot(
+            hardware_results_root,
+            graph_type=args.graph_type,
+            num_nodes=args.num_nodes,
+            job_p=job_p,
+            statistic=args.hardware_time_per_shot_statistic,
+            normalize_by_pubs=not args.hardware_time_per_shot_no_pub_normalization,
+        )
+
     if args.time_per_shot is None:
-        try:
-            time_per_shot = estimate_hardware_time_per_shot(
-                hardware_results_root,
-                graph_type=args.graph_type,
-                num_nodes=args.num_nodes,
-                job_p=hardware_job_p,
-                statistic=args.hardware_time_per_shot_statistic,
-                normalize_by_pubs=not args.hardware_time_per_shot_no_pub_normalization,
-            )
-            normalization = (
-                "total_time / (num_pubs * num_shots)"
-                if not args.hardware_time_per_shot_no_pub_normalization
-                else "total_time / num_shots"
-            )
-            print(
-                "Estimated proxy time_per_shot from hardware results: "
-                f"{time_per_shot:.12g} s ({args.hardware_time_per_shot_statistic}, "
-                f"{normalization}, job_p={hardware_job_p}, root={hardware_results_root})"
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            time_per_shot = FALLBACK_TIME_PER_SHOT
-            print(
-                "Could not estimate proxy time_per_shot from hardware results; "
-                f"falling back to {time_per_shot:.12g} s. Reason: {exc}"
-            )
+        if len(p_values) == 1:
+            # Single depth: estimate directly for that depth.
+            try:
+                time_per_shot = _estimate_tps(hardware_job_p)
+                print(
+                    "Estimated proxy time_per_shot from hardware results: "
+                    f"{time_per_shot:.12g} s ({args.hardware_time_per_shot_statistic}, "
+                    f"{normalization}, job_p={hardware_job_p}, root={hardware_results_root})"
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                time_per_shot = FALLBACK_TIME_PER_SHOT
+                print(
+                    "Could not estimate proxy time_per_shot from hardware results; "
+                    f"falling back to {time_per_shot:.12g} s. Reason: {exc}"
+                )
+        else:
+            # Multiple depths: attempt a per-depth estimate so that T_proxy is
+            # calibrated correctly for each circuit depth p.  Falls back to the
+            # aggregate (job_p=None) estimate for any depth that has no hardware
+            # records, and ultimately to the hardcoded fallback if nothing works.
+            per_depth: dict[int, float] = {}
+            missing_depths: list[int] = []
+            for p in p_values:
+                try:
+                    per_depth[p] = _estimate_tps(p)
+                    print(
+                        f"  time_per_shot[p={p}] = {per_depth[p]:.12g} s "
+                        f"({args.hardware_time_per_shot_statistic}, {normalization})"
+                    )
+                except (FileNotFoundError, ValueError):
+                    missing_depths.append(p)
+
+            if missing_depths:
+                # Fill gaps with the aggregate estimate across all depths.
+                try:
+                    aggregate_tps = _estimate_tps(None)
+                    print(
+                        f"  time_per_shot[aggregate] = {aggregate_tps:.12g} s "
+                        f"(used for depths with no hardware records: {missing_depths})"
+                    )
+                except (FileNotFoundError, ValueError):
+                    aggregate_tps = FALLBACK_TIME_PER_SHOT
+                    print(
+                        f"  Falling back to {aggregate_tps:.12g} s for depths {missing_depths} "
+                        "(no hardware records found at any depth)."
+                    )
+                for p in missing_depths:
+                    per_depth[p] = aggregate_tps
+
+            if per_depth:
+                time_per_shot = per_depth
+                print(
+                    f"Using per-depth time_per_shot: { {p: f'{v:.6g} s' for p, v in sorted(per_depth.items())} }"
+                )
+            else:
+                time_per_shot = FALLBACK_TIME_PER_SHOT
+                print(
+                    "Could not estimate any per-depth time_per_shot; "
+                    f"falling back to {time_per_shot:.12g} s."
+                )
     else:
         time_per_shot = float(args.time_per_shot)
     shards_root = (

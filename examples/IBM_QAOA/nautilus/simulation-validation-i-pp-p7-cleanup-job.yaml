@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ibm-qaoa-i-pp-p7-cleanup
+  namespace: usra-expedition
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: cleanup
+          image: busybox
+          command:
+            - /bin/sh
+            - -c
+            - |
+              rm -rf /workspace/results/pss_window_sticker/heavy_hex_144_I_p7_expanded
+              echo "Cleanup done"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: ibm-qaoa-workspace

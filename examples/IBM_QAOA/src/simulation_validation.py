@@ -1756,6 +1756,15 @@ def build_sampled_training_config(
             minimize_args.setdefault("method", "COBYLA")
             trainer_init["minimize_args"] = minimize_args
 
+        if trainer_name == "RecursionTrainer":
+            nested_init = trainer_init.get("trainer_init", {})
+            if nested_init.get("evaluator") == "MPSAerEvaluator":
+                chi = (sample_config or {}).get("chi")
+                if chi is not None:
+                    ev_init = nested_init.setdefault("evaluator_init", {})
+                    mps_args = ev_init.setdefault("mps_init_args", {})
+                    mps_args.setdefault("matrix_product_state_max_bond_dimension", int(chi))
+
     return sampled_config
 
 

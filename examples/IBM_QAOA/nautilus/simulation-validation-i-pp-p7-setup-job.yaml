@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ibm-qaoa-i-pp-p7-setup
+  namespace: usra-expedition
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: runner
+          image: python:3.11-bookworm
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -lc
+          args:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends git build-essential
+              rm -rf /var/lib/apt/lists/*
+
+              if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+                git config --global credential.helper "store --file=/tmp/git-credentials"
+                printf 'https://x-access-token:%s@github.com\n' "${GITHUB_TOKEN}" > /tmp/git-credentials
+                chmod 0600 /tmp/git-credentials
+              fi
+
+              # Update repos to latest commits
+              clone_or_update() {
+                local url="$1" branch="$2" dest="$3"
+                if [[ -d "${dest}/.git" ]]; then
+                  git -C "${dest}" fetch origin "${branch}"
+                  git -C "${dest}" checkout "${branch}"
+                  git -C "${dest}" pull --ff-only origin "${branch}"
+                else
+                  git clone --branch "${branch}" --depth 1 "${url}" "${dest}"
+                fi
+              }
+
+              mkdir -p /workspace/repos
+              clone_or_update "${STOCHASTIC_BENCHMARK_REPO}" "${STOCHASTIC_BENCHMARK_BRANCH}" /workspace/repos/stochastic-benchmark
+              clone_or_update "${QPS_REPO_URL}" "${QPS_BRANCH}" /workspace/repos/QAOA-Parameter-Setting
+              clone_or_update "${QAOA_PIPELINE_REPO_URL}" "${QAOA_PIPELINE_BRANCH}" /workspace/repos/qaoa_training_pipeline
+
+              # Clean I_MPSAer p=7 output from previous failed runs
+              rm -rf /workspace/results/pss_window_sticker/heavy_hex_144_I_p7_expanded
+              echo "Setup complete: repos updated and old output cleaned."
+              git -C /workspace/repos/stochastic-benchmark log --oneline -3
+          env:
+            - name: STOCHASTIC_BENCHMARK_REPO
+              value: https://github.com/usra-riacs/stochastic-benchmark.git
+            - name: STOCHASTIC_BENCHMARK_BRANCH
+              value: QAOA_Parameter_Setting_IBM
+            - name: QPS_REPO_URL
+              value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
+            - name: QPS_BRANCH
+              value: main
+            - name: QAOA_PIPELINE_REPO_URL
+              value: https://github.com/qiskit-community/qaoa_training_pipeline.git
+            - name: QAOA_PIPELINE_BRANCH
+              value: main
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-credentials
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: ibm-qaoa-workspace

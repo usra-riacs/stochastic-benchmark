@@ -24,16 +24,24 @@ spec:
               apt-get install -y --no-install-recommends git build-essential
               rm -rf /var/lib/apt/lists/*
 
+              if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+                git config --global credential.helper "store --file=/tmp/git-credentials"
+                printf 'https://x-access-token:%s@github.com\n' "${GITHUB_TOKEN}" > /tmp/git-credentials
+                chmod 0600 /tmp/git-credentials
+              fi
+
               export WORKDIR="/workspace/workdirs/i-pp-p7-finalize"
               mkdir -p "${WORKDIR}" /workspace/results /workspace/data
               rm -rf "${WORKDIR}/repos"
               mkdir -p "${WORKDIR}/repos"
-              export REPOS_DIR="/workspace/repos"
+              export REPOS_DIR="${WORKDIR}/repos"
               export DATA_DIR="/workspace/data"
               export RESULTS_DIR="/workspace/results"
-              export IBM_QAOA_SKIP_REPO_UPDATE=1
 
-              bash "/workspace/repos/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
+              git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \
+                "${STOCHASTIC_BENCHMARK_REPO}" "${REPOS_DIR}/stochastic-benchmark"
+
+              bash "${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
                 --output-root /workspace/results/pss_window_sticker/heavy_hex_144_I_p7_expanded \
                 --reuse-output-root /workspace/results/pss_window_sticker/heavy_hex_144_I_p7_expanded \
                 --instance-cache-root /workspace/data/generated_instances \
@@ -56,7 +64,7 @@ spec:
                 --max-parallel-threads 4
           env:
             - name: STOCHASTIC_BENCHMARK_REPO
-              value: https://github.com/usra-riacs/stochastic-benchmark.git
+              value: https://github.com/anurag-r20/stochastic-benchmark.git
             - name: STOCHASTIC_BENCHMARK_BRANCH
               value: QAOA_Parameter_Setting_IBM
             - name: QPS_REPO_URL

@@ -80,7 +80,7 @@ PIPELINE_REPO="${REPOS_DIR}/qaoa_training_pipeline"
 
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r "${SB_REPO}/requirements.txt" -r "${SB_REPO}/requirements-examples.txt"
-python -m pip install -e "${PIPELINE_REPO}" qiskit-aer
+python -m pip install -e "${PIPELINE_REPO}" "qiskit-aer==0.17.2"
 python -m pip install -e "${QPS_REPO}"
 python -m pip install -e "${SB_REPO}"
 

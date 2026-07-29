@@ -177,8 +177,7 @@ The CI environment includes:
 - ipykernel >= 6
 
 **Optional Data-Generation Dependencies:**
-- hyperopt >= 0.2.7
-- setuptools < 81 (temporary Hyperopt 0.2.7 compatibility workaround)
+- hyperopt >= 0.3.0
 
 **Testing Tools:**
 - pytest

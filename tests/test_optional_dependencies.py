@@ -57,22 +57,26 @@ def test_example_requirements_cover_self_contained_notebook_dependencies():
 def test_generation_requirements_are_separate_from_core():
     generation_requirements = _requirements(REPO_ROOT / "requirements-generation.txt")
 
-    assert "hyperopt" in _requirement_names(generation_requirements)
-    assert any(requirement == "setuptools<81" for requirement in generation_requirements)
+    assert "hyperopt>=0.3.0" in generation_requirements
+    assert "setuptools" not in _requirement_names(generation_requirements)
 
 
 def test_setup_extras_match_optional_dependency_groups():
     install_requires = _setup_constant("INSTALL_REQUIRES")
     extras_require = _setup_constant("EXTRAS_REQUIRE")
 
-    assert "hyperopt>=0.2.7" not in install_requires
+    assert "hyperopt>=0.3.0" not in install_requires
     assert {"scikit-learn>=1.3.0", "dimod>=0.12"} <= set(
         extras_require["examples"]
     )
     assert {"nbconvert>=7", "ipykernel>=6"} <= set(extras_require["notebooks"])
-    assert {"hyperopt>=0.2.7", "setuptools<81"} <= set(
-        extras_require["generation"]
-    )
+    assert extras_require["generation"] == ["hyperopt>=0.3.0"]
+
+
+def test_build_backend_requires_patched_setuptools():
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+
+    assert '"setuptools>=83"' in pyproject
 
 
 def test_wishart_generation_reports_clear_error_without_hyperopt(monkeypatch):

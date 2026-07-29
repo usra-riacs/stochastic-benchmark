@@ -29,7 +29,8 @@ Install the generation dependencies from this directory with:
 pip install -r ../../requirements-generation.txt
 ```
 
-`requirements-generation.txt` includes a temporary `setuptools<81` compatibility pin for Hyperopt 0.2.7, which imports `pkg_resources`. This pin is only for generation workflows and is not required to run analysis notebooks.
+`requirements-generation.txt` uses Hyperopt 0.3.0 or newer, which supports
+current Python packaging tools without the removed `pkg_resources` API.
 
 These generation-only dependencies are imported lazily by `wishart_runs.py`, so importing the analysis helpers in `wishart_ws.py` does not require them.
 

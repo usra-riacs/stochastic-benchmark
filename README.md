@@ -173,7 +173,8 @@ pip install -e ".[examples,notebooks]"
 pip install -e ".[generation]"
 ```
 
-The generation requirements include a temporary `setuptools<81` compatibility pin because Hyperopt 0.2.7 imports `pkg_resources`. This workaround is generation-specific and is not needed for analysis-only notebooks.
+The generation requirements use Hyperopt 0.3.0 or newer, which supports current
+Python packaging tools without the removed `pkg_resources` API.
 
 <!-- the following `pip` command can install this package -->
 

@@ -8,11 +8,7 @@ import os
 import pandas as pd
 import sys
 from tqdm import tqdm
-import warnings
 from wishart_paths import logname
-
-# Filter known third-party warnings
-warnings.filterwarnings('ignore', message='pkg_resources is deprecated')
 
 sys.path.append('../../src') #TODO set path to point to src of stochastic-benchmark
 import bootstrap

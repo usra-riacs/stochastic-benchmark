@@ -1,6 +1,6 @@
 # IBM QAOA Processing Test Fixtures
 
-This directory contains test fixtures for validating the IBM QAOA data ingestion pipeline in `examples/IBM_QAOA/ibm_qaoa_processing.py`.
+This directory contains test fixtures for validating the IBM QAOA data ingestion pipeline in `examples/IBM_QAOA/src/Processing.py`.
 
 ## Real Data Fixtures
 

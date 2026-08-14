@@ -39,7 +39,7 @@ spec:
         - name: STOCHASTIC_BENCHMARK_REPO
           value: https://github.com/usra-riacs/stochastic-benchmark.git
         - name: STOCHASTIC_BENCHMARK_BRANCH
-          value: QAOA_Parameter_Setting_IBM
+          value: main
         - name: GITHUB_TOKEN
           valueFrom:
             secretKeyRef:

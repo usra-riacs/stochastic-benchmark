@@ -29,8 +29,8 @@ from .approx_ratio_calc import (
 )
 
 
-DEFAULT_MAIN_REPO = Path(__file__).resolve().parents[3] / "QAOA-Parameter-Setting"
-DEFAULT_PIPELINE_REPO = Path(__file__).resolve().parents[3] / "qaoa_training_pipeline"
+DEFAULT_MAIN_REPO = Path(__file__).resolve().parents[4] / "QAOA-Parameter-Setting"
+DEFAULT_PIPELINE_REPO = Path(__file__).resolve().parents[4] / "qaoa_training_pipeline"
 DEFAULT_INSTANCE_CACHE_ROOT = Path(__file__).resolve().parents[1] / "data" / "generated_instances"
 STRATEGY_RAW_POINTS_FILENAME = "strategy_raw_points.pkl"
 TRANSFER_RAW_POINTS_FILENAME = "transfer_raw_points.pkl"

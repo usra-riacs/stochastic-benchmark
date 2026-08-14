@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt 
 import matplotlib.gridspec as gridspec
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch, Rectangle
+from matplotlib.patches import Rectangle
 import matplotlib.colors as mcolors
 from matplotlib.ticker import (
     FixedLocator,
@@ -988,7 +988,6 @@ def plot_ibm_qaoa_performance_panels(
     df_points = plot_data["df_points"]
     color_map = plot_data["color_map"]
     shape_map = plot_data["shape_map"]
-    label_map = plot_data["label_map"]
     graph_id = plot_data["graph_id"]
     debug_summary = plot_data.get("debug_summary", {})
 
@@ -1046,7 +1045,6 @@ def plot_ibm_qaoa_performance_panels(
             y = y_scale * group["approximation_ratio"]
             color = color_map[color_label]
             marker = shape_map[color_label]
-            opt_level = _optimization_level(color_label)
             style_kwargs = _style_plot_kwargs(color_label)
 
             ax.errorbar(
@@ -1139,7 +1137,7 @@ def plot_ibm_qaoa_performance_panels(
 
     method_items = sorted(method_legend_dict.items(), key=lambda x: x[0])
     evaluator_items = sorted(evaluator_legend_dict.items(), key=lambda x: x[0])
-    method_legend = axs[0].legend(
+    axs[0].legend(
         handles=[handle for _, handle in method_items],
         loc="lower left",
         ncol=4,
@@ -1151,7 +1149,7 @@ def plot_ibm_qaoa_performance_panels(
         columnspacing=0.4,
         labelspacing=0.25,
     )
-    evaluator_legend = axs[-1].legend(
+    axs[-1].legend(
         handles=[handle for _, handle in evaluator_items],
         loc="lower left",
         ncol=1,
@@ -1213,7 +1211,6 @@ def plot_ibm_qaoa_overlay(
     overlay = plot_data["df_points"].copy()
     color_map = plot_data["color_map"]
     shape_map = plot_data["shape_map"]
-    label_map = plot_data["label_map"]
     graph_id = plot_data["graph_id"]
 
     overlay["job_p"] = pd.to_numeric(overlay["job_p"], errors="coerce")
@@ -1558,7 +1555,6 @@ def plot_ibm_qaoa_training_bricks(
     fs_tick = 20
     fs_label = 20
     fs_legend = 18
-    y_scale = 100.0
     edge_lw = 0.9
 
     _ensure_save_dir(save_dir)
@@ -1906,7 +1902,6 @@ def plot_ibm_qaoa_recommendation(
     _ensure_save_dir(save_dir)
 
     df_centroids, _ = build_recommendation_data(df_points)
-    p_values = sorted(pd.to_numeric(df_points["job_p"], errors="coerce").dropna().astype(int).unique())
 
     x_all = df_centroids["dur_mean"].dropna()
     x_left = max(x_all.min() / 3, 0.1)

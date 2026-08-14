@@ -22,10 +22,13 @@ the Nautilus helper files are only launch instructions.
 
 ## Before Running
 
-Commit and push the branch that Nautilus should execute:
+The manifests default to cloning `main`. If you are testing changes on a
+feature branch instead, push it and update the `STOCHASTIC_BENCHMARK_BRANCH`
+value in the job YAML (or the script's `STOCHASTIC_BENCHMARK_BRANCH` env var)
+to that branch name:
 
 ```bash
-git push upstream QAOA_Parameter_Setting_IBM
+git push upstream your-feature-branch
 ```
 
 If your namespace spelling differs from `usra-expedition`, update the

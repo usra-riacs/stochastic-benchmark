@@ -8,7 +8,7 @@ RESULTS_DIR="${RESULTS_DIR:-${WORKDIR}/results}"
 SKIP_REPO_UPDATE="${IBM_QAOA_SKIP_REPO_UPDATE:-0}"
 
 STOCHASTIC_BENCHMARK_REPO="${STOCHASTIC_BENCHMARK_REPO:-https://github.com/usra-riacs/stochastic-benchmark.git}"
-STOCHASTIC_BENCHMARK_BRANCH="${STOCHASTIC_BENCHMARK_BRANCH:-QAOA_Parameter_Setting_IBM}"
+STOCHASTIC_BENCHMARK_BRANCH="${STOCHASTIC_BENCHMARK_BRANCH:-main}"
 QPS_REPO_URL="${QPS_REPO_URL:-https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git}"
 QPS_BRANCH="${QPS_BRANCH:-main}"
 QAOA_PIPELINE_REPO_URL="${QAOA_PIPELINE_REPO_URL:-https://github.com/qiskit-community/qaoa_training_pipeline.git}"

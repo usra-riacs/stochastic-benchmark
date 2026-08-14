@@ -138,7 +138,8 @@ def split_train_test(df: pd.DataFrame, split_on: List[str], ptrain: float):
                 lambda df: pd.DataFrame.from_dict(
                     {"train": [np.random.binomial(1, ptrain)]}
                 ),
-            ) # include_groups=False # Pandas Version Error
+                include_groups=False,
+            )
             .merge(df, on=split_on)
         )
     else:
@@ -150,7 +151,7 @@ def split_train_test(df: pd.DataFrame, split_on: List[str], ptrain: float):
                     lambda df: pd.DataFrame.from_dict(
                         {"train": [np.random.binomial(1, ptrain)]}
                     ),
-                    # include_groups=False # Pandas Version Error
+                    include_groups=False,
                 )
                 .merge(df, on=split_on)
             )

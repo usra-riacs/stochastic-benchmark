@@ -29,6 +29,16 @@
     {
       "path": "examples/QEDC_to_WS_conversion/conversion.ipynb",
       "category": "self_contained"
+    },
+    {
+      "path": "examples/IBM_QAOA/notebooks/Analysis.ipynb",
+      "category": "external",
+      "reason": "Requires sibling QAOA-Parameter-Setting and qaoa_training_pipeline checkouts plus qiskit/qiskit-aer; see examples/IBM_QAOA/notebooks/README.md."
+    },
+    {
+      "path": "examples/IBM_QAOA/notebooks/Simulation_Method_Validation_and_WS.ipynb",
+      "category": "external",
+      "reason": "Requires sibling QAOA-Parameter-Setting and qaoa_training_pipeline checkouts plus qiskit/qiskit-aer; see examples/IBM_QAOA/notebooks/README.md."
     }
   ]
 }

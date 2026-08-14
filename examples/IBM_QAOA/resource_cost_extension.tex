@@ -1,0 +1,151 @@
+The $T_{\text{total}}$ analysis above only accounts for the final
+QPU sampling, not the cost of training the angles on quantum
+hardware itself. To investigate what would happen if both the angle
+training and sampling were performed on actual quantum hardware, we
+perform the following analysis.
+
+For each candidate parameter setting,
+\begin{equation}
+    T_{\text{proxy}} = t_{\text{preprocessing}} + N M \, t_{\text{shot}} + Q \, t_{\text{shot}},
+    \label{eq:tproxy}
+\end{equation}
+where $N$ is the number of COBYLA iterations, the same $K$ from
+$T_{AS}$ above, or its cumulative sum across sub-depths for
+Interpolation, $M$ is the number of shots used per COBYLA iteration,
+$Q$ is the final number of sampling shots once the angles have been
+trained and fixed, the same $Q$ already used in $T_{QPU}$ above, and
+$t_{\text{shot}}$ is the calibrated per-shot duration defined below.
+$t_{\text{preprocessing}}$ is zero for Fixed Angles and Linear Ramp,
+the measured transfer-lookup time for Parameter Transfer, and for
+Interpolation an added term for its recursive matrix-product-state
+evaluations, which the base $NM$ term does not capture.
+
+To determine the recommended strategy, we run these optimizations
+on MPS (Aer), each problem instance sampling a random subset of
+settings from $N \in \{10,20,40,50,60,75,80,100,150\}$ COBYLA
+iterations, $M \in \{10,25,50,100,200,500,1000\}$ shots per
+iteration, and $Q \in \{100,200,250,500,1000,2500,5000,10000\}$
+final shots for the trained methods, Fixed Angles$^\star$, Linear
+Ramp, and Interpolation$^\star$. Fixed Angles$^\dagger$ and
+Parameter Transfer require no training and sample only over $Q$, up
+to $500\,000$ and $300\,000$ shots respectively. This covers a
+total of five strategies.
+
+Running the full $N \times M$ training grid plus the final $Q$
+shots on \texttt{ibm\_boston} for every strategy and depth is not
+practical, so we simulate that grid with the MPS (Aer) evaluator of
+Sec.~\ref{sec:tns} as a hardware proxy and record its cost as
+$T_{\text{proxy}}$, then rescale the result to the duration
+\texttt{ibm\_boston} would take, once assuming ideal noiseless shots
+and once with a noise correction. No hardware samples were collected
+for this analysis, only the resource axis is calibrated. We build
+these calibrated Window Stickers with the Stochastic Benchmark
+framework~\cite{Neira2024}.
+
+We calibrate $t_{\text{shot}}$ two ways, both anchored to the
+hardware characterization in Sec.~\ref{sec:hw_training} and
+App.~\ref{app:hardware_train}. The noiseless calibration sets
+$t_{\text{shot}} = 1/2470\,\text{Hz} \approx 405\,\mu\text{s}$, the
+measured \texttt{ibm\_boston} shot rate. The noise-corrected
+calibration instead sets $t_{\text{shot}} =
+t_{\text{shot}}^{\text{noiseless}} / \sqrt{\gamma}(p)$, where
+$\sqrt{\gamma}(p) = F_{CZ}^{\,N_{CZ}/2}$ is the fraction of a raw
+shot that constitutes one noiseless-equivalent sample, $N_{CZ} = 2
+\times 143 \times p$ is the number of two-qubit gates for depth-$p$
+QAOA on the 144-qubit heavy-hex device, and $F_{CZ} = 99.872\%$ is
+the median \texttt{ibm\_boston} CZ-gate fidelity. This penalizes
+deeper circuits more heavily. Table~\ref{tab:calibration} lists the
+resulting per-shot durations and rescaling factors.
+
+\begin{table}[t]
+    \centering
+    \caption{Calibration factors for the noiseless and
+    noise-corrected $T_{\text{proxy}}$ resource axes, by depth $p$,
+    measured on \texttt{ibm\_boston}. $s_{\text{nl}}$ and
+    $s_{\text{nc}}$ are the factors each method's raw
+    $T_{\text{proxy}}$ is rescaled by. Depth $p=1$ has no local
+    hardware timing records and is excluded.}
+    \label{tab:calibration}
+    \begin{tabular}{cccccccc}
+        \hline
+        $p$ & $t_{\text{hw}}$ ($\mu$s) & $N_{CZ}$ & $\sqrt{\gamma}(p)$ & $t_{\text{nl}}$ ($\mu$s) & $t_{\text{nc}}$ ($\mu$s) & $s_{\text{nl}}$ & $s_{\text{nc}}$ \\
+        \hline
+        2  & 271.27 & 572  & 0.6933 & 404.86 & 583.97  & 1.4925 & 2.1528 \\
+        3  & 271.27 & 858  & 0.5773 & 404.86 & 701.35  & 1.4925 & 2.5855 \\
+        4  & 271.27 & 1144 & 0.4806 & 404.86 & 842.33  & 1.4925 & 3.1051 \\
+        5  & 280.31 & 1430 & 0.4002 & 404.86 & 1011.64 & 1.4443 & 3.6090 \\
+        6  & 275.79 & 1716 & 0.3332 & 404.86 & 1214.98 & 1.4680 & 4.4055 \\
+        7  & 298.39 & 2002 & 0.2775 & 404.86 & 1459.19 & 1.3568 & 4.8901 \\
+        8  & 280.31 & 2288 & 0.2310 & 404.86 & 1752.49 & 1.4443 & 6.2520 \\
+        9  & 271.27 & 2574 & 0.1924 & 404.86 & 2104.75 & 1.4925 & 7.7590 \\
+        10 & 280.31 & 2860 & 0.1602 & 404.86 & 2527.81 & 1.4443 & 9.0179 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+This analysis covers the strategies already shown on the Pareto
+frontier of Fig.~\ref{fig:recommendation}, Fixed Angles$^\star$,
+Fixed Angles$^\dagger$, Parameter Transfer, Linear Ramp, and
+Interpolation$^\star$.
+We ran the campaign of Sec.~\ref{sec:bench_method} for these
+families on 30 heavy-hex-144 MaxCut instances (20 training, 10
+test), bootstrap-resampled into stochastic-benchmark
+statistics~\cite{Neira2024}, fitting an actionable prescription
+curve per method on the training instances and evaluating it on
+held-out test instances. At each resource level we take the running
+maximum actionable response across families to obtain the Pareto
+frontier, crediting a method only where it has direct fitted
+evidence rather than flat extrapolation past its last measured
+point.
+
+Figure~\ref{fig:pareto-overlay} overlays the resulting actionable
+Pareto frontier under both calibrations on a single axis, so the
+effect of the hardware noise assumption on the recommended strategy
+is visible directly rather than split across separate figures. Line
+colour marks which method family holds the frontier at a given
+resource level; linestyle distinguishes the noiseless (solid) and
+noise-corrected (dashed) calibrations.
+
+At the smallest calibrated budgets, Fixed Angles$^\dagger$, without
+any angle reoptimization, holds the frontier under both calibrations,
+with occasional Parameter Transfer segments, consistent with these
+being among the fastest angle-setting methods in
+Fig.~\ref{fig:performance}. As the budget grows, Fixed Angles$^\star$
+takes over and holds the frontier across most of the remaining range,
+in particular the depth-six variant, which dominates the majority of
+the accessible budget on both panels. Interpolation$^\star$ only
+claims the frontier in a narrow middle window before Fixed
+Angles$^\star$ (p=6) reclaims it at the largest budgets, so its
+higher training cost does not translate into a lasting advantage once
+that training is itself priced onto the hardware axis, echoing the
+diminishing returns from extensive angle optimization already noted
+for Fig.~\ref{fig:recommendation}. Linear Ramp briefly holds the
+test-panel frontier at intermediate budgets under both calibrations
+but does not appear on the training-panel frontier in this sweep.
+
+The noise-corrected calibration pushes the entire frontier to the
+right relative to the noiseless one, most visibly at the largest
+budgets, since deeper circuits lose a larger fraction of each shot to
+gate error and therefore need proportionally more of them to reach
+one noiseless-equivalent sample. The ordering of which family holds
+the frontier is otherwise preserved between the two calibrations,
+shallow unoptimized methods are cheapest at low budget, Fixed
+Angles$^\star$ dominates the middle and upper range, and
+Interpolation$^\star$ is only transiently competitive. The best
+achieved approximation ratio at the largest available budget is
+unchanged by the calibration choice ($92.9\%$ train, $91.9\%$ test),
+since both calibrations rescale the same underlying best-performing
+configuration and only its apparent cost in duration shifts.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{figures/pareto_frontier_overlay_hw_calibrations.pdf}
+    \caption{Actionable Pareto frontier for 144-node heavy-hex MaxCut
+    under the noiseless and noise-corrected hardware calibrations
+    (Eq.~\ref{eq:tproxy}), overlaid on a single axis.
+    (a) Training instances. (b) Test instances. Line colour indicates
+    which method family is the best currently deployable strategy at
+    that resource level. Solid lines are the noiseless calibration;
+    dashed lines are the noise-corrected calibration.}
+    \label{fig:pareto-overlay}
+\end{figure}

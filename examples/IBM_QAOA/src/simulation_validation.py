@@ -8,7 +8,6 @@ import statistics
 import sys
 import time
 from dataclasses import dataclass
-from itertools import combinations
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -16,9 +15,8 @@ from typing import Any, Callable
 import networkx as nx
 import numpy as np
 import pandas as pd
-from scipy.stats import chi2_contingency, ks_2samp
 
-from .Processing import QAOAHardware, expected_energy_from_counts, load_problem_instance, set_data_path
+from .Processing import expected_energy_from_counts, load_problem_instance
 from .approx_ratio_calc import (
     best_prefix_metrics,
     extract_minmax_args,
@@ -36,10 +34,6 @@ STRATEGY_RAW_POINTS_FILENAME = "strategy_raw_points.pkl"
 TRANSFER_RAW_POINTS_FILENAME = "transfer_raw_points.pkl"
 LEGACY_FA_RAW_POINTS_FILENAME = "fa_raw_points.pkl"
 LEGACY_PT_RAW_POINTS_FILENAME = "pt_raw_points.pkl"
-
-TRAINING_INDEPENDENT = "training-independent"
-SCHEDULE_REFINED = "schedule-generated but optimizer-refined"
-TRAINING_DEPENDENT = "training-dependent"
 
 SAMPLED_BACKEND_METHODS = {
     "SV": "statevector",
@@ -59,8 +53,7 @@ TRANSFER_DATABASE_FALLBACKS = {
     "optimized_angles_database_HH_cluster.json": "optimized_angles_database.json",
 }
 
-ZERO_TRAINING_METHODS = {"PT_PP_AAA", "linear_ramp_no_opt"}
-OPTIMIZED_METHODS = {"FA_PP_opt", "LR_PP_opt", "FA_MPSAer_opt", "LR_MPSAer_opt"}
+ZERO_TRAINING_METHODS = {"PT_PP_AAA", "FA_PP_no_opt", "linear_ramp_no_opt"}
 
 
 @dataclass(frozen=True)
@@ -201,48 +194,6 @@ def estimate_hardware_time_per_shot(
     if statistic_key == "max":
         return float(max(values))
     raise ValueError(f"Unsupported hardware time-per-shot statistic: {statistic!r}")
-
-
-def _hardware_result_depths(result_path: Path, payload: list[dict]) -> set[int]:
-    """Infer QAOA depths represented by a saved hardware result JSON."""
-    depths: set[int] = set()
-
-    stem_parts = result_path.stem.split("_")
-    for token in stem_parts[1:3]:
-        if re.fullmatch(r"\d+", token):
-            depths.add(int(token))
-
-    for record in payload:
-        if not isinstance(record, dict):
-            continue
-        for key in ("job_p", "p", "depth", "qaoa_depth", "reps"):
-            value = record.get(key)
-            try:
-                if value is not None:
-                    depths.add(int(value))
-            except (TypeError, ValueError):
-                pass
-
-        metadata = record.get("metadata")
-        if not isinstance(metadata, dict):
-            continue
-        for key in ("job_p", "p", "depth", "qaoa_depth", "reps"):
-            value = metadata.get(key)
-            try:
-                if value is not None:
-                    depths.add(int(value))
-            except (TypeError, ValueError):
-                pass
-        method = str(metadata.get("method", ""))
-        match = re.search(r"_(\d+)$", method)
-        if match:
-            depths.add(int(match.group(1)))
-        result_file = str(metadata.get("result_file", ""))
-        match = re.search(r"_(\d+)\.json$", result_file)
-        if match:
-            depths.add(int(match.group(1)))
-
-    return depths
 
 
 def generated_instance_cache_key(
@@ -475,84 +426,11 @@ def native_train_kwargs_overrides(
     return overrides
 
 
-def inspect_method_config(config: dict[str, Any], config_name: str | None = None) -> dict[str, Any]:
-    trainer_chain = config.get("trainer_chain", [])
-    trainer_names = [stage.get("trainer") for stage in trainer_chain]
-    primary = trainer_names[0] if trainer_names else None
-    config_name = config_name or ""
-
-    classification = TRAINING_DEPENDENT
-    reason = "contains an optimization stage or requires evaluator-guided refinement"
-
-    if primary == "TransferTrainer" and len(trainer_names) == 1:
-        classification = TRAINING_INDEPENDENT
-        reason = "transfer angles come from stored data and feature matching only"
-    elif primary == "TQATrainer" and len(trainer_names) == 1:
-        trainer_init = trainer_chain[0].get("trainer_init", {})
-        if trainer_init.get("evaluator") is None:
-            classification = TRAINING_INDEPENDENT
-            reason = "linear-ramp / TQA schedule can be generated with evaluator disabled"
-        elif "LR_" in config_name or "opt" in config_name:
-            classification = SCHEDULE_REFINED
-            reason = "linear-ramp schedule is present, but the config still optimizes the slopes"
-    elif primary == "FixedAngleConjecture" and len(trainer_names) == 1:
-        trainer_init = trainer_chain[0].get("trainer_init", {})
-        if trainer_init.get("evaluator") is None:
-            classification = TRAINING_INDEPENDENT
-            reason = "fixed-angle conjecture produces angles without optimization"
-
-    return {
-        "config_name": config_name,
-        "description": config.get("description"),
-        "trainer_chain": trainer_names,
-        "classification": classification,
-        "reason": reason,
-    }
-
-
-def inspect_result_record(record: dict[str, Any], source_name: str | None = None) -> dict[str, Any]:
-    trainer = record.get("trainer", {})
-    trainer_name = trainer.get("trainer_name", "Unknown")
-    parameter_history = record.get("parameter_history", []) or []
-    energy_history = record.get("energy_history", []) or []
-
-    classification = TRAINING_DEPENDENT
-    reason = "result contains optimizer history"
-
-    if trainer_name == "TransferTrainer":
-        classification = TRAINING_INDEPENDENT
-        reason = "transfer result stores no optimizer history"
-    elif trainer_name == "TQATrainer":
-        if len(parameter_history) <= 1 and len(energy_history) <= 1:
-            classification = TRAINING_INDEPENDENT
-            reason = "schedule generated without iterative refinement"
-        else:
-            classification = SCHEDULE_REFINED
-            reason = "schedule parameters were refined through iterative evaluation"
-    elif trainer_name == "FixedAngleConjecture" and len(parameter_history) == 0:
-        classification = TRAINING_INDEPENDENT
-        reason = "fixed-angle result contains no optimization trace"
-
-    return {
-        "source_name": source_name or "",
-        "trainer_name": trainer_name,
-        "classification": classification,
-        "reason": reason,
-        "n_parameter_steps": len(parameter_history),
-        "n_energy_steps": len(energy_history),
-        "train_duration": record.get("train_duration"),
-    }
-
-
 def latest_stage_data(result_bundle: dict[str | int, Any]) -> dict[str, Any]:
     stage_keys = sorted(key for key in result_bundle if isinstance(key, int))
     if not stage_keys:
         return result_bundle
     return result_bundle[stage_keys[-1]]
-
-
-def get_figure3_random_regular_specs() -> list[InstanceSpec]:
-    return [InstanceSpec("random_regular", 40, idx, degree=3) for idx in range(5)]
 
 
 def locate_instance_file(spec: InstanceSpec, main_repo: str | Path | None = None) -> Path:
@@ -836,7 +714,9 @@ def generate_training_instances_like_qps(
             strategy = SwapStrategy.from_line(range(int(num_nodes)))
             adjacency = np.array(np.ones((int(num_nodes), int(num_nodes))) * strategy.distance_matrix <= int(swap_layers), dtype=int)
             adjacency = adjacency - np.diag([1] * int(num_nodes))
-            adjacency = adjacency * rng.choice([1, -1], (int(num_nodes), int(num_nodes)))
+            signs = rng.choice([1, -1], (int(num_nodes), int(num_nodes)))
+            signs = np.triu(signs) + np.triu(signs, 1).T
+            adjacency = adjacency * signs
             graph = nx.from_numpy_array(adjacency)
             description = (
                 f"Graph generated from a line of nodes and {int(swap_layers)} layers of swap gates. "
@@ -1125,6 +1005,12 @@ def run_method_from_config(
 
         train_kwargs = copy.deepcopy(stage.get("train_kwargs", {}))
         if latest_result and "result" in train_kwargs:
+            if not hasattr(latest_result, "__getitem__"):
+                raise TypeError(
+                    f"Stage {idx} ({trainer_name}) chains 'result' keys from the previous "
+                    f"stage's output, but that output is a {type(latest_result).__name__}, "
+                    "which does not support subscripting. Expected a dict-like ParamResult."
+                )
             for result_key, arg_name in train_kwargs["result"].items():
                 train_kwargs[arg_name] = latest_result[result_key]
             train_kwargs.pop("result")
@@ -1357,23 +1243,40 @@ def sample_bound_circuit_counts(
     backend_choice: str,
     shots: int = 4096,
     simulator_options: dict[str, Any] | None = None,
+    simulator: Any | None = None,
 ) -> dict[str, int]:
+    backend_choice = "MPSAer" if backend_choice == "MPS" else backend_choice
+    if backend_choice not in SAMPLED_BACKEND_METHODS:
+        raise ValueError(f"{backend_choice} is not a sampled backend.")
+
+    if simulator is None:
+        simulator = build_bound_circuit_simulator(backend_choice, simulator_options)
+
+    measured = circuit.copy()
+    measured.measure_all()
+    result = simulator.run(measured, shots=shots).result()
+    counts = result.get_counts()
+    if isinstance(counts, list):
+        counts = counts[0]
+    return {str(bitstring): int(count) for bitstring, count in counts.items()}
+
+
+def build_bound_circuit_simulator(backend_choice: str, simulator_options: dict[str, Any] | None = None):
+    """Build an AerSimulator for repeated reuse across many sample_bound_circuit_* calls.
+
+    Constructing the C++ Aer backend has non-trivial overhead, so callers that sample
+    many circuits with the same backend_choice/simulator_options (e.g. one (N, M) grid
+    sweep) should build one simulator here and pass it via the `simulator=` kwarg
+    instead of letting each call rebuild its own.
+    """
     qiskit_imports = ensure_qiskit_imports()
     AerSimulator = qiskit_imports["AerSimulator"]
     backend_choice = "MPSAer" if backend_choice == "MPS" else backend_choice
     if backend_choice not in SAMPLED_BACKEND_METHODS:
         raise ValueError(f"{backend_choice} is not a sampled backend.")
-
     options = dict(simulator_options or {})
     options.setdefault("method", SAMPLED_BACKEND_METHODS[backend_choice])
-
-    measured = circuit.copy()
-    measured.measure_all()
-    result = AerSimulator(**options).run(measured, shots=shots).result()
-    counts = result.get_counts()
-    if isinstance(counts, list):
-        counts = counts[0]
-    return {str(bitstring): int(count) for bitstring, count in counts.items()}
+    return AerSimulator(**options)
 
 
 def sample_bound_circuit_memory(
@@ -1381,41 +1284,22 @@ def sample_bound_circuit_memory(
     backend_choice: str,
     shots: int,
     simulator_options: dict[str, Any] | None = None,
+    simulator: Any | None = None,
 ) -> list[str]:
-    qiskit_imports = ensure_qiskit_imports()
-    AerSimulator = qiskit_imports["AerSimulator"]
     backend_choice = "MPSAer" if backend_choice == "MPS" else backend_choice
     if backend_choice not in SAMPLED_BACKEND_METHODS:
         raise ValueError(f"{backend_choice} is not a sampled backend.")
 
-    options = dict(simulator_options or {})
-    options.setdefault("method", SAMPLED_BACKEND_METHODS[backend_choice])
+    if simulator is None:
+        simulator = build_bound_circuit_simulator(backend_choice, simulator_options)
 
     measured = circuit.copy()
     measured.measure_all()
-    result = AerSimulator(**options).run(measured, shots=int(shots), memory=True).result()
+    result = simulator.run(measured, shots=int(shots), memory=True).result()
     memory = result.get_memory()
     if isinstance(memory, list):
         return [str(bitstring) for bitstring in memory]
     return [str(memory)]
-
-
-def evaluate_with_backend(
-    cost_op,
-    params: list[float],
-    backend_choice: str,
-    pipeline_repo: str | Path | None = None,
-    evaluator_init: dict[str, Any] | None = None,
-) -> float:
-    imports = ensure_pipeline_imports(pipeline_repo)
-    backend_choice = "MPSAer" if backend_choice == "MPS" else backend_choice
-    evaluator_name = EVALUATOR_NAMES[backend_choice]
-    evaluator_cls = imports["EVALUATORS"][evaluator_name]
-    if hasattr(evaluator_cls, "from_config"):
-        evaluator = evaluator_cls.from_config(evaluator_init or {})
-    else:
-        evaluator = evaluator_cls(**(evaluator_init or {}))
-    return float(evaluator.evaluate(cost_op=cost_op, params=params))
 
 
 def counts_to_metric_rows(
@@ -1445,15 +1329,6 @@ def counts_to_metric_rows(
             }
         )
     return pd.DataFrame(rows)
-
-
-def expand_metric_rows_to_shots(metric_rows: pd.DataFrame) -> pd.DataFrame:
-    expanded_rows: list[dict[str, Any]] = []
-    for row in metric_rows.to_dict(orient="records"):
-        count = int(row.pop("count"))
-        row.pop("probability", None)
-        expanded_rows.extend([row.copy() for _ in range(count)])
-    return pd.DataFrame(expanded_rows)
 
 
 def summarize_counts_metrics(
@@ -1528,147 +1403,6 @@ def sample_fixed_angles(
     return result
 
 
-def evaluate_fixed_angles(
-    cost_op,
-    params: list[float],
-    context: dict[str, Any],
-    backend_choice: str,
-    pipeline_repo: str | Path | None = None,
-    evaluator_init: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    backend_choice = "MPSAer" if backend_choice == "MPS" else backend_choice
-    start = time.perf_counter()
-    expected_energy = evaluate_with_backend(
-        cost_op,
-        params,
-        backend_choice=backend_choice,
-        pipeline_repo=pipeline_repo,
-        evaluator_init=evaluator_init,
-    )
-    runtime = time.perf_counter() - start
-    approx_ratio = maxcut_approximation_ratio(
-        context["min_cut"],
-        context["max_cut"],
-        context["sum_weights"],
-        expected_energy,
-    )
-    return {
-        "simulation_method": backend_choice,
-        "supports_sampling": False,
-        "counts": None,
-        "num_shots": None,
-        "runtime_seconds": runtime,
-        "expected_energy_eval": expected_energy,
-        "approx_ratio_from_eval": approx_ratio,
-    }
-
-
-def run_backend_choice(
-    cost_op,
-    params: list[float],
-    context: dict[str, Any],
-    backend_choice: str,
-    *,
-    pipeline_repo: str | Path | None = None,
-    shots: int = 4096,
-    evaluator_init: dict[str, Any] | None = None,
-    simulator_options: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    backend_choice = "MPSAer" if backend_choice == "MPS" else backend_choice
-    if backend_choice in SAMPLED_BACKEND_METHODS:
-        return sample_fixed_angles(
-            cost_op,
-            params,
-            context,
-            backend_choice=backend_choice,
-            shots=shots,
-            evaluator_init=evaluator_init,
-            simulator_options=simulator_options,
-        )
-    return evaluate_fixed_angles(
-        cost_op,
-        params,
-        context,
-        backend_choice=backend_choice,
-        pipeline_repo=pipeline_repo,
-        evaluator_init=evaluator_init,
-    )
-
-
-def chi_square_distribution_test(
-    metric_rows_a: pd.DataFrame,
-    metric_rows_b: pd.DataFrame,
-    value_col: str = "cut_value",
-) -> dict[str, Any]:
-    counts_a = metric_rows_a.groupby(value_col)["count"].sum()
-    counts_b = metric_rows_b.groupby(value_col)["count"].sum()
-    bins = sorted(set(counts_a.index).union(set(counts_b.index)))
-    if len(bins) <= 1:
-        return {"test_name": "chi2_contingency", "statistic": 0.0, "p_value": 1.0, "dof": 0}
-
-    table = np.vstack(
-        [
-            [int(counts_a.get(bin_value, 0)) for bin_value in bins],
-            [int(counts_b.get(bin_value, 0)) for bin_value in bins],
-        ]
-    )
-    statistic, p_value, dof, _ = chi2_contingency(table)
-    return {
-        "test_name": "chi2_contingency",
-        "statistic": float(statistic),
-        "p_value": float(p_value),
-        "dof": int(dof),
-    }
-
-
-def ks_distribution_test(
-    metric_rows_a: pd.DataFrame,
-    metric_rows_b: pd.DataFrame,
-    value_col: str = "approximation_ratio",
-) -> dict[str, Any]:
-    expanded_a = expand_metric_rows_to_shots(metric_rows_a)
-    expanded_b = expand_metric_rows_to_shots(metric_rows_b)
-    if expanded_a.empty or expanded_b.empty:
-        return {"test_name": "ks_2samp", "statistic": np.nan, "p_value": np.nan}
-    result = ks_2samp(expanded_a[value_col], expanded_b[value_col])
-    return {
-        "test_name": "ks_2samp",
-        "statistic": float(result.statistic),
-        "p_value": float(result.pvalue),
-    }
-
-
-def pairwise_sample_tests(metric_tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    rows = []
-    for backend_a, backend_b in combinations(metric_tables.keys(), 2):
-        chi2_result = chi_square_distribution_test(metric_tables[backend_a], metric_tables[backend_b])
-        ks_result = ks_distribution_test(metric_tables[backend_a], metric_tables[backend_b])
-        rows.append(
-            {
-                "backend_a": backend_a,
-                "backend_b": backend_b,
-                **chi2_result,
-                "ks_statistic": ks_result["statistic"],
-                "ks_p_value": ks_result["p_value"],
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def select_specs(
-    specs: list[InstanceSpec],
-    *,
-    use_smoke: bool = True,
-    limit: int | None = None,
-) -> list[InstanceSpec]:
-    if use_smoke:
-        limit = 1 if limit is None else limit
-        return specs[: max(1, int(limit))]
-    if limit is not None:
-        return specs[: int(limit)]
-    return specs
-
-
 def strategy_family(method_name: str) -> str:
     if method_name == "PT_PP_AAA":
         return "PT"
@@ -1687,14 +1421,6 @@ def strategy_family(method_name: str) -> str:
 
 def strategy_runtime_label(method_name: str, reps: int) -> str:
     return f"{method_name}_{int(reps)}"
-
-
-def aggregate_counts(count_dicts: list[dict[str, int]]) -> dict[str, int]:
-    merged: dict[str, int] = {}
-    for counts in count_dicts:
-        for bitstring, count in counts.items():
-            merged[str(bitstring)] = merged.get(str(bitstring), 0) + int(count)
-    return merged
 
 
 def stage_records_from_bundle(result_bundle: dict[str | int, Any]) -> list[dict[str, Any]]:
@@ -1757,13 +1483,22 @@ def build_sampled_training_config(
             trainer_init["minimize_args"] = minimize_args
 
         if trainer_name == "RecursionTrainer":
-            nested_init = trainer_init.get("trainer_init", {})
-            if nested_init.get("evaluator") == "MPSAerEvaluator":
-                chi = (sample_config or {}).get("chi")
-                if chi is not None:
-                    ev_init = nested_init.setdefault("evaluator_init", {})
-                    mps_args = ev_init.setdefault("mps_init_args", {})
-                    mps_args.setdefault("matrix_product_state_max_bond_dimension", int(chi))
+            # RecursionTrainer builds one ScipyTrainer instance up front and reuses
+            # it for every recursion step (see RecursionTrainer.train's while loop
+            # in qaoa_training_pipeline), so overriding this nested trainer_init
+            # once here applies the same (N, M) grid point to every sub-depth from
+            # p=2 up to the target depth, not just the p=1 warm-start stage above.
+            nested_init = trainer_init.setdefault("trainer_init", {})
+            if "evaluator" in nested_init:
+                nested_init["evaluator"] = "MPSAerSampleEvaluator"
+                nested_init["evaluator_init"] = dict(evaluator_init)
+            if cobyla_maxiter is not None:
+                nested_minimize_args = copy.deepcopy(nested_init.get("minimize_args", {}))
+                nested_options = copy.deepcopy(nested_minimize_args.get("options", {}))
+                nested_options["maxiter"] = int(cobyla_maxiter)
+                nested_minimize_args["options"] = nested_options
+                nested_minimize_args.setdefault("method", "COBYLA")
+                nested_init["minimize_args"] = nested_minimize_args
 
     return sampled_config
 
@@ -1910,521 +1645,6 @@ def run_strategy_with_final_sampling(
         "evaluator_init": sample_result.get("evaluator_init"),
         "result_bundle": result_bundle,
     }
-
-
-def run_fixed_angle_backend_suite(
-    specs: list[InstanceSpec],
-    *,
-    angle_methods: list[str],
-    backends: list[str],
-    p_values: list[int],
-    shots: int,
-    method_configs: dict[str, Path] | None = None,
-    main_repo: str | Path | None = None,
-    pipeline_repo: str | Path | None = None,
-    linear_ramp_slopes: tuple[float, float] = (0.5, 0.5),
-    backend_run_config: dict[str, dict[str, Any]] | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    result_rows: list[dict[str, Any]] = []
-    test_rows: list[pd.DataFrame] = []
-
-    for spec in specs:
-        context = load_instance_context(spec, main_repo)
-        cost_op = build_cost_operator_from_graph(context["graph_path"], pipeline_repo)
-
-        for angle_method in angle_methods:
-            for reps in p_values:
-                try:
-                    angle_payload = generate_angle_payload(
-                        cost_op,
-                        angle_method=angle_method,
-                        reps=reps,
-                        method_configs=method_configs,
-                        main_repo=main_repo,
-                        pipeline_repo=pipeline_repo,
-                        linear_ramp_slopes=linear_ramp_slopes,
-                        disable_transfer_evaluator=True,
-                        spec=spec,
-                        graph_path=context["graph_path"],
-                    )
-                except Exception as exc:  # pragma: no cover - notebook-facing fallback
-                    result_rows.append(
-                        {
-                            "family": spec.graph_type,
-                            "graph_type": spec.graph_type,
-                            "num_nodes": spec.num_nodes,
-                            "instance_id": spec.instance_id,
-                            "short_name": context["short_name"],
-                            "p": int(reps),
-                            "angle_method": angle_method,
-                            "simulation_method": None,
-                            "error": str(exc),
-                        }
-                    )
-                    continue
-
-                sampled_tables: dict[str, pd.DataFrame] = {}
-                for backend in backends:
-                    backend_config = (backend_run_config or {}).get(backend, {})
-                    try:
-                        result = run_backend_choice(
-                            cost_op,
-                            angle_payload["angles"],
-                            context,
-                            backend_choice=backend,
-                            pipeline_repo=pipeline_repo,
-                            shots=shots,
-                            evaluator_init=backend_config.get("evaluator_init"),
-                            simulator_options=backend_config.get("simulator_options"),
-                        )
-                    except Exception as exc:  # pragma: no cover - notebook-facing fallback
-                        result_rows.append(
-                            {
-                                "family": spec.graph_type,
-                                "graph_type": spec.graph_type,
-                                "num_nodes": spec.num_nodes,
-                                "instance_id": spec.instance_id,
-                                "short_name": context["short_name"],
-                                "p": int(reps),
-                                "angle_method": angle_method,
-                                "simulation_method": backend,
-                                "supports_sampling": backend in SAMPLED_BACKEND_METHODS,
-                                "error": str(exc),
-                            }
-                        )
-                        continue
-
-                    row = {key: value for key, value in result.items() if key != "metric_rows"}
-                    row.update(
-                        {
-                            "family": spec.graph_type,
-                            "graph_type": spec.graph_type,
-                            "num_nodes": spec.num_nodes,
-                            "instance_id": spec.instance_id,
-                            "short_name": context["short_name"],
-                            "p": int(reps),
-                            "angle_method": angle_method,
-                            "error": None,
-                        }
-                    )
-                    result_rows.append(row)
-                    if "metric_rows" in result:
-                        sampled_tables[backend] = result["metric_rows"]
-
-                if len(sampled_tables) >= 2:
-                    tests = pairwise_sample_tests(sampled_tables)
-                    if not tests.empty:
-                        tests = tests.assign(
-                            family=spec.graph_type,
-                            graph_type=spec.graph_type,
-                            num_nodes=spec.num_nodes,
-                            instance_id=spec.instance_id,
-                            short_name=context["short_name"],
-                            p=int(reps),
-                            angle_method=angle_method,
-                        )
-                        test_rows.append(tests)
-
-    return pd.DataFrame(result_rows), pd.concat(test_rows, ignore_index=True) if test_rows else pd.DataFrame()
-
-
-def build_backend_decision_table(
-    result_df: pd.DataFrame,
-    test_df: pd.DataFrame,
-    alpha: float = 0.05,
-) -> pd.DataFrame:
-    if result_df.empty:
-        return pd.DataFrame()
-
-    valid_df = result_df[result_df.get("error").isna()] if "error" in result_df.columns else result_df
-    rows = []
-    for backend, group in valid_df.groupby("simulation_method", dropna=False):
-        supports_sampling = bool(group["supports_sampling"].fillna(False).any())
-        approx_col = "approx_ratio_mean" if "approx_ratio_mean" in group.columns else "approx_ratio_from_eval"
-
-        min_ks_p_vs_sv = np.nan
-        min_chi2_p_vs_sv = np.nan
-        if backend != "SV" and supports_sampling and not test_df.empty:
-            subset = test_df[
-                ((test_df["backend_a"] == "SV") & (test_df["backend_b"] == backend))
-                | ((test_df["backend_b"] == "SV") & (test_df["backend_a"] == backend))
-            ]
-            if not subset.empty:
-                min_ks_p_vs_sv = subset["ks_p_value"].min()
-                min_chi2_p_vs_sv = subset["p_value"].min()
-
-        rows.append(
-            {
-                "simulation_method": backend,
-                "supports_sampling": supports_sampling,
-                "n_rows": int(len(group)),
-                "median_runtime_seconds": float(group["runtime_seconds"].median()),
-                "mean_approx_ratio": float(group[approx_col].dropna().mean()),
-                "min_ks_p_vs_sv": min_ks_p_vs_sv,
-                "min_chi2_p_vs_sv": min_chi2_p_vs_sv,
-                "passes_alignment_vs_sv": bool(min_ks_p_vs_sv >= alpha)
-                if not np.isnan(min_ks_p_vs_sv)
-                else supports_sampling and backend == "SV",
-                "notes": "evaluator-only baseline" if not supports_sampling else "",
-            }
-        )
-
-    return pd.DataFrame(rows).sort_values(
-        ["passes_alignment_vs_sv", "median_runtime_seconds"],
-        ascending=[False, True],
-    ).reset_index(drop=True)
-
-
-def load_ibm_hardware_dataframe(
-    *,
-    graph_type: str,
-    num_nodes: int,
-    instance_list: list[int],
-    p_list: list[int],
-    main_repo: str | Path | None = None,
-    energy_mode: str = "full",
-    top_pc: float | None = None,
-    degree: int | None = None,
-    swap_layers: int | None = None,
-    er_probability: int | None = None,
-) -> pd.DataFrame:
-    repo = main_repo_path(main_repo)
-    data_dir = str(repo / "data")
-    hardware_data_path = set_data_path(data_dir, True, False, graph_type)
-    instance_root = str(repo / "instances")
-
-    instance_path_map: dict[str, Path] = {}
-    for instance in instance_list:
-        for path in load_problem_instance(
-            instance_root,
-            graph_type,
-            str(num_nodes),
-            str(instance),
-            degree=str(degree) if degree is not None else None,
-            ER_probability=str(er_probability) if er_probability is not None else None,
-            swap_layers=str(swap_layers) if swap_layers is not None else None,
-        ):
-            instance_path_map[path.stem.split("_")[0].zfill(3)] = path
-
-    rows: list[dict[str, Any]] = []
-    instance_context_cache: dict[str, Any] = {}
-    for p in p_list:
-        for instance in instance_list:
-            matches = QAOAHardware.locate_hardware_instance(
-                hardware_data_path,
-                graph_type,
-                str(instance),
-                str(num_nodes),
-                str(p),
-                ER_probability=str(er_probability) if er_probability is not None else None,
-                swap_layers=str(swap_layers) if swap_layers is not None else None,
-                degree=str(degree) if degree is not None else None,
-            )
-            for instance_path in matches:
-                instance_number = instance_path.name[:3]
-                if instance_number not in instance_context_cache:
-                    instance_context_cache[instance_number] = load_maxcut_instance_context(
-                        instance_path_map[instance_number]
-                    )
-                instance_context = instance_context_cache[instance_number]
-                for record in QAOAHardware.load_hardware_instance(
-                    instance_path,
-                    objective_from_bitstring=maxcut_energy_from_bitstring,
-                    objective_context=instance_context,
-                    energy_mode=energy_mode,
-                    top_pc=top_pc,
-                ):
-                    rows.append(
-                        {
-                            "instance_name": record.instance_name,
-                            "instance_id": str(record.instance_name)[:3],
-                            "QPU_time (s)": record.QPU_time,
-                            "num_shots": record.num_shots,
-                            "problem_class": record.problem_class,
-                            "training_method": record.training_method,
-                            "expected_energy": record.expected_energy,
-                            "file_name": record.file_name,
-                            "job_p": record.job_p,
-                            "training_p": record.training_p,
-                            "counts": record.counts,
-                        }
-                    )
-
-    df_hardware = pd.DataFrame(rows)
-    if df_hardware.empty:
-        return df_hardware
-
-    df_hardware = df_hardware[
-        df_hardware["problem_class"].astype(str).str.lower().eq("maxcut")
-        & df_hardware["file_name"].astype(str).str.contains("_MC_", na=False)
-    ].copy()
-
-    approx_ratios = []
-    minmax_cache: dict[str, tuple[float, float, float]] = {}
-    for _, row in df_hardware.iterrows():
-        instance_number = str(row["instance_id"]).zfill(3)
-        if instance_number not in minmax_cache:
-            minmax_path = get_minmax(
-                str(repo / "data" / "minmax_cuts"),
-                graph_type,
-                instance_number,
-                str(num_nodes),
-                ER_probability=str(er_probability) if er_probability is not None else None,
-                swap_layers=str(swap_layers) if swap_layers is not None else None,
-                degree=str(degree) if degree is not None else None,
-            )
-            minmax_cache[instance_number] = extract_minmax_args(minmax_path)
-        min_cut, max_cut, sum_weights = minmax_cache[instance_number]
-        approx_ratios.append(
-            maxcut_approximation_ratio(min_cut, max_cut, sum_weights, row["expected_energy"])
-        )
-    df_hardware["approximation_ratio"] = approx_ratios
-    return df_hardware.reset_index(drop=True)
-
-
-def compare_strategy_to_hardware(
-    *,
-    simulated_row: dict[str, Any],
-    hardware_df: pd.DataFrame,
-    main_repo: str | Path | None = None,
-) -> dict[str, Any]:
-    spec = InstanceSpec(
-        graph_type=simulated_row["graph_type"],
-        num_nodes=int(simulated_row["num_nodes"]),
-        instance=int(simulated_row["instance_id"]),
-    )
-    context = load_instance_context(spec, main_repo)
-    hardware_subset = hardware_df[
-        hardware_df["instance_id"].astype(str).eq(str(simulated_row["instance_id"]).zfill(3))
-        & hardware_df["training_method"].astype(str).eq(simulated_row["strategy_runtime_label"])
-        & pd.to_numeric(hardware_df["job_p"], errors="coerce").eq(float(simulated_row["p"]))
-    ].copy()
-
-    if hardware_subset.empty:
-        return {
-            **simulated_row,
-            "n_hardware_rows": 0,
-            "hardware_expected_energy": np.nan,
-            "hardware_approx_ratio_mean": np.nan,
-            "hardware_approx_ratio_best": np.nan,
-            "hardware_counts": None,
-            "mean_abs_ratio_diff": np.nan,
-            "best_abs_ratio_diff": np.nan,
-            "abs_expected_energy_diff": np.nan,
-            "chi2_p_value_vs_hw": np.nan,
-            "ks_p_value_vs_hw": np.nan,
-        }
-
-    hardware_counts = aggregate_counts(hardware_subset["counts"].tolist())
-    hardware_summary = summarize_counts_metrics(
-        hardware_counts,
-        context["instance_context"],
-        context["min_cut"],
-        context["max_cut"],
-        context["sum_weights"],
-    )
-    chi2_result = chi_square_distribution_test(simulated_row["metric_rows"], hardware_summary["metric_rows"])
-    ks_result = ks_distribution_test(simulated_row["metric_rows"], hardware_summary["metric_rows"])
-
-    return {
-        **simulated_row,
-        "n_hardware_rows": int(len(hardware_subset)),
-        "hardware_expected_energy": float(hardware_subset["expected_energy"].mean()),
-        "hardware_approx_ratio_mean": float(hardware_summary["approx_ratio_mean"]),
-        "hardware_approx_ratio_best": float(hardware_summary["approx_ratio_best"]),
-        "hardware_counts": hardware_counts,
-        "mean_abs_ratio_diff": float(abs(simulated_row["approx_ratio_mean"] - hardware_summary["approx_ratio_mean"])),
-        "best_abs_ratio_diff": float(abs(simulated_row["approx_ratio_best"] - hardware_summary["approx_ratio_best"])),
-        "abs_expected_energy_diff": float(
-            abs(simulated_row["expected_energy_from_counts"] - hardware_subset["expected_energy"].mean())
-        ),
-        "chi2_p_value_vs_hw": float(chi2_result["p_value"]),
-        "ks_p_value_vs_hw": float(ks_result["p_value"]),
-    }
-
-
-def summarize_hardware_alignment(alignment_df: pd.DataFrame) -> pd.DataFrame:
-    if alignment_df.empty:
-        return pd.DataFrame()
-
-    valid = alignment_df[alignment_df["n_hardware_rows"].fillna(0) > 0].copy()
-    if valid.empty:
-        return pd.DataFrame()
-
-    summary = (
-        valid.groupby(["strategy", "strategy_family", "p"], as_index=False)
-        .agg(
-            n_instances=("instance_id", "nunique"),
-            mean_abs_ratio_diff=("mean_abs_ratio_diff", "mean"),
-            mean_best_abs_ratio_diff=("best_abs_ratio_diff", "mean"),
-            mean_abs_expected_energy_diff=("abs_expected_energy_diff", "mean"),
-            mean_ks_p_value=("ks_p_value_vs_hw", "mean"),
-            mean_chi2_p_value=("chi2_p_value_vs_hw", "mean"),
-            mean_runtime_sample_wallclock=("runtime_sample_wallclock", "mean"),
-            mean_best_approx_ratio=("BestApproximationRatio", "mean"),
-        )
-    )
-    return summary.sort_values(
-        ["mean_abs_ratio_diff", "mean_best_abs_ratio_diff", "mean_runtime_sample_wallclock"],
-        ascending=[True, True, True],
-    ).reset_index(drop=True)
-
-
-def run_hardware_closeness_suite(
-    specs: list[InstanceSpec],
-    *,
-    strategies: list[str],
-    p_values: list[int],
-    hardware_df: pd.DataFrame,
-    final_shots: int,
-    method_configs: dict[str, Path] | None = None,
-    main_repo: str | Path | None = None,
-    pipeline_repo: str | Path | None = None,
-    linear_ramp_slopes: tuple[float, float] = (0.5, 0.5),
-    sample_config: dict[str, Any] | None = None,
-    training_mode_by_strategy: dict[str, str] | None = None,
-    sample_training_shots_per_eval: int | None = None,
-    sample_cobyla_maxiter: int | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    alignment_rows: list[dict[str, Any]] = []
-
-    for spec in specs:
-        for strategy_name in strategies:
-            for reps in p_values:
-                training_mode = (training_mode_by_strategy or {}).get(strategy_name, "native")
-                try:
-                    simulated = run_strategy_with_final_sampling(
-                        spec,
-                        strategy_name,
-                        reps,
-                        final_shots=final_shots,
-                        pipeline_repo=pipeline_repo,
-                        main_repo=main_repo,
-                        method_configs=method_configs,
-                        linear_ramp_slopes=linear_ramp_slopes,
-                        training_mode=training_mode,
-                        cobyla_maxiter=sample_cobyla_maxiter if training_mode == "sampled_mps" else None,
-                        training_shots_per_eval=sample_training_shots_per_eval if training_mode == "sampled_mps" else None,
-                        sample_config=sample_config,
-                    )
-                except Exception as exc:  # pragma: no cover - notebook-facing fallback
-                    alignment_rows.append(
-                        {
-                            "strategy": strategy_name,
-                            "strategy_family": strategy_family(strategy_name),
-                            "graph_type": spec.graph_type,
-                            "num_nodes": spec.num_nodes,
-                            "instance_id": spec.instance_id,
-                            "p": int(reps),
-                            "error": str(exc),
-                            "n_hardware_rows": 0,
-                        }
-                    )
-                    continue
-
-                alignment_rows.append(compare_strategy_to_hardware(simulated_row=simulated, hardware_df=hardware_df, main_repo=main_repo))
-
-    alignment_df = pd.DataFrame(alignment_rows)
-    valid_alignment_df = alignment_df[alignment_df["error"].isna()] if "error" in alignment_df.columns else alignment_df
-    summary_df = summarize_hardware_alignment(valid_alignment_df)
-    return alignment_df, summary_df
-
-
-def select_ws_strategies(
-    hardware_alignment_summary: pd.DataFrame,
-    *,
-    include_pt_baseline: bool = True,
-    mode: str = "winner_plus_pt",
-) -> list[str]:
-    if hardware_alignment_summary.empty:
-        return ["PT_PP_AAA"] if include_pt_baseline else []
-
-    ranked = hardware_alignment_summary.sort_values(
-        ["mean_abs_ratio_diff", "mean_best_abs_ratio_diff", "mean_runtime_sample_wallclock"],
-        ascending=[True, True, True],
-    )
-    ordered = ranked["strategy"].dropna().astype(str).drop_duplicates().tolist()
-
-    if mode == "mixed":
-        strategies = ordered
-    else:
-        winner = ordered[0]
-        strategies = [winner]
-        if include_pt_baseline and "PT_PP_AAA" in ordered and "PT_PP_AAA" not in strategies:
-            strategies.append("PT_PP_AAA")
-        if winner == "PT_PP_AAA":
-            for candidate in ordered:
-                if candidate != "PT_PP_AAA":
-                    strategies.append(candidate)
-                    break
-
-    deduped: list[str] = []
-    for strategy_name in strategies:
-        if strategy_name not in deduped:
-            deduped.append(strategy_name)
-    return deduped
-
-
-def run_real_ws_campaign(
-    specs: list[InstanceSpec],
-    *,
-    strategies: list[str],
-    p_values: list[int],
-    n_grid: list[int],
-    m_grid: list[int],
-    q_grid: list[int],
-    method_configs: dict[str, Path] | None = None,
-    main_repo: str | Path | None = None,
-    pipeline_repo: str | Path | None = None,
-    linear_ramp_slopes: tuple[float, float] = (0.5, 0.5),
-    sample_config: dict[str, Any] | None = None,
-) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
-
-    for spec in specs:
-        for strategy_name in strategies:
-            for reps in p_values:
-                if strategy_name in ZERO_TRAINING_METHODS:
-                    for q_value in q_grid:
-                        rows.append(
-                            run_strategy_with_final_sampling(
-                                spec,
-                                strategy_name,
-                                reps,
-                                final_shots=int(q_value),
-                                pipeline_repo=pipeline_repo,
-                                main_repo=main_repo,
-                                method_configs=method_configs,
-                                linear_ramp_slopes=linear_ramp_slopes,
-                                training_mode="native",
-                                sample_config=sample_config,
-                            )
-                            | {"N": 0, "M": 0, "Q": int(q_value)}
-                        )
-                    continue
-
-                for n_value in n_grid:
-                    for m_value in m_grid:
-                        for q_value in q_grid:
-                            rows.append(
-                                run_strategy_with_final_sampling(
-                                    spec,
-                                    strategy_name,
-                                    reps,
-                                    final_shots=int(q_value),
-                                    pipeline_repo=pipeline_repo,
-                                    main_repo=main_repo,
-                                    method_configs=method_configs,
-                                    linear_ramp_slopes=linear_ramp_slopes,
-                                    training_mode="sampled_mps",
-                                    cobyla_maxiter=int(n_value),
-                                    training_shots_per_eval=int(m_value),
-                                    sample_config=sample_config,
-                                )
-                                | {"N": int(n_value), "M": int(m_value), "Q": int(q_value)}
-                            )
-
-    return pd.DataFrame(rows)
 
 
 def _mpsaer_simulator_options(sample_config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -2690,6 +1910,11 @@ def run_fa_pss_exact_points(
     q_max = max(int(q) for q in q_values)
     rows: list[dict[str, Any]] = []
 
+    # Built once and reused across the whole (N, M) grid below: backend_choice and
+    # simulator_options are constant across the grid, only the circuit changes, so
+    # rebuilding the Aer C++ backend on every grid point is pure overhead.
+    grid_simulator = build_bound_circuit_simulator("MPSAer", _mpsaer_simulator_options(sample_config))
+
     for m_value in sorted({int(m) for m in m_values}):
         previous_angles: list[float] | None = None
         previous_n = 0
@@ -2740,7 +1965,7 @@ def run_fa_pss_exact_points(
                 circuit,
                 backend_choice="MPSAer",
                 shots=q_max,
-                simulator_options=_mpsaer_simulator_options(sample_config),
+                simulator=grid_simulator,
             )
             sample_runtime = time.perf_counter() - sample_start
             sample_time_per_shot = float(sample_runtime) / float(q_max)
@@ -3539,20 +2764,18 @@ def generate_pss_exact_points(
 
     all_specs = list(train_specs) + list(test_specs)
     cached_exact_df = _deduplicate_exact_points(existing_exact_df.copy()) if existing_exact_df is not None else pd.DataFrame()
-    exact_frames: list[pd.DataFrame] = []
+    _pending_new_rows: list[pd.DataFrame] = []
+    _CHECKPOINT_BATCH_SIZE = 10
 
-    def _append_exact_checkpoint(df_new: pd.DataFrame) -> None:
+    def _flush_exact_checkpoint() -> None:
         nonlocal cached_exact_df
-        if df_new.empty:
+        if not _pending_new_rows:
             return
 
-        exact_frames.append(df_new)
-        if cached_exact_df.empty:
-            cached_exact_df = _deduplicate_exact_points(df_new.copy())
-        else:
-            cached_exact_df = _deduplicate_exact_points(
-                pd.concat([cached_exact_df, df_new], ignore_index=True)
-            )
+        parts = [cached_exact_df] if not cached_exact_df.empty else []
+        parts.extend(_pending_new_rows)
+        cached_exact_df = _deduplicate_exact_points(pd.concat(parts, ignore_index=True))
+        _pending_new_rows.clear()
 
         _write_exact_cache_checkpoints(
             output_root,
@@ -3560,6 +2783,13 @@ def generate_pss_exact_points(
             fa_method_name=fa_method_name,
             pt_method_name=pt_method_name,
         )
+
+    def _append_exact_checkpoint(df_new: pd.DataFrame) -> None:
+        if df_new.empty:
+            return
+        _pending_new_rows.append(df_new)
+        if len(_pending_new_rows) >= _CHECKPOINT_BATCH_SIZE:
+            _flush_exact_checkpoint()
 
     for spec in all_specs:
         for reps in p_values:
@@ -3634,12 +2864,8 @@ def generate_pss_exact_points(
                         )
                     )
 
-    exact_parts = []
-    if not cached_exact_df.empty:
-        exact_parts.append(cached_exact_df)
-    exact_parts.extend(df for df in exact_frames if not df.empty)
-    exact_df = pd.concat(exact_parts, ignore_index=True) if exact_parts else pd.DataFrame()
-    exact_df = _deduplicate_exact_points(exact_df)
+    _flush_exact_checkpoint()
+    exact_df = _deduplicate_exact_points(cached_exact_df)
     exact_df = filter_pss_exact_points(
         exact_df,
         train_specs=train_specs,
@@ -3689,16 +2915,16 @@ def build_pss_frontier_outputs(
             resource_col="T_exact_proxy",
             scale=t_grid_scale,
         )
+    # Drop per-shot count dictionaries before the frontier expansion, not after:
+    # build_budget_frontier repeats each selected exact row across a dense T grid
+    # (up to ~1000 points), so copying "counts" along for that expansion and then
+    # dropping it afterward pays the copy/memory cost for nothing.
     frontier_df = build_budget_frontier(
-        exact_df,
+        exact_df.drop(columns=["counts"], errors="ignore"),
         t_grid=t_grid,
         budget_col="T_exact_proxy",
         distance_scale=t_grid_scale,
     )
-    # The frontier repeats selected exact rows across a dense T grid. Keeping
-    # per-shot count dictionaries here makes the saved CSV/pickle explode in
-    # size while adding nothing to the PSS/window-sticker analysis.
-    frontier_df = frontier_df.drop(columns=["counts"], errors="ignore")
     frontier_df["train"] = frontier_df["split"].astype(str).map({"train": 1, "test": 0}).astype(int)
     strategy_codes, strategy_book = _encode_categories(frontier_df["strategy"])
     simulation_codes, simulation_book = _encode_categories(frontier_df["simulation_method"])
@@ -3820,62 +3046,6 @@ def build_strategy_budget_summary(
     )
     summary["response_std"] = summary["response_std"].fillna(0.0)
     return summary
-
-
-def build_actionable_budget_table(
-    strategy_summary_df: pd.DataFrame,
-) -> pd.DataFrame:
-    if strategy_summary_df.empty:
-        return pd.DataFrame()
-
-    ordered = strategy_summary_df.sort_values(
-        ["T", "response_mean", "T_exact_proxy_mean", "Q_mean"],
-        ascending=[True, False, True, True],
-    )
-    actionable = ordered.groupby("T", as_index=False).first()
-    return actionable.sort_values("T").reset_index(drop=True)
-
-
-def fit_actionable_parameter_curves(
-    actionable_df: pd.DataFrame,
-    *,
-    t_grid: list[float] | None = None,
-    parameter_cols: tuple[str, ...] = ("N_mean", "M_mean", "Q_mean"),
-) -> pd.DataFrame:
-    if actionable_df.empty:
-        return pd.DataFrame()
-
-    source = actionable_df.sort_values("T").reset_index(drop=True).copy()
-    if t_grid is None:
-        target_t = source["T"].astype(float).to_numpy()
-    else:
-        target_t = np.array(sorted(float(val) for val in t_grid), dtype=float)
-
-    fitted = pd.DataFrame({"T": target_t})
-    source_t = source["T"].astype(float).to_numpy()
-    source_idx = np.searchsorted(source_t, target_t, side="right") - 1
-    source_idx = np.clip(source_idx, 0, len(source) - 1)
-    for keep_col in ("strategy", "simulation_method", "p"):
-        if keep_col in source.columns:
-            fitted[keep_col] = source.iloc[source_idx][keep_col].to_numpy()
-
-    for col in parameter_cols:
-        if col not in source.columns:
-            continue
-        fitted[col.replace("_mean", "_fit")] = np.interp(
-            target_t,
-            source_t,
-            source[col].astype(float).to_numpy(),
-        )
-
-    if "response_mean" in source.columns:
-        fitted["response_fit"] = np.interp(
-            target_t,
-            source_t,
-            source["response_mean"].astype(float).to_numpy(),
-        )
-
-    return fitted
 
 
 def fit_recommended_recipe_curves(
@@ -4155,6 +3325,7 @@ def run_stochastic_benchmark_pss(
     bootstrap_range: range | None = None,
     train_test_split: float = 0.5,
     clear_checkpoints: bool = True,
+    resource_match_bins: int | None = 150,
 ) -> dict[str, Any]:
     if exp_raw_df.empty:
         raise ValueError("exp_raw_df is empty.")
@@ -4216,6 +3387,29 @@ def run_stochastic_benchmark_pss(
     sb.run_Stats(st_params, train_test_split)
     sb.interp_results = assign_deterministic_train_split(sb.interp_results, exp_raw_df)
     sb.interp_results.to_pickle(sb.here.interpolate)
+
+    # `training.evaluate_single` (core stochastic-benchmark package) matches a
+    # train-derived recipe's resource value against test-instance resource
+    # values via exact floating-point equality. Train and test instances land
+    # on different points of the raw ~1000-point shared_grid independently
+    # (they're different instances), so the exact-match overlap between the
+    # two is small and effectively random from run to run (bootstrap
+    # resampling below isn't seeded) -- the same campaign can yield wildly
+    # different numbers of surviving actionable-fit rows on separate runs.
+    # Snapping onto a coarser shared bin grid here, before the recipe/evaluate
+    # matching happens, makes train- and test-side resource values collide far
+    # more often -- without touching the shared training.py matching logic.
+    if resource_match_bins and len(shared_grid) > resource_match_bins:
+        _lo, _hi = float(shared_grid[0]), float(shared_grid[-1])
+        _matching_grid = (
+            np.geomspace(_lo, _hi, resource_match_bins)
+            if _lo > 0
+            else np.linspace(_lo, _hi, resource_match_bins)
+        )
+        sb.interp_results = snap_resources_to_grid(
+            sb.interp_results, _matching_grid, resource_col="resource"
+        )
+
     sb.training_stats = None
     sb.testing_stats = None
     sb.populate_training_stats()
@@ -4429,74 +3623,6 @@ def _encode_categories(series: pd.Series) -> tuple[pd.Series, dict[int, Any]]:
     return series.astype(str).map(reverse), codebook
 
 
-def expand_ws_parameter_grid(
-    base_df: pd.DataFrame,
-    n_grid: list[int] | tuple[int, ...],
-    m_grid: list[int] | tuple[int, ...],
-    q_grid: list[int] | tuple[int, ...],
-) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
-    for row in base_df.to_dict(orient="records"):
-        for n_value in n_grid:
-            for m_value in m_grid:
-                for q_value in q_grid:
-                    expanded = dict(row)
-                    expanded["N"] = int(n_value)
-                    expanded["M"] = int(m_value)
-                    expanded["Q"] = int(q_value)
-                    rows.append(expanded)
-    return pd.DataFrame(rows)
-
-
-def build_ws_campaign_dataframe(
-    comparison_df: pd.DataFrame,
-    hardware_time_per_shot: float,
-    cobyla_overhead_c: float | None,
-    default_n: int,
-    default_m: int,
-    default_q: int = 4096,
-) -> tuple[pd.DataFrame, dict[str, dict[int, Any]]]:
-    df = comparison_df.copy()
-    if "strategy" not in df.columns:
-        df["strategy"] = df.get("angle_method", "fixed_angles")
-    if "strategy_family" not in df.columns:
-        df["strategy_family"] = df["strategy"].map(strategy_family)
-    if "p" not in df.columns:
-        df["p"] = np.nan
-
-    df["N"] = df.get("N", default_n)
-    df["M"] = df.get("M", default_m)
-    df["Q"] = df.get("Q", default_q)
-    df["num_shots_final"] = df.get("num_shots_final", df.get("Q", default_q))
-    existing_training_shots = (
-        df["total_training_shots"] if "total_training_shots" in df.columns else pd.Series(np.nan, index=df.index)
-    )
-    fallback_overhead = 1.0 if cobyla_overhead_c is None else float(cobyla_overhead_c)
-    df["total_training_shots"] = existing_training_shots.fillna(df["N"] * df["M"] * fallback_overhead)
-    df["empirical_c"] = np.where(
-        df["N"].fillna(0).astype(float) > 0,
-        df.get("num_objective_evaluations", pd.Series(np.nan, index=df.index)).astype(float) / df["N"].astype(float),
-        np.nan,
-    )
-    df["hardware_time_train"] = df["total_training_shots"] * hardware_time_per_shot
-    df["hardware_time_final"] = df["Q"] * hardware_time_per_shot
-    df["TotalTime"] = df["hardware_time_train"] + df["hardware_time_final"]
-    df["Approximation_Ratio"] = df.get("approx_ratio_mean", df.get("approx_ratio_from_eval"))
-    df["BestApproximationRatio"] = df.get("approx_ratio_best", df.get("approx_ratio_from_eval"))
-    df["response_metric"] = df.get(
-        "best_found_value",
-        df.get("BestApproximationRatio", df.get("Approximation_Ratio")),
-    )
-    df["instance"] = df.get("instance_id", df.get("instance_name", "unknown"))
-
-    strategy_codes, strategy_book = _encode_categories(df["strategy"])
-    simulator_codes, simulator_book = _encode_categories(df["simulation_method"])
-    df["strategy_code"] = strategy_codes
-    df["simulation_code"] = simulator_codes
-
-    return df, {"strategy": strategy_book, "simulation": simulator_book}
-
-
 def normalize_sb_compatible_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     """Convert pandas extension dtypes into forms stochastic-benchmark expects."""
     normalized = df.copy()
@@ -4507,9 +3633,17 @@ def normalize_sb_compatible_dtypes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def normalize_sb_pickle_files(paths: list[str | Path]) -> None:
-    """Rewrite pickled dataframes with SB-compatible dtypes."""
+    """Rewrite pickled dataframes with SB-compatible dtypes.
+
+    Pickle has no metadata-only read, so inspecting dtypes still requires loading
+    each file, but files that are already compatible are left untouched instead of
+    being unconditionally copied and rewritten to disk.
+    """
     for path in paths:
-        normalized = normalize_sb_compatible_dtypes(pd.read_pickle(path))
+        df = pd.read_pickle(path)
+        if not any(isinstance(dtype, pd.StringDtype) for dtype in df.dtypes):
+            continue
+        normalized = normalize_sb_compatible_dtypes(df)
         normalized.to_pickle(path)
 
 

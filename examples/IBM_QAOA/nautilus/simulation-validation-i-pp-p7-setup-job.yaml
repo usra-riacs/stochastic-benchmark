@@ -4,7 +4,7 @@ metadata:
   name: ibm-qaoa-i-pp-p7-setup
   namespace: usra-expedition
 spec:
-  backoffLimit: 0
+  backoffLimit: 3
   activeDeadlineSeconds: 1800
   template:
     spec:

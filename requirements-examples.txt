@@ -4,3 +4,7 @@ scikit-learn>=1.3.0
 dimod>=0.12
 nbconvert>=7
 ipykernel>=6
+
+# Required for examples/IBM_QAOA/notebooks/Simulation_Method_Validation_and_WS.ipynb
+# and run_prepare_pss_campaign.py; see examples/IBM_QAOA/notebooks/README.md
+qiskit-aer==0.17.2

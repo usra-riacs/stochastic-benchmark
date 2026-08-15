@@ -3204,72 +3204,6 @@ def plot_multi_method_window_sticker_components(
     plt.show()
 
 
-_FAMILY_CMAP_SPEC: dict[str, tuple] = {
-    "FA_star":   (plt.cm.Blues,   0.38, 0.92),
-    "FA_dagger": (plt.cm.Reds,    0.35, 0.85),
-    "PT":        (plt.cm.Greys,   0.35, 0.60),
-    "LR":        (plt.cm.YlOrBr,  0.42, 0.85),
-    "Interp":    (plt.cm.Greens,  0.35, 0.85),
-}
-_FAMILY_DISPLAY: dict[str, str] = {
-    "FA_star":   r"Fixed Angles$^*$",
-    "FA_dagger": r"Fixed Angles$^\dagger$",
-    "PT":        "Param. Transfer",
-    "LR":        "Linear Ramp",
-    "Interp":    "Interpolation",
-}
-_FAMILY_ORDER = ["FA_star", "FA_dagger", "PT", "LR", "Interp"]
-
-
-def _detect_method_family(label: str) -> str:
-    s = str(label).lower()
-    if "fixed angles" in s and re.search(r"[†]|\$\^\\dagger\$|dagger", s):
-        return "FA_dagger"
-    if "fixed angles" in s:
-        return "FA_star"
-    if re.search(r"(?<![a-z])pt(?![a-z])|param|transfer", s):
-        return "PT"
-    if "linear" in s or "ramp" in s:
-        return "LR"
-    if "interp" in s or "i_mps" in s or re.search(r"(?<![a-z])i_", s):
-        return "Interp"
-    return s[:20]
-
-
-def _label_depth(label: str) -> int | None:
-    m = re.search(r"\(p\s*=\s*(\d+)\)", str(label))
-    return int(m.group(1)) if m else None
-
-
-def _build_family_color_map(
-    labels: Iterable[str],
-) -> tuple[dict[str, Any], dict[str, list[str]], dict[str, list[int]]]:
-    """Depth-gradient colour map: within each method family lighter = lower p, darker = higher p."""
-    family_labels: dict[str, list[str]] = {}
-    for lbl in labels:
-        family_labels.setdefault(_detect_method_family(lbl), []).append(lbl)
-
-    family_p_vals: dict[str, list[int]] = {}
-    for fam, fam_lbls in family_labels.items():
-        ps = sorted({_label_depth(l) for l in fam_lbls if _label_depth(l) is not None})
-        family_p_vals[fam] = ps
-
-    color_map: dict[str, Any] = {}
-    for fam, fam_lbls in family_labels.items():
-        cmap_fn, lo, hi = _FAMILY_CMAP_SPEC.get(fam, (plt.cm.viridis, 0.3, 0.9))
-        p_vals = family_p_vals[fam]
-        for lbl in fam_lbls:
-            p = _label_depth(lbl)
-            if p is not None and len(p_vals) > 1:
-                t = p_vals.index(p) / (len(p_vals) - 1)
-                color_map[lbl] = cmap_fn(lo + t * (hi - lo))
-            elif p is not None:
-                color_map[lbl] = cmap_fn((lo + hi) / 2)
-            else:
-                color_map[lbl] = window_sticker_method_color(lbl)
-    return color_map, family_labels, family_p_vals
-
-
 def _pareto_envelope_and_owner(
     entries: list[tuple[str, Any, np.ndarray, np.ndarray]],
     grid: np.ndarray,
@@ -3309,51 +3243,6 @@ def _pareto_envelope_and_owner(
             envelope[col] = best_value_so_far
             best_idx[col] = best_idx_so_far
     return envelope, best_idx
-
-
-def _draw_family_colorbars(
-    fig,
-    family_labels: dict[str, list[str]],
-    family_p_vals: dict[str, list[int]],
-) -> None:
-    """Draw one horizontal colorbar per method family, showing its p-depth gradient."""
-    from matplotlib.colors import Normalize, LinearSegmentedColormap
-    from matplotlib.cm import ScalarMappable
-
-    cb_families = [f for f in _FAMILY_ORDER if f in family_labels]
-    n_cb = len(cb_families)
-    if n_cb == 0:
-        return
-    margin = 0.05
-    spacing = 0.03
-    cb_w = (1.0 - 2 * margin - (n_cb - 1) * spacing) / n_cb
-    cb_h = 0.042
-    cb_bottom = 0.025
-    for i, fam in enumerate(cb_families):
-        p_vals = family_p_vals.get(fam, [])
-        cmap_fn, lo, hi = _FAMILY_CMAP_SPEC.get(fam, (plt.cm.viridis, 0.3, 0.9))
-        # Build a 2-stop gradient matching the curve colours for this family.
-        c_lo = cmap_fn(lo)
-        c_hi = cmap_fn(hi)
-        grad_cmap = LinearSegmentedColormap.from_list("", [c_lo, c_hi])
-        ax_cb = fig.add_axes([
-            margin + i * (cb_w + spacing),
-            cb_bottom,
-            cb_w,
-            cb_h,
-        ])
-        p_min = min(p_vals) if p_vals else 0
-        p_max = max(p_vals) if p_vals else 1
-        norm = Normalize(vmin=p_min - 0.5, vmax=p_max + 0.5)
-        sm = ScalarMappable(cmap=grad_cmap, norm=norm)
-        sm.set_array([])
-        cb = fig.colorbar(sm, cax=ax_cb, orientation="horizontal")
-        cb.set_ticks(p_vals if p_vals else [p_min, p_max])
-        cb.ax.tick_params(labelsize=8)
-        ax_cb.set_title(
-            _FAMILY_DISPLAY.get(fam, fam) + "  —  circuit depth $p$",
-            fontsize=9, pad=3,
-        )
 
 
 def plot_multi_method_window_sticker_component_panels(
@@ -3427,7 +3316,17 @@ def plot_multi_method_window_sticker_component_panels(
     )
     _ = approx_ylim, approx_yticks
 
-    color_map, family_labels, family_p_vals = _build_family_color_map(labels)
+    # Same base color for every depth of the same method family (matching the
+    # paper's QPS_METHOD_COLORS/window_sticker_method_color) so the legend only
+    # needs one entry per method rather than one per (method, depth) pair.
+    # Fixed Angles† (no-opt) gets a lighter shade of the same blue to visually
+    # distinguish it from Fixed Angles* (full COBYLA optimisation).
+    def _family_color(lbl: str) -> str:
+        if "fixed angles" in str(lbl).lower() and re.search(r"\$\^\\dagger\$|[†]", str(lbl)):
+            return _shade_color("#4477AA", 0.40)
+        return window_sticker_method_color(lbl)
+
+    color_map = {label: _family_color(label) for label in labels}
 
     fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.8), sharey=True)
 
@@ -3617,10 +3516,19 @@ def plot_multi_method_window_sticker_component_panels(
         labelpad=10,
     )
 
-    # Curve-type legend (Virtual best / Actionable / Pareto), plus one handle per
-    # method family so the figure does not depend on colour discrimination alone
-    # between the colorbars below (which share visually similar hues at a glance,
-    # e.g. the two Fixed Angles families).
+    # Build compact legend: one entry per unique method base (depth stripped) +
+    # one entry per curve type. Place it in the gap between the two panels.
+    seen_bases: set[str] = set()
+    method_handles: list[Line2D] = []
+    for label in sorted(labels):
+        display = _ws_display_method_label(label)
+        base = re.sub(r"\s*\(p\s*=\s*\d+\)\s*$", "", display).strip()
+        if base not in seen_bases:
+            seen_bases.add(base)
+            legend_label = base.replace("*", r"$^*$").replace("†", r"$^\dagger$")
+            method_handles.append(
+                Line2D([0], [0], color=color_map[label], linewidth=2.6, label=legend_label)
+            )
     curve_handles = [
         Line2D([0], [0], color="black", label=name, **style)
         for name, style in style_map.items()
@@ -3629,41 +3537,22 @@ def plot_multi_method_window_sticker_component_panels(
         [0], [0], color="black", linestyle=":", linewidth=2.2,
         label="Pareto frontier (actionable)",
     )
-    family_handles = [
-        Line2D(
-            [0], [0],
-            color=_FAMILY_CMAP_SPEC[fam][0]((_FAMILY_CMAP_SPEC[fam][1] + _FAMILY_CMAP_SPEC[fam][2]) / 2),
-            linewidth=2.6,
-            label=_FAMILY_DISPLAY.get(fam, fam),
-        )
-        for fam in _FAMILY_ORDER
-        if fam in family_labels
-    ]
 
-    # Reserve bottom space: legend row + colorbar row.
-    cb_row_h = 0.12   # fraction of figure height for colorbar row
-    leg_row_h = 0.10  # fraction for legend row
-    bottom_reserved = cb_row_h + leg_row_h + 0.02
+    fig.tight_layout(rect=[0.0, 0.17, 1.0, 1.0], w_pad=2.0)
 
-    fig.tight_layout(rect=[0.0, bottom_reserved, 1.0, 1.0], w_pad=2.0)
-
-    # Place curve-type + family legend above colorbars.
-    all_handles = curve_handles + [pareto_handle] + family_handles
     fig.legend(
-        handles=all_handles,
+        handles=curve_handles + [pareto_handle] + method_handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, cb_row_h + 0.01),
+        bbox_to_anchor=(0.5, 0.0),
         bbox_transform=fig.transFigure,
         frameon=True,
-        ncol=len(all_handles),
+        ncol=3,
         fontsize=WINDOW_STICKER_LEGEND_FONTSIZE,
         handlelength=1.8,
         handletextpad=0.5,
         columnspacing=1.2,
         labelspacing=0.4,
     )
-
-    _draw_family_colorbars(fig, family_labels, family_p_vals)
 
     save_current_plot(filename, plot_dir)
     plt.show()
@@ -3702,7 +3591,13 @@ def plot_pareto_frontier_overlay(
     if not all_labels:
         print(f"Skipping {filename}: no calibrations with actionable-fit data found.")
         return
-    color_map, family_labels, family_p_vals = _build_family_color_map(all_labels)
+
+    def _family_color(lbl: str) -> str:
+        if "fixed angles" in str(lbl).lower() and re.search(r"\$\^\\dagger\$|[†]", str(lbl)):
+            return _shade_color("#4477AA", 0.40)
+        return window_sticker_method_color(lbl)
+
+    color_map = {label: _family_color(label) for label in all_labels}
 
     fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.4), sharey=True)
     all_y: list[float] = []
@@ -3792,32 +3687,39 @@ def plot_pareto_frontier_overlay(
 
     axes[0].set_ylabel("Approximation ratio (%)", fontsize=WINDOW_STICKER_LABEL_FONTSIZE, labelpad=10)
 
-    # Linestyle legend distinguishes calibrations; family colour is read off
-    # the colorbars below, shared with the component-panel figures.
+    # Linestyle legend distinguishes calibrations; one handle per unique method
+    # base (depth stripped) distinguishes which strategy owns a segment, using
+    # the same flat paper-standard colors as plot_multi_method_window_sticker_component_panels.
     calibration_handles = [
         Line2D([0], [0], color="black", linestyle=cal["linestyle"], linewidth=2.6, label=cal["label"])
         for cal in calibrations
     ]
+    seen_bases: set[str] = set()
+    method_handles: list[Line2D] = []
+    for label in all_labels:
+        display = _ws_display_method_label(label)
+        base = re.sub(r"\s*\(p\s*=\s*\d+\)\s*$", "", display).strip()
+        if base not in seen_bases:
+            seen_bases.add(base)
+            legend_label = base.replace("*", r"$^*$").replace("†", r"$^\dagger$")
+            method_handles.append(
+                Line2D([0], [0], color=color_map[label], linewidth=2.6, label=legend_label)
+            )
 
-    cb_row_h = 0.12
-    leg_row_h = 0.10
-    bottom_reserved = cb_row_h + leg_row_h + 0.02
-    fig.tight_layout(rect=[0.0, bottom_reserved, 1.0, 1.0], w_pad=2.0)
+    fig.tight_layout(rect=[0.0, 0.17, 1.0, 1.0], w_pad=2.0)
 
     fig.legend(
-        handles=calibration_handles,
+        handles=calibration_handles + method_handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, cb_row_h + 0.01),
+        bbox_to_anchor=(0.5, 0.0),
         bbox_transform=fig.transFigure,
         frameon=True,
-        ncol=len(calibration_handles),
+        ncol=3,
         fontsize=WINDOW_STICKER_LEGEND_FONTSIZE,
         handlelength=2.4,
         handletextpad=0.5,
         columnspacing=1.2,
     )
-
-    _draw_family_colorbars(fig, family_labels, family_p_vals)
 
     save_current_plot(filename, plot_dir)
     plt.show()

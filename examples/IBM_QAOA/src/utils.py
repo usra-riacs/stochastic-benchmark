@@ -3206,7 +3206,7 @@ def plot_multi_method_window_sticker_components(
 
 _FAMILY_CMAP_SPEC: dict[str, tuple] = {
     "FA_star":   (plt.cm.Blues,   0.38, 0.92),
-    "FA_dagger": (plt.cm.Blues,   0.32, 0.58),
+    "FA_dagger": (plt.cm.Reds,    0.35, 0.85),
     "PT":        (plt.cm.Greys,   0.35, 0.60),
     "LR":        (plt.cm.YlOrBr,  0.42, 0.85),
     "Interp":    (plt.cm.Greens,  0.35, 0.85),
@@ -3467,10 +3467,11 @@ def plot_multi_method_window_sticker_component_panels(
                 # display-only convenience for the drawn line; the background/Pareto
                 # dominance computation below uses the natural series instead so it
                 # doesn't treat this flat visual hold as evidence of real performance.
+                # Drawn dashed and at reduced alpha below (not the solid natural-data
+                # style) so a reader doesn't mistake the flat hold for a measurement.
+                extend_to = None
                 if extend_curves_to_xlim and xlim is not None and float(group["resource"].iloc[-1]) < xlim[1]:
-                    tail = group.iloc[[-1]].copy()
-                    tail["resource"] = xlim[1]
-                    group = pd.concat([group, tail], ignore_index=True)
+                    extend_to = xlim[1]
 
                 lower_col = "response_lower_monotone" if "response_lower_monotone" in group.columns else "response_lower"
                 upper_col = "response_upper_monotone" if "response_upper_monotone" in group.columns else "response_upper"
@@ -3502,6 +3503,21 @@ def plot_multi_method_window_sticker_component_panels(
                 )
                 panel_x.extend(group["resource"].to_numpy(dtype=float))
                 panel_y.extend(response_percent)
+
+                if extend_to is not None:
+                    ext_style = dict(style)
+                    ext_style["linestyle"] = "--"
+                    ext_style["marker"] = None
+                    ext_style["alpha"] = style.get("alpha", 1.0) * 0.5
+                    ax.plot(
+                        [natural_last_x, extend_to],
+                        [natural_last_y, natural_last_y],
+                        color=color_map[str(label)],
+                        label=None,
+                        **ext_style,
+                    )
+                    panel_x.append(extend_to)
+                    panel_y.append(natural_last_y)
 
                 # Collect depth annotation for virtual-best curves only.
                 if curve_name == "Virtual best":
@@ -3601,8 +3617,10 @@ def plot_multi_method_window_sticker_component_panels(
         labelpad=10,
     )
 
-    # Curve-type legend (Virtual best / Actionable / Pareto) — method families are
-    # identified by the colorbars below, so no per-family colour handles needed.
+    # Curve-type legend (Virtual best / Actionable / Pareto), plus one handle per
+    # method family so the figure does not depend on colour discrimination alone
+    # between the colorbars below (which share visually similar hues at a glance,
+    # e.g. the two Fixed Angles families).
     curve_handles = [
         Line2D([0], [0], color="black", label=name, **style)
         for name, style in style_map.items()
@@ -3611,6 +3629,16 @@ def plot_multi_method_window_sticker_component_panels(
         [0], [0], color="black", linestyle=":", linewidth=2.2,
         label="Pareto frontier (actionable)",
     )
+    family_handles = [
+        Line2D(
+            [0], [0],
+            color=_FAMILY_CMAP_SPEC[fam][0]((_FAMILY_CMAP_SPEC[fam][1] + _FAMILY_CMAP_SPEC[fam][2]) / 2),
+            linewidth=2.6,
+            label=_FAMILY_DISPLAY.get(fam, fam),
+        )
+        for fam in _FAMILY_ORDER
+        if fam in family_labels
+    ]
 
     # Reserve bottom space: legend row + colorbar row.
     cb_row_h = 0.12   # fraction of figure height for colorbar row
@@ -3619,14 +3647,15 @@ def plot_multi_method_window_sticker_component_panels(
 
     fig.tight_layout(rect=[0.0, bottom_reserved, 1.0, 1.0], w_pad=2.0)
 
-    # Place curve-type legend above colorbars.
+    # Place curve-type + family legend above colorbars.
+    all_handles = curve_handles + [pareto_handle] + family_handles
     fig.legend(
-        handles=curve_handles + [pareto_handle],
+        handles=all_handles,
         loc="lower center",
         bbox_to_anchor=(0.5, cb_row_h + 0.01),
         bbox_transform=fig.transFigure,
         frameon=True,
-        ncol=len(curve_handles) + 1,
+        ncol=len(all_handles),
         fontsize=WINDOW_STICKER_LEGEND_FONTSIZE,
         handlelength=1.8,
         handletextpad=0.5,

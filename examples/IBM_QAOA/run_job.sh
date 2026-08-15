@@ -68,7 +68,14 @@ METHOD_SLUG="${METHOD_SLUG/_AAA/}"
 # Methods with no training (only Q-sweep): route as pt_method_name so they use
 # run_pt_pss_exact_points (Q-only, evaluator stripped for FixedAngleConjecture).
 # Methods with training (N,M grid): route as fa_method_name.
-_ZERO_TRAINING_METHODS="PT_PP_AAA FA_PP_no_opt linear_ramp_no_opt"
+# Read from src.simulation_validation.ZERO_TRAINING_METHODS so this list cannot
+# drift out of sync with the Python side (they used to be maintained separately).
+_ZERO_TRAINING_METHODS="$("$PYTHON_BIN" -c "
+import sys
+sys.path.insert(0, 'examples/IBM_QAOA')
+from src.simulation_validation import ZERO_TRAINING_METHODS
+print(' '.join(sorted(ZERO_TRAINING_METHODS)))
+")"
 if echo "$_ZERO_TRAINING_METHODS" | grep -qw "$METHOD_NAME"; then
     _FA_METHOD_ARG=""
     _PT_METHOD_ARG="$METHOD_NAME"

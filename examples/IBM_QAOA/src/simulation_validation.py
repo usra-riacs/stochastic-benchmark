@@ -3327,6 +3327,27 @@ def run_stochastic_benchmark_pss(
     clear_checkpoints: bool = True,
     resource_match_bins: int | None = 150,
 ) -> dict[str, Any]:
+    """Run the stochastic-benchmark PSS pipeline (bootstrap, interpolate, stats,
+    virtual-best, training/projection) over campaign exp_raw rows.
+
+    resource_match_bins : int | None
+        Snaps ``sb.interp_results``'s resource column onto a ``resource_match_bins``
+        -point log/linear grid before the recipe/evaluate matching in
+        ``run_ProjectionExperiment`` runs. Defaults to 150 (on by default), which
+        changes campaign results relative to not snapping: train and test
+        instances are interpolated onto independent resource grids, and
+        ``training.evaluate_single`` (core package) matches resource values by
+        exact float equality, so without snapping the train/test overlap is
+        small and effectively arbitrary from run to run. This is a workaround
+        for that core-package matching behavior (tracked in issue #85), not a
+        fix to it; every other consumer of ``evaluate_single`` still has the
+        same brittleness. Pass ``None`` or ``0`` to disable snapping and match
+        on the raw shared_grid instead.
+
+        Note separately that bootstrap resampling below is unseeded (issue
+        #86), so even with snapping enabled the number of surviving
+        actionable-fit rows can still vary between otherwise-identical runs.
+    """
     if exp_raw_df.empty:
         raise ValueError("exp_raw_df is empty.")
 

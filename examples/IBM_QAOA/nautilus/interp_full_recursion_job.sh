@@ -114,7 +114,7 @@ spec:
             - name: QAOA_PIPELINE_REPO_URL
               value: https://github.com/qiskit-community/qaoa_training_pipeline.git
             - name: QAOA_PIPELINE_BRANCH
-              value: main
+              value: v0.1.0
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -225,7 +225,7 @@ spec:
             - name: QAOA_PIPELINE_REPO_URL
               value: https://github.com/qiskit-community/qaoa_training_pipeline.git
             - name: QAOA_PIPELINE_BRANCH
-              value: main
+              value: v0.1.0
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -327,7 +327,7 @@ spec:
             - name: QAOA_PIPELINE_REPO_URL
               value: https://github.com/qiskit-community/qaoa_training_pipeline.git
             - name: QAOA_PIPELINE_BRANCH
-              value: main
+              value: v0.1.0
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:

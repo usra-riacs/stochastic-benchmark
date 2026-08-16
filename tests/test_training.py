@@ -407,6 +407,27 @@ class TestBestRecommended:
         assert result.loc[10, 'param1'] == pytest.approx(2.0, abs=1e-6)  # Mean of [1,2,3]
         assert result.loc[10, 'param2'] == pytest.approx(0.2, abs=1e-6)  # Mean of [0.1,0.2,0.3]
 
+    def test_best_recommended_ignores_non_numeric_columns(self):
+        """Real virtual-best frames carry non-numeric columns (e.g. strategy
+        labels) that are not requested in parameter_names/additional_cols.
+        Under pandas' string dtype (default since pandas 2.x for plain str
+        columns), a plain groupby().mean() raises TypeError: dtype 'str' does
+        not support operation 'mean' instead of just ignoring that column."""
+        vb = pd.DataFrame({
+            'resource': [10, 20, 10, 20],
+            'param1': [1.0, 2.0, 1.5, 2.5],
+            'strategy': ['FA_PP_opt', 'FA_PP_opt', 'FA_PP_opt', 'FA_PP_opt'],
+        })
+
+        result = best_recommended(
+            vb,
+            parameter_names=['param1'],
+            resource_col='resource',
+        )
+
+        assert list(result.columns) == ['param1']
+        assert result.loc[10, 'param1'] == pytest.approx(1.25, abs=1e-6)
+
 
 class TestScaledDistance:
     """Test class for scaled_distance function."""

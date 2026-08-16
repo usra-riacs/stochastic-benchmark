@@ -1,0 +1,10 @@
+{
+    "0": {
+        "energy": -5.0,
+        "approximation ratio": 0.5,
+        "train_duration": 1.0,
+        "success": false,
+        "optimal_params": [],
+        "history": []
+    }
+}

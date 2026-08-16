@@ -1,0 +1,62 @@
+{
+    "0": {
+        "energy": -12.5,
+        "approximation ratio": 0.85,
+        "train_duration": 2.3,
+        "trainer": {
+            "trainer_name": "FixedAngleConjecture",
+            "evaluator": null
+        },
+        "success": true,
+        "optimal_params": [
+            0.1,
+            0.2
+        ],
+        "history": [
+            -10.0,
+            -11.5,
+            -12.5
+        ]
+    },
+    "1": {
+        "energy": -13.2,
+        "approximation ratio": 0.88,
+        "train_duration": 2.5,
+        "trainer": {
+            "trainer_name": "FixedAngleConjecture",
+            "evaluator": null
+        },
+        "success": true,
+        "optimal_params": [
+            0.12,
+            0.22
+        ],
+        "history": [
+            -10.5,
+            -12.0,
+            -13.2
+        ]
+    },
+    "2": {
+        "energy": -12.8,
+        "approximation ratio": 0.87,
+        "train_duration": 2.4,
+        "trainer": {
+            "trainer_name": "FixedAngleConjecture",
+            "evaluator": null
+        },
+        "success": true,
+        "optimal_params": [
+            0.11,
+            0.21
+        ],
+        "history": [
+            -10.2,
+            -11.8,
+            -12.8
+        ]
+    },
+    "metadata": {
+        "note": "Synthetic multi-trial fixture for testing"
+    }
+}

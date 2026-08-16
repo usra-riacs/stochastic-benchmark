@@ -1,0 +1,97 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ibm-qaoa-i-pp-p7-finalize
+  namespace: usra-expedition
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 14400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: runner
+          image: python:3.11-bookworm
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -lc
+          args:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends git build-essential
+              rm -rf /var/lib/apt/lists/*
+
+              if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+                git config --global credential.helper "store --file=/tmp/git-credentials"
+                printf 'https://x-access-token:%s@github.com\n' "${GITHUB_TOKEN}" > /tmp/git-credentials
+                chmod 0600 /tmp/git-credentials
+              fi
+
+              export WORKDIR="/workspace/workdirs/i-pp-p7-finalize"
+              mkdir -p "${WORKDIR}" /workspace/results /workspace/data
+              rm -rf "${WORKDIR}/repos"
+              mkdir -p "${WORKDIR}/repos"
+              export REPOS_DIR="${WORKDIR}/repos"
+              export DATA_DIR="/workspace/data"
+              export RESULTS_DIR="/workspace/results"
+
+              git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \
+                "${STOCHASTIC_BENCHMARK_REPO}" "${REPOS_DIR}/stochastic-benchmark"
+
+              bash "${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
+                --output-root /workspace/results/pss_window_sticker/heavy_hex_144_I_p7_expanded \
+                --reuse-output-root /workspace/results/pss_window_sticker/heavy_hex_144_I_p7_expanded \
+                --instance-cache-root /workspace/data/generated_instances \
+                --shards-root /workspace/results/pss_window_sticker/heavy_hex_144_I_p7_expanded/shards \
+                --finalize-only \
+                --graph-type heavy_hex \
+                --num-nodes 144 \
+                --p-values 7 \
+                --train-count 20 \
+                --test-count 10 \
+                --start-train-index 100 \
+                --fa-method-name I_MPSAer \
+                --pt-method-name "" \
+                --fa-n-values 10,20,40,60,80,100,150 \
+                --fa-m-values 10,25,50,100,200,500,1000 \
+                --q-values 100,250,500,1000,2500,5000,10000 \
+                --t-grid-points 1000 \
+                --t-grid-scale log \
+                --mps-chi 20 \
+                --max-parallel-threads 4
+          env:
+            - name: STOCHASTIC_BENCHMARK_REPO
+              value: https://github.com/usra-riacs/stochastic-benchmark.git
+            - name: STOCHASTIC_BENCHMARK_BRANCH
+              value: main
+            - name: QPS_REPO_URL
+              value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
+            - name: QPS_BRANCH
+              value: main
+            - name: QAOA_PIPELINE_REPO_URL
+              value: https://github.com/qiskit-community/qaoa_training_pipeline.git
+            - name: QAOA_PIPELINE_BRANCH
+              value: main
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-credentials
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+            limits:
+              cpu: "4"
+              memory: 16Gi
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: ibm-qaoa-workspace

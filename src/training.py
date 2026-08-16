@@ -138,7 +138,7 @@ def split_train_test(df: pd.DataFrame, split_on: List[str], ptrain: float):
                 lambda df: pd.DataFrame.from_dict(
                     {"train": [np.random.binomial(1, ptrain)]}
                 ),
-                include_groups=False
+                include_groups=False,
             )
             .merge(df, on=split_on)
         )
@@ -151,7 +151,7 @@ def split_train_test(df: pd.DataFrame, split_on: List[str], ptrain: float):
                     lambda df: pd.DataFrame.from_dict(
                         {"train": [np.random.binomial(1, ptrain)]}
                     ),
-                    include_groups=False
+                    include_groups=False,
                 )
                 .merge(df, on=split_on)
             )
@@ -192,7 +192,7 @@ def best_recommended(
         Dataframe containing best recommended parameters for each instance
     """
 
-    br = vb.groupby(resource_col).mean()
+    br = vb.groupby(resource_col).mean(numeric_only=True)
     return br[parameter_names + additional_cols]
 
 
@@ -283,7 +283,7 @@ def scaled_distance(
                 maxval - minval
             )
             local_df_eval.loc[:, "distance_scaled"] += (
-                local_df_eval[colname + "_scaled"] - recipe[colname + "_scaled"].copy()
+                local_df_eval[colname + "_scaled"] - float(recipe[colname + "_scaled"])
             ) ** 2
     return local_df_eval
 
@@ -307,7 +307,7 @@ def evaluate(
         Recipes to try out
     distance_fcn : Callable
         Computes distance between parameters for projection
-    parameters_names : list[str]
+    parameter_names : list[str]
     resource_col : str
     group_on : list[str]
         list of columns that define an instance

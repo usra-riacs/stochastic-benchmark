@@ -1,0 +1,16 @@
+{
+    "0": {
+        "energy": -8.0,
+        "approximation ratio": 0.7,
+        "train_duration": 1.5,
+        "trainer": {
+            "trainer_name": "COBYLA"
+        },
+        "success": true,
+        "history": [
+            -7.0,
+            -7.5,
+            -8.0
+        ]
+    }
+}

@@ -208,7 +208,7 @@ spec:
                 qaoa_parameter_setting methods instances/heavy_hex data/evaluation_times \\
                 data/minmax_cuts/heavy_hex setup.py requirements.txt VERSION.txt README.md
               git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" checkout FETCH_HEAD
-              export SKIP_REPO_UPDATE=1
+              export IBM_QAOA_SKIP_REPO_UPDATE=1
 
               bash "\${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \\
                 --output-root ${OUTPUT_ROOT} \\
@@ -333,7 +333,7 @@ spec:
                 qaoa_parameter_setting methods instances/heavy_hex data/evaluation_times \\
                 data/minmax_cuts/heavy_hex setup.py requirements.txt VERSION.txt README.md
               git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" checkout FETCH_HEAD
-              export SKIP_REPO_UPDATE=1
+              export IBM_QAOA_SKIP_REPO_UPDATE=1
 
               bash "\${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \\
                 --output-root ${OUTPUT_ROOT} \\

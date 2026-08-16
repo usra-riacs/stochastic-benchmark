@@ -57,6 +57,16 @@ class TestImports:
         assert hasattr(success_metrics, 'Response')
         assert hasattr(success_metrics, 'PerfRatio')
         assert hasattr(success_metrics, 'SuccessProb')
+
+    def test_import_repeat_reliability(self):
+        """Test importing repeat_reliability module."""
+        import repeat_reliability
+        assert hasattr(repeat_reliability, 'agresti_coull_interval')
+        assert hasattr(repeat_reliability, 'repeat_count')
+        assert hasattr(repeat_reliability, 'repeats_to_solution')
+        assert hasattr(repeat_reliability, 'required_trials_for_relative_error')
+        assert hasattr(repeat_reliability, 'repeat_reliability_report')
+        assert hasattr(repeat_reliability, 'annotate_reliability_comparisons')
     
     def test_import_training(self):
         """Test importing training module."""

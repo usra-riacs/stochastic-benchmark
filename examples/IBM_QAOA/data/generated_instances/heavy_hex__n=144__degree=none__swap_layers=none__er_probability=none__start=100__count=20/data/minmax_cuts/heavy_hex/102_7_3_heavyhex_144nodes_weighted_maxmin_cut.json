@@ -1,1 +1,1 @@
-{"instance": "/mnt/c/Users/rames102/Desktop/stochastic-benchmark/examples/IBM_QAOA/results/pss_window_sticker/heavy_hex_144_FA_PP_opt_p5_expanded/generated_instances/instances/heavy_hex/102_7_3_heavyhex_144nodes_weighted.json", "max_cut": 65.4779804316545, "min_cut": -73.55308495513748, "sum_of_weights": -8.075104523482981, "time_solve_max_cut_ns": 549773070}
+{"instance": "102_7_3_heavyhex_144nodes_weighted.json", "max_cut": 65.4779804316545, "min_cut": -73.55308495513748, "sum_of_weights": -8.075104523482981, "time_solve_max_cut_ns": 549773070}

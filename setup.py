@@ -29,8 +29,7 @@ EXTRAS_REQUIRE = {
         "ipykernel>=6",
     ],
     "generation": [
-        "hyperopt>=0.2.7",
-        "setuptools<81",
+        "hyperopt>=0.3.0",
     ],
 }
 

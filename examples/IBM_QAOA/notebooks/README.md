@@ -25,6 +25,7 @@ Primary upstream data/method repository: https://github.com/Quantum-Working-Grou
 
 - The notebook expects local data directories/instance directories to be available (paths are currently set inside the notebook).
 - Generated training instances for the simulation-validation campaigns are cached under `../data/generated_instances` by default. New campaign outputs should reference that shared cache instead of regenerating the same graph/min-max-cut files under each result directory.
+- The heavy-hex n=144 instance set under `../data/generated_instances/heavy_hex__n=144__.../` is committed deliberately as a reproducibility snapshot for the p=7/p=9 campaigns in this PR, not as regenerable scratch output. The code (`generate_training_instances_like_qps`, `_compute_and_write_minmax`) can regenerate it from the same deterministic cache key (graph type, node count, start index, count), but the committed files pin the exact min/max-cut values the committed campaign results were computed against.
 
 ## External Repositories For Simulation Validation
 
@@ -60,3 +61,17 @@ export IBM_QAOA_INSTANCE_CACHE_ROOT=/path/to/generated_instances
 
 For script runs, the same paths can be passed directly with
 `--main-repo`, `--pipeline-repo`, and `--instance-cache-root`.
+
+### Python dependency setup
+
+In addition to `pip install -r requirements.txt -r requirements-examples.txt`
+from the repo root (which now includes `qiskit-aer`), install the two sibling
+checkouts as editable packages:
+
+```bash
+python -m pip install -e /path/to/qaoa_training_pipeline "qiskit-aer==0.17.2"
+python -m pip install -e /path/to/QAOA-Parameter-Setting
+```
+
+This mirrors the setup used by `nautilus/run_simulation_validation.sh`, which
+is the authoritative recipe for a from-scratch environment.

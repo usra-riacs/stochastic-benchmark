@@ -29,7 +29,7 @@ def stochastic_benchmark_instance(tmp_path):
     
     # The experiment classes consume the ExperimentParameters contract produced
     # by stochastic_benchmark.get_experiment_parameters().
-    sb.here = type('obj', (object,), {'checkpoints': str(tmp_path)})
+    sb.here = names.paths(str(tmp_path))
     sb.baseline = type('obj', (object,), {'recalibrate': lambda _df: None})()
     return sb
 

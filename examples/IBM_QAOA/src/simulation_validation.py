@@ -556,7 +556,7 @@ def _compute_and_write_minmax(
     with minmax_path.open("w", encoding="utf-8") as handle:
         json.dump(
             {
-                "instance": str(graph_path),
+                "instance": Path(graph_path).name,
                 "max_cut": float(max_cut),
                 "min_cut": float(min_cut),
                 "sum_of_weights": sum_weights,

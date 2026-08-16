@@ -28,8 +28,7 @@ setup_steps:
         - nbconvert
         - ipykernel
       generation:
-        - hyperopt
-        - "setuptools<81"
+        - "hyperopt>=0.3.0"
       development:
         - flake8
         - black  # code formatter

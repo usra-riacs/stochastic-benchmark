@@ -2528,7 +2528,8 @@ def save_current_plot(name: str, plot_dir: str | Path, figure=None) -> None:
     for ext, kwargs in {"pdf": {}, "png": {"dpi": 300}}.items():
         path = plot_dir / f"{name}.{ext}"
         fig.savefig(path, bbox_inches="tight", **kwargs)
-    print(f"Saved: {plot_dir / name}.pdf and .png")
+    display_dir = os.path.relpath(plot_dir, Path.cwd()) if plot_dir.is_absolute() else plot_dir
+    print(f"Saved: {Path(display_dir) / name}.pdf and .png")
 
 
 def shared_approx_ylim(*series_list, pad_fraction: float = 0.08) -> tuple[float, float] | None:

@@ -186,6 +186,23 @@ spec:
               git clone --branch "\${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \\
                 "\${STOCHASTIC_BENCHMARK_REPO}" "\${REPOS_DIR}/stochastic-benchmark"
 
+              # Pin QAOA-Parameter-Setting to 50a17c6, the commit before a 2026-06-29 rename
+              # (methods/I_MPSAer.json -> methods/I_MPSAer_opt.json) that QPS_BRANCH=main would
+              # otherwise pick up, breaking load_method_config. QPS has no tags and doesn't
+              # support shallow-clone-by-SHA via --branch, so fetch+checkout it directly with
+              # the same sparse paths run_simulation_validation.sh would normally set up, then
+              # tell it to leave this checkout alone via SKIP_REPO_UPDATE.
+              mkdir -p "\${REPOS_DIR}/QAOA-Parameter-Setting"
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" init -q
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" remote add origin "\${QPS_REPO_URL}"
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" fetch --depth 1 --filter=blob:none origin 50a17c63bbac754c95df48acd3f4d824d8707e9e
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" sparse-checkout init --no-cone
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" sparse-checkout set --no-cone \\
+                qaoa_parameter_setting methods instances/heavy_hex data/evaluation_times \\
+                data/minmax_cuts/heavy_hex setup.py requirements.txt VERSION.txt README.md
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" checkout FETCH_HEAD
+              export SKIP_REPO_UPDATE=1
+
               bash "\${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \\
                 --output-root ${OUTPUT_ROOT} \\
                 --instance-cache-root /workspace/data/generated_instances \\
@@ -293,6 +310,23 @@ spec:
 
               git clone --branch "\${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \\
                 "\${STOCHASTIC_BENCHMARK_REPO}" "\${REPOS_DIR}/stochastic-benchmark"
+
+              # Pin QAOA-Parameter-Setting to 50a17c6, the commit before a 2026-06-29 rename
+              # (methods/I_MPSAer.json -> methods/I_MPSAer_opt.json) that QPS_BRANCH=main would
+              # otherwise pick up, breaking load_method_config. QPS has no tags and doesn't
+              # support shallow-clone-by-SHA via --branch, so fetch+checkout it directly with
+              # the same sparse paths run_simulation_validation.sh would normally set up, then
+              # tell it to leave this checkout alone via SKIP_REPO_UPDATE.
+              mkdir -p "\${REPOS_DIR}/QAOA-Parameter-Setting"
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" init -q
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" remote add origin "\${QPS_REPO_URL}"
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" fetch --depth 1 --filter=blob:none origin 50a17c63bbac754c95df48acd3f4d824d8707e9e
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" sparse-checkout init --no-cone
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" sparse-checkout set --no-cone \\
+                qaoa_parameter_setting methods instances/heavy_hex data/evaluation_times \\
+                data/minmax_cuts/heavy_hex setup.py requirements.txt VERSION.txt README.md
+              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" checkout FETCH_HEAD
+              export SKIP_REPO_UPDATE=1
 
               bash "\${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \\
                 --output-root ${OUTPUT_ROOT} \\

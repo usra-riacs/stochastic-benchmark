@@ -208,7 +208,7 @@ spec:
                 --t-grid-points 1000 \\
                 --t-grid-scale log \\
                 --mps-chi 20 \\
-                --max-parallel-threads 4
+                --max-parallel-threads ${SHARD_CPU_REQUEST}
           env:
             - name: JOB_COMPLETION_INDEX
               valueFrom:

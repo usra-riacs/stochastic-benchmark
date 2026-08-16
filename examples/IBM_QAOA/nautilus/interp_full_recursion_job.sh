@@ -104,9 +104,9 @@ spec:
               git -C /workspace/repos/stochastic-benchmark log --oneline -3
           env:
             - name: STOCHASTIC_BENCHMARK_REPO
-              value: https://github.com/anurag-r20/stochastic-benchmark.git
+              value: https://github.com/usra-riacs/stochastic-benchmark.git
             - name: STOCHASTIC_BENCHMARK_BRANCH
-              value: QAOA_Parameter_Setting_IBM
+              value: IBM_QAOA_audit_recursion_and_paper_draft
             - name: QPS_REPO_URL
               value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
             - name: QPS_BRANCH
@@ -215,9 +215,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
             - name: STOCHASTIC_BENCHMARK_REPO
-              value: https://github.com/anurag-r20/stochastic-benchmark.git
+              value: https://github.com/usra-riacs/stochastic-benchmark.git
             - name: STOCHASTIC_BENCHMARK_BRANCH
-              value: QAOA_Parameter_Setting_IBM
+              value: IBM_QAOA_audit_recursion_and_paper_draft
             - name: QPS_REPO_URL
               value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
             - name: QPS_BRANCH
@@ -317,9 +317,9 @@ spec:
                 --max-parallel-threads 4
           env:
             - name: STOCHASTIC_BENCHMARK_REPO
-              value: https://github.com/anurag-r20/stochastic-benchmark.git
+              value: https://github.com/usra-riacs/stochastic-benchmark.git
             - name: STOCHASTIC_BENCHMARK_BRANCH
-              value: QAOA_Parameter_Setting_IBM
+              value: IBM_QAOA_audit_recursion_and_paper_draft
             - name: QPS_REPO_URL
               value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
             - name: QPS_BRANCH

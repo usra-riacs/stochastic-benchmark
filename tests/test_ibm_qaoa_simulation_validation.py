@@ -1,3 +1,4 @@
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -153,6 +154,10 @@ class TestParetoEnvelopeAndOwner:
         assert best_idx[-1] == 0
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("qiskit_aer") is None,
+    reason="requires qiskit-aer (see requirements-examples.txt)",
+)
 class TestBuildBoundCircuitSimulator:
     def test_sv_backend_uses_statevector_method(self):
         sim = build_bound_circuit_simulator("SV")

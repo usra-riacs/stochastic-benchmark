@@ -3442,7 +3442,6 @@ def plot_multi_method_window_sticker_component_panels(
     panel_annotations: list[list[tuple[float, float, str]]] = [[], []]
     # Actionable prescription data collected per panel for Pareto envelope + bg shading.
     panel_actionable_curves: list[list[tuple[str, str, np.ndarray, np.ndarray]]] = [[], []]
-    any_curve_extended = False
 
     for panel_idx, (panel_label, curves) in enumerate(panel_data):
         ax = axes[panel_idx]
@@ -3513,7 +3512,6 @@ def plot_multi_method_window_sticker_component_panels(
                 panel_y.extend(response_percent)
 
                 if extend_to is not None:
-                    any_curve_extended = True
                     ext_style = dict(style)
                     ext_style["linestyle"] = "--"
                     ext_style["marker"] = None
@@ -3636,15 +3634,6 @@ def plot_multi_method_window_sticker_component_panels(
         [0], [0], color="black", linestyle=":", linewidth=2.2,
         label="Pareto frontier (actionable)",
     )
-    extended_handles = []
-    if any_curve_extended:
-        extended_handles.append(
-            Line2D(
-                [0], [0], color="black", linestyle="--", linewidth=1.8, alpha=0.5,
-                label="Held flat past measured grid",
-            )
-        )
-    legend_handles = curve_handles + [pareto_handle] + extended_handles
 
     # Reserve bottom space: legend row + colorbar row.
     cb_row_h = 0.12   # fraction of figure height for colorbar row
@@ -3655,12 +3644,12 @@ def plot_multi_method_window_sticker_component_panels(
 
     # Place curve-type legend above colorbars.
     fig.legend(
-        handles=legend_handles,
+        handles=curve_handles + [pareto_handle],
         loc="lower center",
         bbox_to_anchor=(0.5, cb_row_h + 0.01),
         bbox_transform=fig.transFigure,
         frameon=True,
-        ncol=len(legend_handles),
+        ncol=len(curve_handles) + 1,
         fontsize=WINDOW_STICKER_LEGEND_FONTSIZE,
         handlelength=1.8,
         handletextpad=0.5,

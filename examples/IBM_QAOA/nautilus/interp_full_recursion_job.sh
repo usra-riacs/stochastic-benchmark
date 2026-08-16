@@ -183,6 +183,13 @@ spec:
               export DATA_DIR="/workspace/data"
               export RESULTS_DIR="/workspace/results"
 
+              # Desynchronize the 10 shards' git clones: an earlier run had multiple
+              # shards hit "RPC failed; curl 18 Transferred a partial file" during the
+              # stochastic-benchmark clone, consistent with 10 simultaneous shallow
+              # clones of the same repo landing in the same instant. Stagger by index
+              # (0, 6, 12, ..., 54s) plus a little jitter so they don't all fire together.
+              sleep "\$(( JOB_COMPLETION_INDEX * 6 + RANDOM % 5 ))"
+
               git clone --branch "\${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \\
                 "\${STOCHASTIC_BENCHMARK_REPO}" "\${REPOS_DIR}/stochastic-benchmark"
 

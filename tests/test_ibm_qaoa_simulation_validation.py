@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +14,7 @@ for path in (REPO_ROOT / "src", IBM_QAOA_ROOT):
 
 from src.simulation_validation import (  # noqa: E402
     SAMPLED_BACKEND_METHODS,
+    _cached_fa_grid_point,
     build_bound_circuit_simulator,
 )
 from src.utils import (  # noqa: E402
@@ -174,3 +176,43 @@ class TestBuildBoundCircuitSimulator:
     def test_simulator_options_are_forwarded(self):
         sim = build_bound_circuit_simulator("MPSAer", {"matrix_product_state_max_bond_dimension": 20})
         assert sim.options.matrix_product_state_max_bond_dimension == 20
+
+
+class TestCachedFaGridPoint:
+    def _group_df(self, points):
+        """points: list of (n, m, [q1, q2, ...]) -> one row per (n, m, q)."""
+        rows = []
+        for n, m, qs in points:
+            for q in qs:
+                rows.append({"N": n, "M": m, "Q": q, "num_objective_evaluations": 42})
+        return pd.DataFrame(rows)
+
+    def test_fully_covered_point_is_returned(self):
+        df = self._group_df([(10, 50, [100, 200])])
+        result = _cached_fa_grid_point(df, n_value=10, m_value=50, q_values=[100, 200])
+        assert result is not None
+        assert len(result) == 2
+
+    def test_partially_covered_point_is_not_cached(self):
+        # Only Q=100 present; Q=200 was requested too, so this point isn't
+        # resumable -- a single grid point's Q rows all come from one sampling
+        # pass, there's no partial-Q state to pick back up from.
+        df = self._group_df([(10, 50, [100])])
+        result = _cached_fa_grid_point(df, n_value=10, m_value=50, q_values=[100, 200])
+        assert result is None
+
+    def test_missing_point_returns_none(self):
+        df = self._group_df([(10, 50, [100])])
+        result = _cached_fa_grid_point(df, n_value=20, m_value=50, q_values=[100])
+        assert result is None
+
+    def test_empty_group_returns_none(self):
+        result = _cached_fa_grid_point(pd.DataFrame(), n_value=10, m_value=50, q_values=[100])
+        assert result is None
+
+    def test_does_not_match_other_n_m_combinations(self):
+        # N=10,M=100 and N=20,M=50 both exist but N=10,M=50 (the one being
+        # asked about) doesn't -- a naive OR-based filter could wrongly match.
+        df = self._group_df([(10, 100, [100]), (20, 50, [100])])
+        result = _cached_fa_grid_point(df, n_value=10, m_value=50, q_values=[100])
+        assert result is None

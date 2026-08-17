@@ -1896,6 +1896,8 @@ def run_fa_pss_exact_points(
     sample_config: dict[str, Any] | None = None,
     time_per_shot: float | dict[int, float] = 1.0,
     cobyla_overhead_c: float = 1.0,
+    existing_df: pd.DataFrame | None = None,
+    on_new_rows: Callable[[list[dict[str, Any]]], None] | None = None,
 ) -> pd.DataFrame:
     if method_configs is None or method_name not in method_configs:
         raise ValueError(f"Missing method config for {method_name}.")
@@ -1923,7 +1925,27 @@ def run_fa_pss_exact_points(
         cumulative_duration = 0.0
 
         for n_value in sorted({int(n) for n in n_values}):
-            delta_n = int(n_value) - int(previous_n)
+            # Resume support: skip grid points a prior (interrupted) run already
+            # completed and checkpointed. Warm-start angles aren't stored in the
+            # cache, so previous_angles stays None here -- the next point this
+            # run actually computes cold-starts (trains with the full n_value as
+            # its own maxiter, not an incremental delta from a start point we no
+            # longer have). Cumulative cost counters are pulled from the cached
+            # row itself so downstream accounting for later points in this
+            # M-value stays continuous instead of silently resetting to zero.
+            cached_point = _cached_fa_grid_point(
+                existing_df, n_value=n_value, m_value=m_value, q_values=q_values
+            ) if existing_df is not None else None
+            if cached_point is not None:
+                cached_row = cached_point.iloc[0]
+                cumulative_evals = int(cached_row.get("num_objective_evaluations", cumulative_evals))
+                cumulative_shots = int(cached_row.get("total_training_shots", cumulative_shots))
+                cumulative_duration = float(cached_row.get("training_cost", cumulative_duration))
+                previous_n = int(n_value)
+                previous_angles = None
+                continue
+
+            delta_n = int(n_value) - int(previous_n) if previous_angles is not None else int(n_value)
             if delta_n <= 0:
                 continue
 
@@ -1969,7 +1991,7 @@ def run_fa_pss_exact_points(
             )
             sample_runtime = time.perf_counter() - sample_start
             sample_time_per_shot = float(sample_runtime) / float(q_max)
-            rows.extend(
+            new_point_rows = (
                 _prepare_prefix_rows(
                     sample_stream=sample_stream,
                     q_values=q_values,
@@ -2004,24 +2026,28 @@ def run_fa_pss_exact_points(
                     },
                 )
             )
+            # Finalize this point's rows immediately (same derivations the
+            # DataFrame-level pass below applies) so on_new_rows can checkpoint
+            # a fully-formed row -- not just append and hope the run reaches
+            # the final DataFrame construction before being interrupted.
+            for _row in new_point_rows:
+                _row["runtime_sample_wallclock"] = float(_row["Q"]) * float(_row.pop("runtime_sample_per_shot"))
+                _row["sampling_cost"] = _row["runtime_sample_wallclock"]
+                _row["sampling_cost_proxy"] = float(_row["Q"]) * _tps
+                _row["T_exact"] = float(_row["training_cost"]) + float(_row["sampling_cost"])
+                _row["T_exact_proxy"] = float(_row["training_cost_proxy"]) + float(_row["sampling_cost_proxy"])
+                _row["Approximation_Ratio"] = _row["BestApproximationRatio"]
+            rows.extend(new_point_rows)
+            if on_new_rows is not None:
+                on_new_rows(new_point_rows)
 
     if not rows:
         return pd.DataFrame()
 
-    df = pd.DataFrame(rows)
-    if "runtime_sample_per_shot" in df.columns:
-        df["runtime_sample_wallclock"] = (
-            df["Q"].astype(float) * df["runtime_sample_per_shot"].astype(float)
-        )
-        df = df.drop(columns=["runtime_sample_per_shot"])
-    else:
-        df["runtime_sample_wallclock"] = 0.0
-    df["sampling_cost"] = df["runtime_sample_wallclock"].astype(float)
-    df["sampling_cost_proxy"] = df["Q"].astype(float) * _tps
-    df["T_exact"] = df["training_cost"].astype(float) + df["sampling_cost"].astype(float)
-    df["T_exact_proxy"] = df["training_cost_proxy"].astype(float) + df["sampling_cost_proxy"].astype(float)
-    df["Approximation_Ratio"] = df["BestApproximationRatio"]
-    return df
+    # Every row was already fully finalized (sampling_cost, T_exact,
+    # T_exact_proxy, Approximation_Ratio, runtime_sample_per_shot dropped)
+    # at the point it was produced above, so no further derivation needed here.
+    return pd.DataFrame(rows)
 
 
 def build_dense_budget_grid(
@@ -2583,6 +2609,34 @@ def _exact_group_filter(
     )
 
 
+def _cached_fa_grid_point(
+    group_df: pd.DataFrame,
+    *,
+    n_value: int,
+    m_value: int,
+    q_values: list[int],
+) -> pd.DataFrame | None:
+    """Return this (N, M) point's cached rows if every Q value is already present.
+
+    ``group_df`` must already be filtered to one (spec, reps, strategy) group
+    (see ``_exact_group_filter``). A point counts as cached only when all of
+    its Q values are present, since a single grid point's Q rows all come
+    from one sampling pass in ``run_fa_pss_exact_points`` -- there's no
+    partial-Q state to resume from.
+    """
+    if group_df.empty:
+        return None
+    point_df = group_df.loc[
+        group_df["N"].astype(int).eq(int(n_value)) & group_df["M"].astype(int).eq(int(m_value))
+    ]
+    if point_df.empty:
+        return None
+    cached_q = {int(q) for q in point_df["Q"].dropna().astype(int).tolist()}
+    if not {int(q) for q in q_values}.issubset(cached_q):
+        return None
+    return point_df
+
+
 def _exact_group_is_complete(
     df: pd.DataFrame,
     *,
@@ -2847,21 +2901,28 @@ def generate_pss_exact_points(
                     fa_m_values=fa_m_values,
                     q_values=q_values,
                 ):
-                    _append_exact_checkpoint(
-                        run_fa_pss_exact_points(
-                            spec,
-                            reps=reps,
-                            n_values=fa_n_values,
-                            m_values=fa_m_values,
-                            q_values=q_values,
-                            method_name=fa_method_name,
-                            method_configs=method_configs,
-                            main_repo=main_repo,
-                            pipeline_repo=pipeline_repo,
-                            sample_config=sample_config,
-                            time_per_shot=time_per_shot,
-                            cobyla_overhead_c=cobyla_overhead_c,
-                        )
+                    # existing_df + on_new_rows give run_fa_pss_exact_points resume
+                    # support at (N, M) grid-point granularity, not just whole-group:
+                    # it skips points cached_group already has, and every new point
+                    # it computes flows straight into _append_exact_checkpoint (which
+                    # already batches/flushes every _CHECKPOINT_BATCH_SIZE rows), so
+                    # progress survives an interruption partway through this instance
+                    # instead of only surviving between whole completed instances.
+                    run_fa_pss_exact_points(
+                        spec,
+                        reps=reps,
+                        n_values=fa_n_values,
+                        m_values=fa_m_values,
+                        q_values=q_values,
+                        method_name=fa_method_name,
+                        method_configs=method_configs,
+                        main_repo=main_repo,
+                        pipeline_repo=pipeline_repo,
+                        sample_config=sample_config,
+                        time_per_shot=time_per_shot,
+                        cobyla_overhead_c=cobyla_overhead_c,
+                        existing_df=cached_group,
+                        on_new_rows=lambda new_rows: _append_exact_checkpoint(pd.DataFrame(new_rows)),
                     )
 
     _flush_exact_checkpoint()

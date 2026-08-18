@@ -149,7 +149,18 @@ spec:
   completions: 10
   parallelism: 10
   completionMode: Indexed
-  backoffLimit: 2
+  # backoffLimit alone is a job-WIDE retry budget shared across all 10
+  # indices -- shard 6 hit 3 transient "git clone" network failures
+  # (RPC failed; curl 55 Send failure: Broken pipe) over a 48h run and
+  # that alone exceeded backoffLimit: 2, killing the whole job including
+  # 5+ shards that were >40% through their work. backoffLimitPerIndex
+  # gives each shard its own retry budget instead; maxFailedIndexes lets
+  # up to 2 shards permanently fail without taking the other 8 down with
+  # them; backoffLimit is raised to act only as an extreme global safety
+  # valve, decoupled from any single index's flakiness.
+  backoffLimitPerIndex: 4
+  maxFailedIndexes: 2
+  backoffLimit: 20
   activeDeadlineSeconds: 172800
   template:
     spec:

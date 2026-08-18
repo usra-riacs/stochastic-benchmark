@@ -194,6 +194,41 @@ spec:
               export DATA_DIR="/workspace/data"
               export RESULTS_DIR="/workspace/results"
 
+              # Both the stochastic-benchmark clone and the QPS fetch below have hit
+              # repeated "RPC failed; curl 55 Send failure: Broken pipe" / "curl 56 Recv
+              # failure: Connection reset by peer" errors -- not just contention from
+              # simultaneous clones (already staggered below), but genuine transient
+              # egress flakiness from some federated Nautilus nodes to GitHub. A pod-level
+              # retry (via backoffLimitPerIndex) re-pays the full apt-get/build-essential
+              # setup cost every time; retrying just the git command in-place is cheaper
+              # and more targeted.
+              git_clone_retry() {
+                local branch="\$1" url="\$2" dest="\$3" attempt
+                for attempt in 1 2 3 4 5; do
+                  rm -rf "\${dest}"
+                  if git clone --branch "\${branch}" --depth 1 "\${url}" "\${dest}"; then
+                    return 0
+                  fi
+                  echo "git clone attempt \${attempt} failed for \${dest}, retrying in \$((attempt * 5))s..." >&2
+                  sleep "\$((attempt * 5))"
+                done
+                echo "git clone failed after 5 attempts for \${dest}" >&2
+                return 1
+              }
+
+              git_fetch_retry() {
+                local dir="\$1" ref="\$2" attempt
+                for attempt in 1 2 3 4 5; do
+                  if git -C "\${dir}" fetch --depth 1 --filter=blob:none origin "\${ref}"; then
+                    return 0
+                  fi
+                  echo "git fetch attempt \${attempt} failed in \${dir}, retrying in \$((attempt * 5))s..." >&2
+                  sleep "\$((attempt * 5))"
+                done
+                echo "git fetch failed after 5 attempts in \${dir}" >&2
+                return 1
+              }
+
               # Desynchronize the 10 shards' git clones: an earlier run had multiple
               # shards hit "RPC failed; curl 18 Transferred a partial file" during the
               # stochastic-benchmark clone, consistent with 10 simultaneous shallow
@@ -201,8 +236,7 @@ spec:
               # (0, 6, 12, ..., 54s) plus a little jitter so they don't all fire together.
               sleep "\$(( JOB_COMPLETION_INDEX * 6 + RANDOM % 5 ))"
 
-              git clone --branch "\${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \\
-                "\${STOCHASTIC_BENCHMARK_REPO}" "\${REPOS_DIR}/stochastic-benchmark"
+              git_clone_retry "\${STOCHASTIC_BENCHMARK_BRANCH}" "\${STOCHASTIC_BENCHMARK_REPO}" "\${REPOS_DIR}/stochastic-benchmark"
 
               # Pin QAOA-Parameter-Setting to 50a17c6, the commit before a 2026-06-29 rename
               # (methods/I_MPSAer.json -> methods/I_MPSAer_opt.json) that QPS_BRANCH=main would
@@ -213,7 +247,7 @@ spec:
               mkdir -p "\${REPOS_DIR}/QAOA-Parameter-Setting"
               git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" init -q
               git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" remote add origin "\${QPS_REPO_URL}"
-              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" fetch --depth 1 --filter=blob:none origin 50a17c63bbac754c95df48acd3f4d824d8707e9e
+              git_fetch_retry "\${REPOS_DIR}/QAOA-Parameter-Setting" 50a17c63bbac754c95df48acd3f4d824d8707e9e
               git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" sparse-checkout init --no-cone
               git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" sparse-checkout set --no-cone \\
                 qaoa_parameter_setting methods instances/heavy_hex data/evaluation_times \\
@@ -326,8 +360,36 @@ spec:
               export DATA_DIR="/workspace/data"
               export RESULTS_DIR="/workspace/results"
 
-              git clone --branch "\${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \\
-                "\${STOCHASTIC_BENCHMARK_REPO}" "\${REPOS_DIR}/stochastic-benchmark"
+              # See emit_shards for why these retry: transient GitHub egress flakiness
+              # ("RPC failed; curl 55/56 ...") from some federated Nautilus nodes.
+              git_clone_retry() {
+                local branch="\$1" url="\$2" dest="\$3" attempt
+                for attempt in 1 2 3 4 5; do
+                  rm -rf "\${dest}"
+                  if git clone --branch "\${branch}" --depth 1 "\${url}" "\${dest}"; then
+                    return 0
+                  fi
+                  echo "git clone attempt \${attempt} failed for \${dest}, retrying in \$((attempt * 5))s..." >&2
+                  sleep "\$((attempt * 5))"
+                done
+                echo "git clone failed after 5 attempts for \${dest}" >&2
+                return 1
+              }
+
+              git_fetch_retry() {
+                local dir="\$1" ref="\$2" attempt
+                for attempt in 1 2 3 4 5; do
+                  if git -C "\${dir}" fetch --depth 1 --filter=blob:none origin "\${ref}"; then
+                    return 0
+                  fi
+                  echo "git fetch attempt \${attempt} failed in \${dir}, retrying in \$((attempt * 5))s..." >&2
+                  sleep "\$((attempt * 5))"
+                done
+                echo "git fetch failed after 5 attempts in \${dir}" >&2
+                return 1
+              }
+
+              git_clone_retry "\${STOCHASTIC_BENCHMARK_BRANCH}" "\${STOCHASTIC_BENCHMARK_REPO}" "\${REPOS_DIR}/stochastic-benchmark"
 
               # Pin QAOA-Parameter-Setting to 50a17c6, the commit before a 2026-06-29 rename
               # (methods/I_MPSAer.json -> methods/I_MPSAer_opt.json) that QPS_BRANCH=main would
@@ -338,7 +400,7 @@ spec:
               mkdir -p "\${REPOS_DIR}/QAOA-Parameter-Setting"
               git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" init -q
               git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" remote add origin "\${QPS_REPO_URL}"
-              git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" fetch --depth 1 --filter=blob:none origin 50a17c63bbac754c95df48acd3f4d824d8707e9e
+              git_fetch_retry "\${REPOS_DIR}/QAOA-Parameter-Setting" 50a17c63bbac754c95df48acd3f4d824d8707e9e
               git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" sparse-checkout init --no-cone
               git -C "\${REPOS_DIR}/QAOA-Parameter-Setting" sparse-checkout set --no-cone \\
                 qaoa_parameter_setting methods instances/heavy_hex data/evaluation_times \\

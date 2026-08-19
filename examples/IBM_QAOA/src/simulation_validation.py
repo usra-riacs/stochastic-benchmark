@@ -1763,11 +1763,17 @@ def run_pt_pss_exact_points(
     sample_config: dict[str, Any] | None = None,
     transfer_cost: float = 0.0,
     time_per_shot: float | dict[int, float] = 1.0,
+    linear_ramp_slopes: tuple[float, float] = (0.5, 0.5),
 ) -> pd.DataFrame:
     if not q_values:
         return pd.DataFrame()
     _tps = _resolve_time_per_shot(time_per_shot, reps)
-    if method_configs is None or method_name not in method_configs:
+    # linear_ramp_no_opt computes angles analytically (see generate_linear_ramp_angles
+    # below), the same way generate_angle_payload's native-mode path already does --
+    # it has no methods/*.json config and doesn't need one.
+    if method_name != "linear_ramp_no_opt" and (
+        method_configs is None or method_name not in method_configs
+    ):
         raise ValueError(f"Missing method config for {method_name}.")
     if method_name == "PT_PP_AAA":
         required_transfer_db = (
@@ -1784,9 +1790,9 @@ def run_pt_pss_exact_points(
 
     context = load_instance_context(spec, main_repo)
     cost_op = build_cost_operator_from_graph(context["graph_path"], pipeline_repo)
-    method_config = load_method_config(method_configs[method_name])
     transfer_start = time.perf_counter()
     if method_name == "PT_PP_AAA":
+        method_config = load_method_config(method_configs[method_name])
         qaoa_angles = _load_depth_matched_pt_angles(
             required_transfer_db,
             reps=reps,
@@ -1794,7 +1800,18 @@ def run_pt_pss_exact_points(
             num_nodes=spec.num_nodes,
         )
         runtime_train_wallclock = time.perf_counter() - transfer_start
+    elif method_name == "linear_ramp_no_opt":
+        stage = generate_linear_ramp_angles(
+            cost_op,
+            reps=reps,
+            slopes=linear_ramp_slopes,
+            pipeline_repo=pipeline_repo,
+        )
+        qaoa_angles = stage["optimized_qaoa_angles"]
+        runtime_train_wallclock = time.perf_counter() - transfer_start
     else:
+        method_config = load_method_config(method_configs[method_name])
+
         def _strip_evaluators(config: dict) -> dict:
             # FixedAngleConjecture computes angles from an analytic formula and
             # does not need a circuit evaluator.  Stripping it here prevents PP

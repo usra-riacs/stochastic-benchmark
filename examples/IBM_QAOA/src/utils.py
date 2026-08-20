@@ -3210,22 +3210,33 @@ def plot_multi_method_window_sticker_components(
 # curves could land on nearly the same Blues shade. Narrowed to disjoint
 # bands (both still plt.cm.Blues, matching the paper's single Fixed-Angles
 # blue) so every depth of one variant is visually distinct from every depth
-# of the other; PT/LR/Interp are unchanged from the original.
+# of the other; PT/Interp are unchanged from the original.
+#
+# Linear Ramp has three optimization tiers (see _optimization_level /
+# _QPS_METHOD_LABELS): LR_dagger = no optimization at all (fixed ramp
+# slopes), LR = ramp-parameter optimization only (LR_PP_opt), LR_star =
+# ramp-parameter + full angle optimization (LR_PP_angle_opt). Same YlOrBr
+# colormap as before, split into three disjoint bands -- more optimization
+# reads as a darker/more saturated shade, matching FA's convention.
 _FAMILY_CMAP_SPEC: dict[str, tuple] = {
     "FA_star":   (plt.cm.Blues,   0.55, 0.92),
     "FA_dagger": (plt.cm.Blues,   0.15, 0.42),
     "PT":        (plt.cm.Greys,   0.35, 0.60),
-    "LR":        (plt.cm.YlOrBr,  0.42, 0.85),
+    "LR_star":   (plt.cm.YlOrBr,  0.65, 0.92),
+    "LR":        (plt.cm.YlOrBr,  0.42, 0.58),
+    "LR_dagger": (plt.cm.YlOrBr,  0.15, 0.32),
     "Interp":    (plt.cm.Greens,  0.35, 0.85),
 }
 _FAMILY_DISPLAY: dict[str, str] = {
     "FA_star":   r"Fixed Angles$^*$",
     "FA_dagger": r"Fixed Angles$^\dagger$",
     "PT":        "Param. Transfer",
+    "LR_star":   r"Linear Ramp$^*$",
     "LR":        "Linear Ramp",
+    "LR_dagger": r"Linear Ramp$^\dagger$",
     "Interp":    "Interpolation",
 }
-_FAMILY_ORDER = ["FA_star", "FA_dagger", "PT", "LR", "Interp"]
+_FAMILY_ORDER = ["FA_star", "FA_dagger", "PT", "LR_star", "LR", "LR_dagger", "Interp"]
 
 
 def _detect_method_family(label: str) -> str:
@@ -3237,6 +3248,10 @@ def _detect_method_family(label: str) -> str:
     if re.search(r"(?<![a-z])pt(?![a-z])|param|transfer", s):
         return "PT"
     if "linear" in s or "ramp" in s:
+        if re.search(r"[†]|\$\^\\dagger\$|dagger", s):
+            return "LR_dagger"
+        if re.search(r"\$\^\\star\$|[\*★⋆]", s):
+            return "LR_star"
         return "LR"
     if "interp" in s or "i_mps" in s or re.search(r"(?<![a-z])i_", s):
         return "Interp"

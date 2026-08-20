@@ -3156,25 +3156,27 @@ def fit_recommended_recipe_curves(
         if col == resource_col:
             continue
         if col in fit_parameter_cols:
-            coeffs = _fit_log_polynomial(
-                source_t,
-                source[col].astype(float).to_numpy(),
-                degree=2,
-            )
-            if coeffs is None:
+            knots = _fit_log_isotonic(source_t, source[col].astype(float).to_numpy())
+            if knots is None:
                 fitted[col] = np.nan
                 continue
-            fitted[col] = _predict_log_polynomial(
+            log_x_knots, log_y_knots = knots
+            fitted[col] = _predict_log_isotonic(
                 target_t,
-                coeffs,
+                log_x_knots,
+                log_y_knots,
                 y_min=float(source[col].min()),
                 y_max=float(source[col].max()),
             )
             model_rows.append(
                 {
                     "parameter": col,
-                    "expression": _expression_text(col, coeffs),
-                    **{f"coeff_{idx}": float(val) for idx, val in enumerate(coeffs)},
+                    "expression": (
+                        f"{col}(T): isotonic regression (monotonic non-decreasing), "
+                        f"{len(log_x_knots)} knots over T in "
+                        f"[{np.exp(log_x_knots[0]):.4g}, {np.exp(log_x_knots[-1]):.4g}]"
+                    ),
+                    "num_knots": len(log_x_knots),
                 }
             )
         else:
@@ -3183,12 +3185,50 @@ def fit_recommended_recipe_curves(
     return fitted, pd.DataFrame(model_rows)
 
 
-def _fit_log_polynomial(
-    x_values,
-    y_values,
-    *,
-    degree: int = 2,
-) -> np.ndarray | None:
+def _pool_adjacent_violators(y: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """Weighted L2 isotonic (non-decreasing) regression via pool-adjacent-violators.
+
+    Standard stack-based PAVA: merges adjacent blocks whenever a later block's
+    weighted-mean value would violate monotonicity against the previous block,
+    replacing both with their combined weighted mean. Mathematically equivalent
+    to sklearn.isotonic.IsotonicRegression(increasing=True), implemented here
+    directly (a well-known ~20-line algorithm) rather than adding a new
+    dependency for one feature.
+    """
+    values: list[float] = []
+    block_weights: list[float] = []
+    counts: list[int] = []
+    for yi, wi in zip(y, weights):
+        values.append(float(yi))
+        block_weights.append(float(wi))
+        counts.append(1)
+        while len(values) > 1 and values[-2] > values[-1]:
+            w2, w1 = block_weights.pop(), block_weights.pop()
+            v2, v1 = values.pop(), values.pop()
+            n2, n1 = counts.pop(), counts.pop()
+            merged_w = w1 + w2
+            values.append((v1 * w1 + v2 * w2) / merged_w)
+            block_weights.append(merged_w)
+            counts.append(n1 + n2)
+    result = np.empty(len(y), dtype=float)
+    pos = 0
+    for value, count in zip(values, counts):
+        result[pos : pos + count] = value
+        pos += count
+    return result
+
+
+def _fit_log_isotonic(x_values, y_values) -> tuple[np.ndarray, np.ndarray] | None:
+    """Fit a monotonic (non-decreasing) curve to log(y) vs log(x).
+
+    A "recommended recipe as a function of resource budget" should never
+    recommend less as the budget grows -- you could always just ignore the
+    extra budget and reuse a smaller-budget setting. An unconstrained
+    polynomial fit doesn't guarantee that; isotonic regression does, by
+    construction. Ties in x are collapsed to their weighted-mean y before
+    running PAVA, matching how sklearn's IsotonicRegression handles
+    duplicate x values.
+    """
     x = pd.to_numeric(pd.Series(x_values), errors="coerce").to_numpy(dtype=float)
     y = pd.to_numeric(pd.Series(y_values), errors="coerce").to_numpy(dtype=float)
     mask = np.isfinite(x) & np.isfinite(y) & (x > 0) & (y > 0)
@@ -3197,17 +3237,29 @@ def _fit_log_polynomial(
     if len(x) == 0:
         return None
 
-    actual_degree = min(int(degree), max(len(np.unique(x)) - 1, 0))
-    if actual_degree == 0:
-        coeff_high_to_low = np.array([float(np.log(np.nanmedian(y)))])
+    order = np.argsort(x, kind="stable")
+    log_x = np.log(x[order])
+    log_y = np.log(y[order])
+
+    unique_log_x, inverse, counts = np.unique(log_x, return_inverse=True, return_counts=True)
+    if len(unique_log_x) == len(log_x):
+        agg_log_y = log_y
     else:
-        coeff_high_to_low = np.polyfit(np.log(x), np.log(y), deg=actual_degree)
-    return coeff_high_to_low[::-1]
+        sums = np.zeros(len(unique_log_x))
+        np.add.at(sums, inverse, log_y)
+        agg_log_y = sums / counts
+
+    if len(unique_log_x) == 1:
+        return unique_log_x, agg_log_y
+
+    fitted_log_y = _pool_adjacent_violators(agg_log_y, counts.astype(float))
+    return unique_log_x, fitted_log_y
 
 
-def _predict_log_polynomial(
+def _predict_log_isotonic(
     t_values,
-    coeff_low_to_high: np.ndarray,
+    log_x_knots: np.ndarray,
+    log_y_knots: np.ndarray,
     *,
     y_min: float | None = None,
     y_max: float | None = None,
@@ -3217,10 +3269,10 @@ def _predict_log_polynomial(
     mask = np.isfinite(t) & (t > 0)
     if mask.any():
         log_t = np.log(t[mask])
-        log_y = np.zeros(mask.sum(), dtype=float)
-        for power, coeff in enumerate(coeff_low_to_high):
-            log_y += float(coeff) * (log_t ** power)
-        pred[mask] = np.exp(log_y)
+        # np.interp flat-extrapolates beyond the knot range by construction,
+        # which is exactly the "hold at the nearest observed value" behavior
+        # the previous y_min/y_max clip was approximating for out-of-range T.
+        pred[mask] = np.exp(np.interp(log_t, log_x_knots, log_y_knots))
     if y_min is not None or y_max is not None:
         pred = np.clip(
             pred,
@@ -3228,19 +3280,6 @@ def _predict_log_polynomial(
             y_max if y_max is not None else np.inf,
         )
     return pred
-
-
-def _expression_text(param_name: str, coeff_low_to_high: np.ndarray, *, precision: int = 4) -> str:
-    pieces = []
-    for power, coeff in enumerate(coeff_low_to_high):
-        coeff_text = f"{float(coeff):.{precision}g}"
-        if power == 0:
-            pieces.append(coeff_text)
-        elif power == 1:
-            pieces.append(f"{coeff_text} log(T)")
-        else:
-            pieces.append(f"{coeff_text} log(T)^{power}")
-    return f"{param_name}(T) = exp(" + " + ".join(pieces).replace("+ -", "- ") + ")"
 
 
 def snap_actionable_fit_to_feasible_grid(

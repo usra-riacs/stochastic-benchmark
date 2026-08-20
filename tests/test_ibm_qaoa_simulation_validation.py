@@ -15,7 +15,9 @@ for path in (REPO_ROOT / "src", IBM_QAOA_ROOT):
 from src.simulation_validation import (  # noqa: E402
     SAMPLED_BACKEND_METHODS,
     _cached_fa_grid_point,
+    _pool_adjacent_violators,
     build_bound_circuit_simulator,
+    fit_recommended_recipe_curves,
 )
 from src.utils import (  # noqa: E402
     _FAMILY_CMAP_SPEC,
@@ -40,6 +42,11 @@ class TestDetectMethodFamily:
             ("linear_ramp_no_opt", "LR"),
             ("Interpolation (p=7)", "Interp"),
             ("I_MPSAer (p=7)", "Interp"),
+            ("Linear Ramp (p=9)", "LR"),
+            (r"Linear Ramp$^\star$ (p=5)", "LR_star"),
+            ("Linear Ramp* (p=5)", "LR_star"),
+            (r"Linear Ramp$^\dagger$ (p=9)", "LR_dagger"),
+            ("Linear Ramp† (p=9)", "LR_dagger"),
         ],
     )
     def test_known_families(self, label, expected):
@@ -89,6 +96,26 @@ class TestBuildFamilyColorMap:
         fa_dagger = [l for l in labels if _detect_method_family(l) == "FA_dagger"]
         worst = min(dist(color_map[a], color_map[b]) for a in fa_star for b in fa_dagger)
         assert worst > 0.1, f"FA_star/FA_dagger colors collide (distance={worst:.3f})"
+
+    def test_lr_star_and_lr_do_not_collide(self):
+        # Same collision check as FA_star/FA_dagger, for Linear Ramp's three
+        # optimization tiers (LR_dagger = no opt, LR = ramp-param opt only,
+        # LR_star = ramp-param + full angle opt) -- these used to all collapse
+        # into one undifferentiated "LR" family/color.
+        labels = [
+            "Linear Ramp (p=5)", "Linear Ramp (p=9)",
+            r"Linear Ramp$^\star$ (p=5)", r"Linear Ramp$^\star$ (p=9)",
+        ]
+        color_map, _, _ = _build_family_color_map(labels)
+
+        def dist(c1, c2):
+            return sum((a - b) ** 2 for a, b in zip(c1[:3], c2[:3])) ** 0.5
+
+        lr = [l for l in labels if _detect_method_family(l) == "LR"]
+        lr_star = [l for l in labels if _detect_method_family(l) == "LR_star"]
+        assert lr and lr_star, "expected both LR and LR_star labels to be detected"
+        worst = min(dist(color_map[a], color_map[b]) for a in lr for b in lr_star)
+        assert worst > 0.1, f"LR/LR_star colors collide (distance={worst:.3f})"
 
     def test_single_label_family_uses_midpoint_color(self):
         color_map, family_labels, family_p_vals = _build_family_color_map(["Linear Ramp (p=5)"])
@@ -216,3 +243,59 @@ class TestCachedFaGridPoint:
         df = self._group_df([(10, 100, [100]), (20, 50, [100])])
         result = _cached_fa_grid_point(df, n_value=10, m_value=50, q_values=[100])
         assert result is None
+
+
+class TestPoolAdjacentViolators:
+    def test_already_monotonic_is_unchanged(self):
+        y = np.array([1.0, 2.0, 3.0, 4.0])
+        fit = _pool_adjacent_violators(y, np.ones(4))
+        assert np.allclose(fit, y)
+
+    def test_violating_sequence_is_pooled_to_weighted_mean(self):
+        # 5.0 -> 2.0 violates monotonicity; PAVA pools them (and anything
+        # between) to their weighted mean rather than just clipping.
+        y = np.array([1.0, 5.0, 2.0, 6.0])
+        fit = _pool_adjacent_violators(y, np.ones(4))
+        assert np.all(np.diff(fit) >= -1e-12)
+        assert fit[1] == fit[2] == pytest.approx(3.5)
+
+    def test_weights_affect_pooled_value(self):
+        # A heavily-weighted low value should pull the pooled mean down more
+        # than an unweighted PAVA would.
+        y = np.array([1.0, 5.0, 2.0])
+        fit_unweighted = _pool_adjacent_violators(y, np.array([1.0, 1.0, 1.0]))
+        fit_weighted = _pool_adjacent_violators(y, np.array([1.0, 1.0, 10.0]))
+        assert fit_weighted[1] < fit_unweighted[1]
+
+
+class TestFitRecommendedRecipeCurvesMonotonic:
+    def test_bump_shaped_data_produces_monotonic_fit(self):
+        # Regression test for the bug this replaces: an unconstrained degree-2
+        # log-log polynomial fit to data that rises then falls would itself
+        # rise then fall (a parabola can't represent "rise then plateau"),
+        # producing a nonsensical "use fewer test shots with more budget"
+        # prescription. Isotonic regression must stay non-decreasing.
+        resource = np.array([1, 2, 4, 8, 16, 32, 64, 128, 256, 512], dtype=float)
+        q = np.array([300, 500, 1000, 2500, 5000, 6000, 5800, 4000, 3000, 2500], dtype=float)
+        recipe_df = pd.DataFrame({"resource": resource, "Q": q, "N": resource * 2, "M": resource})
+
+        fitted, model = fit_recommended_recipe_curves(
+            recipe_df, fit_parameter_cols=("N", "M", "Q"), resource_col="resource"
+        )
+        assert np.all(np.diff(fitted["Q"].to_numpy()) >= -1e-9)
+        assert set(model["parameter"]) == {"N", "M", "Q"}
+
+    def test_monotonic_input_is_fit_closely(self):
+        resource = np.array([1, 2, 4, 8, 16], dtype=float)
+        n = np.array([10, 20, 40, 80, 160], dtype=float)
+        recipe_df = pd.DataFrame({"resource": resource, "N": n})
+
+        fitted, _ = fit_recommended_recipe_curves(
+            recipe_df, fit_parameter_cols=("N",), resource_col="resource"
+        )
+        assert np.allclose(fitted["N"].to_numpy(), n, rtol=1e-6)
+
+    def test_empty_input_returns_empty_frames(self):
+        fitted, model = fit_recommended_recipe_curves(pd.DataFrame(), resource_col="resource")
+        assert fitted.empty
+        assert model.empty

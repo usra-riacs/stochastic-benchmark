@@ -43,10 +43,16 @@ Q_VALUES="100,250,500,1000,2500,5000,10000"
 # Same compute level as the other trained (non-zero-training) shard jobs --
 # LR_PP_opt has a real (N, M) grid to train, unlike the zero-training
 # LR_PP_opt-only variant, so this needs the full per-shard allocation.
+#
+# Memory doubled from 64/128Gi after every shard segfaulted partway through
+# training at p=9 -- deeper than any prior 16-thread shard job -- with no
+# leak reproducible locally (flat RSS over a 5-point sweep), consistent with
+# a native allocation failure under memory pressure at this depth/thread
+# count rather than a slow leak. Threads intentionally left at 16.
 SHARD_CPU_REQUEST="16"
 SHARD_CPU_LIMIT="32"
-SHARD_MEM_REQUEST="64Gi"
-SHARD_MEM_LIMIT="128Gi"
+SHARD_MEM_REQUEST="128Gi"
+SHARD_MEM_LIMIT="256Gi"
 
 emit_setup() {
 cat <<YAML

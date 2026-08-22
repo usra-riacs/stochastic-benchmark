@@ -24,6 +24,7 @@ from src.utils import (  # noqa: E402
     _build_family_color_map,
     _detect_method_family,
     _label_depth,
+    _method_label_from_training_method,
     _pareto_envelope_and_owner,
 )
 
@@ -116,6 +117,18 @@ class TestBuildFamilyColorMap:
         assert lr and lr_star, "expected both LR and LR_star labels to be detected"
         worst = min(dist(color_map[a], color_map[b]) for a in lr for b in lr_star)
         assert worst > 0.1, f"LR/LR_star colors collide (distance={worst:.3f})"
+
+    def test_linear_ramp_no_opt_maps_to_dagger_not_plain_lr(self):
+        # Regression test: our own zero-training strategy name
+        # ("linear_ramp_no_opt", see ZERO_TRAINING_METHODS in
+        # simulation_validation.py) spells out "linear_ramp" instead of the
+        # "LR" prefix every other Linear Ramp config uses, so it fell through
+        # both the external QPS label formatter and the internal lookup table
+        # unrecognized -- silently landing in the same "LR" (no-opt-tier)
+        # family/color as LR_PP_opt instead of its own "LR_dagger" shade.
+        latex_label = _method_label_from_training_method("linear_ramp_no_opt", format="latex")
+        assert "dagger" in latex_label, f"expected a dagger marker, got {latex_label!r}"
+        assert _detect_method_family(latex_label + " (p=9)") == "LR_dagger"
 
     def test_single_label_family_uses_midpoint_color(self):
         color_map, family_labels, family_p_vals = _build_family_color_map(["Linear Ramp (p=5)"])

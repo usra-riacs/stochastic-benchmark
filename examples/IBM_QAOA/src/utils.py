@@ -3342,6 +3342,24 @@ def _pareto_envelope_and_owner(
     return envelope, best_idx
 
 
+_CB_MARGIN = 0.05
+_CB_SPACING = 0.03
+_CB_MIN_W = 0.16
+
+
+def _family_colorbar_row_count(n_cb: int) -> int:
+    """How many colorbar rows _draw_family_colorbars will use for n_cb families.
+
+    Callers need this before the figure exists (to size it), so it has to
+    match _draw_family_colorbars's own row-wrap decision exactly rather than
+    duplicating a separately-hardcoded threshold that could drift out of sync.
+    """
+    if n_cb == 0:
+        return 0
+    max_single_row = int((1.0 - 2 * _CB_MARGIN + _CB_SPACING) // (_CB_MIN_W + _CB_SPACING))
+    return 1 if n_cb <= max_single_row else 2
+
+
 def _draw_family_colorbars(
     fig,
     family_labels: dict[str, list[str]],
@@ -3350,16 +3368,18 @@ def _draw_family_colorbars(
     row_h: float = 0.042,
     row_gap: float = 0.15,
     bottom: float = 0.05,
-    max_per_row: int = 3,
 ) -> None:
     """Draw one horizontal colorbar per method family, showing its p-depth gradient.
 
-    Wraps onto a second row once there are more than ``max_per_row`` families --
-    cramming 5-6 families into a single row squeezed each colorbar (and its
-    title, which is usually wider than the bar itself) too narrow, so adjacent
-    titles ran into each other. ``row_h``/``row_gap``/``bottom`` are fractions
-    of the figure height; callers reserve enough total height for however many
-    rows this ends up drawing (see the ``n_rows`` calc at each call site).
+    Every colorbar is the same width, whether there's one row or two -- a row
+    with fewer items is centered rather than stretched to fill the width, so
+    a 2-item row doesn't end up visibly wider than a 3-item row next to it.
+    Wraps onto a second row only once a single row would push colorbars
+    narrower than ``min_cb_w`` (families' titles, usually wider than the bar
+    itself, ran into each other when a wide single row got squeezed).
+    ``row_h``/``row_gap``/``bottom`` are fractions of the figure height;
+    callers reserve enough total height for however many rows this ends up
+    drawing (see the ``n_rows`` calc at each call site).
     """
     from matplotlib.colors import Normalize, LinearSegmentedColormap
     from matplotlib.cm import ScalarMappable
@@ -3368,15 +3388,18 @@ def _draw_family_colorbars(
     n_cb = len(cb_families)
     if n_cb == 0:
         return
-    n_rows = 2 if n_cb > max_per_row else 1
-    per_row = -(-n_cb // n_rows)  # ceil
+    margin, spacing = _CB_MARGIN, _CB_SPACING
+    n_rows = _family_colorbar_row_count(n_cb)
+    per_row = -(-n_cb // n_rows)  # ceil: the widest row sets the uniform width
     rows = [cb_families[i : i + per_row] for i in range(0, n_cb, per_row)]
+    cb_w = (1.0 - 2 * margin - (per_row - 1) * spacing) / per_row
 
-    margin = 0.05
-    spacing = 0.03
     for row_idx, row_families in enumerate(rows):
         n_in_row = len(row_families)
-        cb_w = (1.0 - 2 * margin - (n_in_row - 1) * spacing) / n_in_row
+        # Center a shorter row instead of stretching its items to fill the
+        # width the widest row uses.
+        content_w = n_in_row * cb_w + (n_in_row - 1) * spacing
+        row_start = margin + ((1.0 - 2 * margin) - content_w) / 2
         # Row 0 is the bottom-most row; later rows stack upward.
         cb_bottom = bottom + row_idx * row_gap
         for i, fam in enumerate(row_families):
@@ -3387,7 +3410,7 @@ def _draw_family_colorbars(
             c_hi = cmap_fn(hi)
             grad_cmap = LinearSegmentedColormap.from_list("", [c_lo, c_hi])
             ax_cb = fig.add_axes([
-                margin + i * (cb_w + spacing),
+                row_start + i * (cb_w + spacing),
                 cb_bottom,
                 cb_w,
                 row_h,
@@ -3480,12 +3503,13 @@ def plot_multi_method_window_sticker_component_panels(
 
     color_map, family_labels, family_p_vals = _build_family_color_map(labels)
 
-    # More than 3 families wraps the colorbar strip onto a second row (see
+    # Colorbars wrap onto a second row once a single row would push them
+    # narrower than a readable minimum (see _family_colorbar_row_count /
     # _draw_family_colorbars) -- cramming 5-6 into one row squeezed each
     # colorbar's title (usually wider than the bar) into its neighbours.
     # Grow the figure to make room rather than shrinking the main panels.
     _base_h = 5.8
-    _two_cb_rows = len(family_labels) > 3
+    _two_cb_rows = _family_colorbar_row_count(len(family_labels)) == 2
     _fig_h = _base_h + 1.5 if _two_cb_rows else _base_h
     fig, axes = plt.subplots(1, 2, figsize=(13.2, _fig_h), sharey=True)
 
@@ -3750,11 +3774,62 @@ def plot_pareto_frontier_overlay(
         return
     color_map, family_labels, family_p_vals = _build_family_color_map(all_labels)
 
-    # See plot_multi_method_window_sticker_component_panels: more than 3
-    # families wraps the colorbar strip onto a second row, so grow the
-    # figure to make room rather than shrinking the main panels.
+    def _build_entries(curve: pd.DataFrame) -> list[tuple[str, Any, np.ndarray, np.ndarray]]:
+        entries: list[tuple[str, Any, np.ndarray, np.ndarray]] = []
+        for label, group in curve.groupby("method_label"):
+            group = group.loc[:, ~group.columns.duplicated()].copy()
+            group["resource"] = pd.to_numeric(group["resource"], errors="coerce")
+            group["response_monotone"] = pd.to_numeric(group["response_monotone"], errors="coerce")
+            group = group.dropna(subset=["resource", "response_monotone"])
+            group = group[group["resource"] > 0].sort_values("resource")
+            if group.empty:
+                continue
+            resource = group["resource"].to_numpy(dtype=float)
+            response_percent = group["response_monotone"].to_numpy(dtype=float) * 100.0
+            entries.append((str(label), color_map[str(label)], resource, response_percent))
+        return entries
+
+    def _envelope_winners(entries: list[tuple[str, Any, np.ndarray, np.ndarray]]) -> set[str]:
+        """Labels that actually own at least one point of the drawn envelope."""
+        multi_point_entries = [e for e in entries if len(e[2]) >= 2]
+        if not multi_point_entries:
+            return set()
+        x_lo = min(xs[0] for _, _, xs, _ in multi_point_entries)
+        x_hi = max(xs[-1] for _, _, xs, _ in multi_point_entries)
+        if x_lo <= 0 or x_hi <= x_lo:
+            return set()
+        grid = np.logspace(np.log10(x_lo), np.log10(x_hi), 800)
+        envelope, best_idx = _pareto_envelope_and_owner(entries, grid)
+        finite = np.isfinite(envelope)
+        return {entries[i][0] for i in np.unique(best_idx[finite]) if i >= 0}
+
+    # The colorbar legend only shows families that actually own a segment of
+    # the drawn envelope -- a strategy that's present in the comparison data
+    # but never wins at any resource level (never becomes the visible line
+    # colour) has no business taking up a colorbar. Figure out who actually
+    # wins in a pre-pass so the figure can be sized before drawing.
+    winning_labels: set[str] = set()
+    for _, df_key in panel_data:
+        for cal in calibrations:
+            curve = curve_from_response_summary(cal[df_key])
+            if curve.empty:
+                continue
+            winning_labels |= _envelope_winners(_build_entries(curve))
+
+    dynamic_family_labels = {
+        fam: [lbl for lbl in labels if lbl in winning_labels]
+        for fam, labels in family_labels.items()
+        if any(lbl in winning_labels for lbl in labels)
+    }
+    dynamic_family_p_vals = {
+        fam: sorted({p for p in (_label_depth(lbl) for lbl in labels) if p is not None})
+        for fam, labels in dynamic_family_labels.items()
+    }
+
+    # See plot_multi_method_window_sticker_component_panels for the row-wrap
+    # logic; grow the figure to make room rather than shrinking the main panels.
     _base_h = 5.4
-    _two_cb_rows = len(family_labels) > 3
+    _two_cb_rows = _family_colorbar_row_count(len(dynamic_family_labels)) == 2
     _fig_h = _base_h + 1.5 if _two_cb_rows else _base_h
     fig, axes = plt.subplots(1, 2, figsize=(13.2, _fig_h), sharey=True)
     all_y: list[float] = []
@@ -3767,18 +3842,8 @@ def plot_pareto_frontier_overlay(
             curve = curve_from_response_summary(cal[df_key])
             if curve.empty:
                 continue
-            entries: list[tuple[str, Any, np.ndarray, np.ndarray]] = []
-            for label, group in curve.groupby("method_label"):
-                group = group.loc[:, ~group.columns.duplicated()].copy()
-                group["resource"] = pd.to_numeric(group["resource"], errors="coerce")
-                group["response_monotone"] = pd.to_numeric(group["response_monotone"], errors="coerce")
-                group = group.dropna(subset=["resource", "response_monotone"])
-                group = group[group["resource"] > 0].sort_values("resource")
-                if group.empty:
-                    continue
-                resource = group["resource"].to_numpy(dtype=float)
-                response_percent = group["response_monotone"].to_numpy(dtype=float) * 100.0
-                entries.append((str(label), color_map[str(label)], resource, response_percent))
+            entries = _build_entries(curve)
+            for _, _, resource, _ in entries:
                 panel_x.extend(resource.tolist())
 
             multi_point_entries = [e for e in entries if len(e[2]) >= 2]
@@ -3869,7 +3934,7 @@ def plot_pareto_frontier_overlay(
         columnspacing=1.2,
     )
 
-    _draw_family_colorbars(fig, family_labels, family_p_vals)
+    _draw_family_colorbars(fig, dynamic_family_labels, dynamic_family_p_vals)
 
     save_current_plot(filename, plot_dir)
     plt.show()

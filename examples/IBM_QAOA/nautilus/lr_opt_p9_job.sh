@@ -111,7 +111,7 @@ spec:
             - name: STOCHASTIC_BENCHMARK_REPO
               value: https://github.com/usra-riacs/stochastic-benchmark.git
             - name: STOCHASTIC_BENCHMARK_BRANCH
-              value: IBM_QAOA_audit_recursion_and_paper_draft
+              value: main
             - name: QPS_REPO_URL
               value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
             - name: QPS_BRANCH
@@ -274,7 +274,7 @@ spec:
             - name: STOCHASTIC_BENCHMARK_REPO
               value: https://github.com/usra-riacs/stochastic-benchmark.git
             - name: STOCHASTIC_BENCHMARK_BRANCH
-              value: IBM_QAOA_audit_recursion_and_paper_draft
+              value: main
             - name: QPS_REPO_URL
               value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
             - name: QPS_BRANCH
@@ -413,7 +413,7 @@ spec:
             - name: STOCHASTIC_BENCHMARK_REPO
               value: https://github.com/usra-riacs/stochastic-benchmark.git
             - name: STOCHASTIC_BENCHMARK_BRANCH
-              value: IBM_QAOA_audit_recursion_and_paper_draft
+              value: main
             - name: QPS_REPO_URL
               value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
             - name: QPS_BRANCH

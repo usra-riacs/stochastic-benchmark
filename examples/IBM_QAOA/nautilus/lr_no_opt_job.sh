@@ -35,7 +35,9 @@ print(",".join(str(int(v)) for v in values))
 ')"
 
 STOCHASTIC_BENCHMARK_REPO="https://github.com/usra-riacs/stochastic-benchmark.git"
-STOCHASTIC_BENCHMARK_BRANCH="IBM_QAOA_audit_recursion_and_paper_draft"
+# Defaults to main since this branch is deleted once PR #84 merges; pass an
+# override for testing against an unmerged branch.
+STOCHASTIC_BENCHMARK_BRANCH="${STOCHASTIC_BENCHMARK_BRANCH:-main}"
 QPS_REPO_URL="https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git"
 QAOA_PIPELINE_REPO_URL="https://github.com/qiskit-community/qaoa_training_pipeline.git"
 QAOA_PIPELINE_BRANCH="v0.1.0"

@@ -64,9 +64,9 @@ spec:
                 --max-parallel-threads 4
           env:
             - name: STOCHASTIC_BENCHMARK_REPO
-              value: https://github.com/anurag-r20/stochastic-benchmark.git
+              value: https://github.com/usra-riacs/stochastic-benchmark.git
             - name: STOCHASTIC_BENCHMARK_BRANCH
-              value: QAOA_Parameter_Setting_IBM
+              value: main
             - name: QPS_REPO_URL
               value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
             - name: QPS_BRANCH

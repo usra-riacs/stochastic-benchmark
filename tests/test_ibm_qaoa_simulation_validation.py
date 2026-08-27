@@ -15,7 +15,8 @@ for path in (REPO_ROOT / "src", IBM_QAOA_ROOT):
 from src.simulation_validation import (  # noqa: E402
     SAMPLED_BACKEND_METHODS,
     _cached_fa_grid_point,
-    _pool_adjacent_violators,
+    _fit_log_power_law,
+    _reset_cumulative_cost_on_cold_start,
     build_bound_circuit_simulator,
     fit_recommended_recipe_curves,
 )
@@ -258,36 +259,114 @@ class TestCachedFaGridPoint:
         assert result is None
 
 
-class TestPoolAdjacentViolators:
-    def test_already_monotonic_is_unchanged(self):
-        y = np.array([1.0, 2.0, 3.0, 4.0])
-        fit = _pool_adjacent_violators(y, np.ones(4))
-        assert np.allclose(fit, y)
+def _simulate_grid_shots(n_values, m_value, cached_ns):
+    """Mirror run_fa_pss_exact_points's shot bookkeeping for one M-value.
 
-    def test_violating_sequence_is_pooled_to_weighted_mean(self):
-        # 5.0 -> 2.0 violates monotonicity; PAVA pools them (and anything
-        # between) to their weighted mean rather than just clipping.
-        y = np.array([1.0, 5.0, 2.0, 6.0])
-        fit = _pool_adjacent_violators(y, np.ones(4))
-        assert np.all(np.diff(fit) >= -1e-12)
-        assert fit[1] == fit[2] == pytest.approx(3.5)
+    ``cached_ns`` are N values treated as already cached (skipped -- the next
+    computed point then cold-starts instead of warm-continuing from them),
+    reproducing the exact control flow the real loop uses around
+    ``_reset_cumulative_cost_on_cold_start`` with a deterministic stand-in
+    (``delta_n * m_value``) for ``total_training_shots_from_bundle``.
+    """
+    previous_angles = None
+    previous_n = 0
+    cumulative_shots = 0
+    shots_by_n = {}
+    for n_value in n_values:
+        if n_value in cached_ns:
+            previous_n = n_value
+            previous_angles = None
+            continue
+        _, cumulative_shots, _ = _reset_cumulative_cost_on_cold_start(
+            previous_angles, 0, cumulative_shots, 0.0
+        )
+        delta_n = n_value - previous_n if previous_angles is not None else n_value
+        cumulative_shots += delta_n * m_value
+        previous_angles = [0.0]
+        previous_n = n_value
+        shots_by_n[n_value] = cumulative_shots
+    return shots_by_n
 
-    def test_weights_affect_pooled_value(self):
-        # A heavily-weighted low value should pull the pooled mean down more
-        # than an unweighted PAVA would.
-        y = np.array([1.0, 5.0, 2.0])
-        fit_unweighted = _pool_adjacent_violators(y, np.array([1.0, 1.0, 1.0]))
-        fit_weighted = _pool_adjacent_violators(y, np.array([1.0, 1.0, 10.0]))
-        assert fit_weighted[1] < fit_unweighted[1]
+
+class TestResetCumulativeCostOnColdStart:
+    def test_warm_continuation_keeps_running_total(self):
+        # previous_angles present -> this point continues warm from the last
+        # one, so its incremental cost adds onto the running total.
+        assert _reset_cumulative_cost_on_cold_start([0.1, 0.2], 10, 1000, 5.0) == (10, 1000, 5.0)
+
+    def test_cold_start_resets_to_zero(self):
+        # previous_angles is None (first point, or right after a cached-point
+        # skip) -> the next computed point trains its full budget from
+        # scratch, so any carried-over cumulative totals must be discarded.
+        assert _reset_cumulative_cost_on_cold_start(None, 10, 1000, 5.0) == (0, 0, 0.0)
+
+    def test_resumed_run_matches_uninterrupted_run_at_same_grid_point(self):
+        # Mirrors the PR #84 review's repro: n_values=[10, 20, 30], M=100.
+        # Uninterrupted, N=30's cumulative shots are 30*100=3000. A run
+        # resumed after a cached N=20 point must land on the same 3000, not
+        # stack the cold-started N=30 training (which trains the full 30-round
+        # budget from scratch) on top of the carried-over N=20 prefix -- that
+        # bug would give 2000 + 3000 = 5000.
+        n_values = [10, 20, 30]
+        m_value = 100
+
+        uninterrupted = _simulate_grid_shots(n_values, m_value, cached_ns=set())
+        resumed = _simulate_grid_shots(n_values, m_value, cached_ns={10, 20})
+
+        assert uninterrupted[30] == 3000
+        assert resumed[30] == uninterrupted[30]
+
+
+class TestFitLogPowerLaw:
+    def test_perfect_power_law_is_recovered_exactly(self):
+        x = np.array([1.0, 2.0, 4.0, 8.0, 16.0])
+        y = 10.0 * x**1.5
+        log_x_knots, log_y_knots = _fit_log_power_law(x, y)
+        pred = np.exp(np.interp(np.log(x), log_x_knots, log_y_knots))
+        assert np.allclose(pred, y, rtol=1e-6)
+
+    def test_negative_trend_is_clipped_to_flat(self):
+        # A decreasing y(x) would give a negative log-log slope from
+        # unconstrained least squares; the fit must clip to non-decreasing
+        # instead of reproducing the decrease.
+        x = np.array([1.0, 2.0, 4.0, 8.0, 16.0])
+        y = np.array([100.0, 50.0, 25.0, 12.5, 6.25])
+        log_x_knots, log_y_knots = _fit_log_power_law(x, y)
+        assert log_y_knots[0] == pytest.approx(log_y_knots[1])
+
+    def test_locally_nonmonotone_data_keeps_the_overall_trend(self):
+        # Mirrors the M(T) plateau bug this fit replaces: the selected M at
+        # each budget bounces around non-monotonically step to step (many
+        # (N, M) splits tie or trade off at nearby budgets), but the overall
+        # scaling trend across the full range is clearly increasing. Pooling
+        # (the old isotonic/PAVA approach) would collapse this into a flat
+        # plateau; a global power-law regression should instead recover a
+        # strictly positive slope that tracks the trend.
+        x = np.array([1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0])
+        y = np.array([10.0, 8.0, 15.0, 11.0, 40.0, 30.0, 90.0, 70.0])
+        log_x_knots, log_y_knots = _fit_log_power_law(x, y)
+        slope = (log_y_knots[1] - log_y_knots[0]) / (log_x_knots[1] - log_x_knots[0])
+        assert slope > 0.3  # a collapsed-to-flat fit would give ~0
+
+    def test_degenerate_single_x_value_returns_flat_line_at_mean(self):
+        x = np.array([5.0, 5.0, 5.0])
+        y = np.array([2.0, 8.0, 5.0])
+        log_x_knots, log_y_knots = _fit_log_power_law(x, y)
+        assert log_x_knots[0] == log_x_knots[1] == pytest.approx(np.log(5.0))
+        assert log_y_knots[0] == log_y_knots[1] == pytest.approx(np.log(y).mean())
+
+    def test_empty_input_returns_none(self):
+        assert _fit_log_power_law(np.array([]), np.array([])) is None
 
 
 class TestFitRecommendedRecipeCurvesMonotonic:
     def test_bump_shaped_data_produces_monotonic_fit(self):
-        # Regression test for the bug this replaces: an unconstrained degree-2
-        # log-log polynomial fit to data that rises then falls would itself
-        # rise then fall (a parabola can't represent "rise then plateau"),
-        # producing a nonsensical "use fewer test shots with more budget"
-        # prescription. Isotonic regression must stay non-decreasing.
+        # Regression test for the original bug this fit design avoids: an
+        # unconstrained degree-2 log-log polynomial fit to data that rises
+        # then falls would itself rise then fall (a parabola can't represent
+        # "rise then plateau"), producing a nonsensical "use fewer test shots
+        # with more budget" prescription. The monotonic power-law fit must
+        # stay non-decreasing instead.
         resource = np.array([1, 2, 4, 8, 16, 32, 64, 128, 256, 512], dtype=float)
         q = np.array([300, 500, 1000, 2500, 5000, 6000, 5800, 4000, 3000, 2500], dtype=float)
         recipe_df = pd.DataFrame({"resource": resource, "Q": q, "N": resource * 2, "M": resource})

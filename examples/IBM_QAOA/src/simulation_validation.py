@@ -1899,6 +1899,26 @@ def run_pt_pss_exact_points(
     return df
 
 
+def _reset_cumulative_cost_on_cold_start(
+    previous_angles: list[float] | None,
+    cumulative_evals: int,
+    cumulative_shots: int,
+    cumulative_duration: float,
+) -> tuple[int, int, float]:
+    """Reset training-cost accumulators when the next grid point cold-starts.
+
+    Skipping a cached grid point clears ``previous_angles`` to ``None`` (warm-start
+    angles aren't stored in the cache), so the next point this run actually computes
+    cold-starts: it trains the full ``n_value`` budget from scratch rather than an
+    incremental delta. Its own totals already represent the complete cost up to that
+    point, so they must not be stacked on top of a carried-over cached prefix -- doing
+    so double-counts the cached portion (see PR #84 review).
+    """
+    if previous_angles is None:
+        return 0, 0, 0.0
+    return cumulative_evals, cumulative_shots, cumulative_duration
+
+
 def run_fa_pss_exact_points(
     spec: InstanceSpec,
     *,
@@ -1947,21 +1967,18 @@ def run_fa_pss_exact_points(
             # cache, so previous_angles stays None here -- the next point this
             # run actually computes cold-starts (trains with the full n_value as
             # its own maxiter, not an incremental delta from a start point we no
-            # longer have). Cumulative cost counters are pulled from the cached
-            # row itself so downstream accounting for later points in this
-            # M-value stays continuous instead of silently resetting to zero.
+            # longer have).
             cached_point = _cached_fa_grid_point(
                 existing_df, n_value=n_value, m_value=m_value, q_values=q_values
             ) if existing_df is not None else None
             if cached_point is not None:
-                cached_row = cached_point.iloc[0]
-                cumulative_evals = int(cached_row.get("num_objective_evaluations", cumulative_evals))
-                cumulative_shots = int(cached_row.get("total_training_shots", cumulative_shots))
-                cumulative_duration = float(cached_row.get("training_cost", cumulative_duration))
                 previous_n = int(n_value)
                 previous_angles = None
                 continue
 
+            cumulative_evals, cumulative_shots, cumulative_duration = _reset_cumulative_cost_on_cold_start(
+                previous_angles, cumulative_evals, cumulative_shots, cumulative_duration
+            )
             delta_n = int(n_value) - int(previous_n) if previous_angles is not None else int(n_value)
             if delta_n <= 0:
                 continue
@@ -3156,25 +3173,26 @@ def fit_recommended_recipe_curves(
         if col == resource_col:
             continue
         if col in fit_parameter_cols:
-            knots = _fit_log_isotonic(source_t, source[col].astype(float).to_numpy())
+            knots = _fit_log_power_law(source_t, source[col].astype(float).to_numpy())
             if knots is None:
                 fitted[col] = np.nan
                 continue
             log_x_knots, log_y_knots = knots
-            fitted[col] = _predict_log_isotonic(
+            fitted[col] = _predict_log_power_law(
                 target_t,
                 log_x_knots,
                 log_y_knots,
                 y_min=float(source[col].min()),
                 y_max=float(source[col].max()),
             )
+            slope = (log_y_knots[-1] - log_y_knots[0]) / (log_x_knots[-1] - log_x_knots[0]) if log_x_knots[-1] != log_x_knots[0] else 0.0
+            coefficient = float(np.exp(log_y_knots[0] - slope * log_x_knots[0]))
             model_rows.append(
                 {
                     "parameter": col,
                     "expression": (
-                        f"{col}(T): isotonic regression (monotonic non-decreasing), "
-                        f"{len(log_x_knots)} knots over T in "
-                        f"[{np.exp(log_x_knots[0]):.4g}, {np.exp(log_x_knots[-1]):.4g}]"
+                        f"{col}(T): monotonic power law (non-decreasing), "
+                        f"{col} = {coefficient:.4g} * T^{slope:.4g}"
                     ),
                     "num_knots": len(log_x_knots),
                 }
@@ -3185,49 +3203,28 @@ def fit_recommended_recipe_curves(
     return fitted, pd.DataFrame(model_rows)
 
 
-def _pool_adjacent_violators(y: np.ndarray, weights: np.ndarray) -> np.ndarray:
-    """Weighted L2 isotonic (non-decreasing) regression via pool-adjacent-violators.
-
-    Standard stack-based PAVA: merges adjacent blocks whenever a later block's
-    weighted-mean value would violate monotonicity against the previous block,
-    replacing both with their combined weighted mean. Mathematically equivalent
-    to sklearn.isotonic.IsotonicRegression(increasing=True), implemented here
-    directly (a well-known ~20-line algorithm) rather than adding a new
-    dependency for one feature.
-    """
-    values: list[float] = []
-    block_weights: list[float] = []
-    counts: list[int] = []
-    for yi, wi in zip(y, weights):
-        values.append(float(yi))
-        block_weights.append(float(wi))
-        counts.append(1)
-        while len(values) > 1 and values[-2] > values[-1]:
-            w2, w1 = block_weights.pop(), block_weights.pop()
-            v2, v1 = values.pop(), values.pop()
-            n2, n1 = counts.pop(), counts.pop()
-            merged_w = w1 + w2
-            values.append((v1 * w1 + v2 * w2) / merged_w)
-            block_weights.append(merged_w)
-            counts.append(n1 + n2)
-    result = np.empty(len(y), dtype=float)
-    pos = 0
-    for value, count in zip(values, counts):
-        result[pos : pos + count] = value
-        pos += count
-    return result
-
-
-def _fit_log_isotonic(x_values, y_values) -> tuple[np.ndarray, np.ndarray] | None:
-    """Fit a monotonic (non-decreasing) curve to log(y) vs log(x).
+def _fit_log_power_law(x_values, y_values) -> tuple[np.ndarray, np.ndarray] | None:
+    """Fit a monotonic (non-decreasing) power law y = c * x^b to (x, y).
 
     A "recommended recipe as a function of resource budget" should never
     recommend less as the budget grows -- you could always just ignore the
-    extra budget and reuse a smaller-budget setting. An unconstrained
-    polynomial fit doesn't guarantee that; isotonic regression does, by
-    construction. Ties in x are collapsed to their weighted-mean y before
-    running PAVA, matching how sklearn's IsotonicRegression handles
-    duplicate x values.
+    extra budget and reuse a smaller-budget setting.
+
+    This used to be isotonic (PAVA) regression, which guarantees
+    monotonicity but does so by pooling every locally-nonmonotone run into a
+    flat block. That is a poor fit for a parameter like M: many (N, M)
+    splits tie or trade off at nearby resource budgets, so the *selected*
+    recipe's M can bounce around non-monotonically step to step even though
+    the overall scaling trend across the full budget range is smooth and
+    increasing. PAVA collapsed that into a handful of wide plateaus instead
+    of tracking the trend (see PR #84 review).
+
+    A power law fit in log-log space is immune to that: ordinary least
+    squares on log(y) vs log(x) finds the single global trend line through
+    all the (possibly locally out-of-order) points, which is exactly what
+    "scaling behaviour" means for a resource-vs-parameter relationship here.
+    Clipping the slope to be non-negative keeps the monotonicity guarantee
+    without any pooling.
     """
     x = pd.to_numeric(pd.Series(x_values), errors="coerce").to_numpy(dtype=float)
     y = pd.to_numeric(pd.Series(y_values), errors="coerce").to_numpy(dtype=float)
@@ -3237,26 +3234,28 @@ def _fit_log_isotonic(x_values, y_values) -> tuple[np.ndarray, np.ndarray] | Non
     if len(x) == 0:
         return None
 
-    order = np.argsort(x, kind="stable")
-    log_x = np.log(x[order])
-    log_y = np.log(y[order])
+    log_x = np.log(x)
+    log_y = np.log(y)
+    log_x_min, log_x_max = float(log_x.min()), float(log_x.max())
 
-    unique_log_x, inverse, counts = np.unique(log_x, return_inverse=True, return_counts=True)
-    if len(unique_log_x) == len(log_x):
-        agg_log_y = log_y
-    else:
-        sums = np.zeros(len(unique_log_x))
-        np.add.at(sums, inverse, log_y)
-        agg_log_y = sums / counts
+    if log_x_min == log_x_max:
+        # Degenerate: every point sits at the same resource -- there's no
+        # slope to fit, just report a flat line at the mean.
+        flat_y = float(log_y.mean())
+        return np.array([log_x_min, log_x_max]), np.array([flat_y, flat_y])
 
-    if len(unique_log_x) == 1:
-        return unique_log_x, agg_log_y
+    slope = float(np.polyfit(log_x, log_y, 1)[0])
+    slope = max(slope, 0.0)
+    # Re-fit the intercept with the (possibly clipped) slope held fixed, so a
+    # slope clipped to zero still sits at the data's mean rather than the
+    # unconstrained line's intercept.
+    intercept = float(np.mean(log_y - slope * log_x))
 
-    fitted_log_y = _pool_adjacent_violators(agg_log_y, counts.astype(float))
-    return unique_log_x, fitted_log_y
+    log_y_knots = np.array([intercept + slope * log_x_min, intercept + slope * log_x_max])
+    return np.array([log_x_min, log_x_max]), log_y_knots
 
 
-def _predict_log_isotonic(
+def _predict_log_power_law(
     t_values,
     log_x_knots: np.ndarray,
     log_y_knots: np.ndarray,
@@ -3576,7 +3575,7 @@ def run_stochastic_benchmark_pss(
     )
     fitted_recipe_df = decode_ws_params(fitted_recipe_raw_df.copy(), codebooks)
 
-    # Snap the continuous polynomial fit back to the nearest feasible (N, M, Q) grid point
+    # Snap the monotonic power-law fit back to the nearest feasible (N, M, Q) grid point
     # so the final prescription is always an exactly-computable parameter set.
     _snap_budget_col = next(
         (c for c in ("T_exact_proxy", "selected_exact_T_proxy") if c in exp_raw_df.columns),

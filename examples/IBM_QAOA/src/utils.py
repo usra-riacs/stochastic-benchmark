@@ -3046,7 +3046,7 @@ def plot_method_curves(
         )
     plt.xscale("log")
     plt.xlabel(
-        r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + NMt_{\mathrm{shot}} + Qt_{\mathrm{shot}}$) [s]",
+        r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + t_{\mathrm{train}} + Qt_{\mathrm{shot}}$) [s]",
         fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
     )
     plt.ylabel(_percent_approx_ylabel(ylabel), fontsize=WINDOW_STICKER_LABEL_FONTSIZE)
@@ -3168,7 +3168,7 @@ def plot_multi_method_window_sticker_components(
 
     ax.set_xscale("log")
     ax.set_xlabel(
-        r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + NMt_{\mathrm{shot}} + Qt_{\mathrm{shot}}$) [s]",
+        r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + t_{\mathrm{train}} + Qt_{\mathrm{shot}}$) [s]",
         fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
     )
     display_ylabel = _percent_approx_ylabel(ylabel).replace(" on ", "\non ", 1)
@@ -3344,7 +3344,7 @@ def _pareto_envelope_and_owner(
 
 _CB_MARGIN = 0.05
 _CB_SPACING = 0.03
-_CB_MIN_W = 0.16
+_CB_MIN_W = 0.10
 
 
 def _family_colorbar_row_count(n_cb: int) -> int:
@@ -3422,12 +3422,12 @@ def _draw_family_colorbars(
             sm.set_array([])
             cb = fig.colorbar(sm, cax=ax_cb, orientation="horizontal")
             cb.set_ticks(p_vals if p_vals else [p_min, p_max])
-            cb.ax.tick_params(labelsize=8)
-            ax_cb.set_title(_FAMILY_DISPLAY.get(fam, fam), fontsize=9, pad=3)
+            cb.ax.tick_params(labelsize=11)
+            ax_cb.set_title(_FAMILY_DISPLAY.get(fam, fam), fontsize=12, pad=3)
             # "circuit depth p" as an axis label below the tick numbers (not
             # folded into the title above) so it's clear those numbers are p,
             # not just floating digits.
-            ax_cb.set_xlabel("circuit depth $p$", fontsize=8, labelpad=2)
+            ax_cb.set_xlabel("circuit depth $p$", fontsize=11, labelpad=2)
 
 
 def plot_multi_method_window_sticker_component_panels(
@@ -3628,7 +3628,7 @@ def plot_multi_method_window_sticker_component_panels(
         all_y.extend(panel_y)
         ax.set_xscale("log")
         ax.set_xlabel(
-            r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + NMt_{\mathrm{shot}} + Qt_{\mathrm{shot}}$) [s]",
+            r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + t_{\mathrm{train}} + Qt_{\mathrm{shot}}$) [s]",
             fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
         )
         ax.tick_params(axis="both", labelsize=WINDOW_STICKER_TICK_FONTSIZE)
@@ -3883,7 +3883,7 @@ def plot_pareto_frontier_overlay(
             ax.set_xlim(float(finite_x.min()), float(finite_x.max()))
         ax.set_xscale("log")
         ax.set_xlabel(
-            r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + NMt_{\mathrm{shot}} + Qt_{\mathrm{shot}}$) [s]",
+            r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + t_{\mathrm{train}} + Qt_{\mathrm{shot}}$) [s]",
             fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
         )
         ax.tick_params(axis="both", labelsize=WINDOW_STICKER_TICK_FONTSIZE)

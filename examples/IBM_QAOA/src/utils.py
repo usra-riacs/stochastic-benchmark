@@ -3316,7 +3316,11 @@ def _pareto_envelope_and_owner(
     """
     n_grid = len(grid)
     matrix = np.full((len(entries), n_grid), np.nan)
-    for i, (_, _, xs, ys) in enumerate(entries):
+    for i, entry in enumerate(entries):
+        # Index-based rather than a strict 4-tuple unpack, so callers that
+        # carry extra per-entry fields (e.g. CI bounds) past position 3 can
+        # pass their entries straight through without truncating first.
+        xs, ys = entry[2], entry[3]
         if len(xs) < 2:
             continue
         in_range = (grid >= xs[0]) & (grid <= xs[-1])
@@ -3340,6 +3344,48 @@ def _pareto_envelope_and_owner(
             envelope[col] = best_value_so_far
             best_idx[col] = best_idx_so_far
     return envelope, best_idx
+
+
+def _pareto_envelope_bounds(
+    entries_with_bounds: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    grid: np.ndarray,
+    best_idx: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Lower/upper CI envelope consistent with an already-computed best_idx.
+
+    ``entries_with_bounds`` is a list of (resource_array, lower_array,
+    upper_array) tuples, index-aligned with the ``entries`` list that
+    produced ``best_idx`` via :func:`_pareto_envelope_and_owner`. Reuses
+    ``best_idx`` directly (rather than re-deriving ownership) so the CI band
+    always matches the entry that actually owns the envelope at each column,
+    including the flat holds where that entry's own value has plateaued.
+    """
+    n_grid = len(grid)
+    lower_matrix = np.full((len(entries_with_bounds), n_grid), np.nan)
+    upper_matrix = np.full((len(entries_with_bounds), n_grid), np.nan)
+    for i, (xs, ys_lower, ys_upper) in enumerate(entries_with_bounds):
+        if len(xs) < 2:
+            continue
+        in_range = (grid >= xs[0]) & (grid <= xs[-1])
+        lower_matrix[i, in_range] = np.interp(grid[in_range], xs, ys_lower)
+        upper_matrix[i, in_range] = np.interp(grid[in_range], xs, ys_upper)
+
+    lower_env = np.full(n_grid, np.nan)
+    upper_env = np.full(n_grid, np.nan)
+    lower_so_far = np.nan
+    upper_so_far = np.nan
+    prev_idx = -1
+    for col in range(n_grid):
+        idx = int(best_idx[col])
+        if idx < 0:
+            continue
+        if idx != prev_idx:
+            lower_so_far = lower_matrix[idx, col]
+            upper_so_far = upper_matrix[idx, col]
+            prev_idx = idx
+        lower_env[col] = lower_so_far
+        upper_env[col] = upper_so_far
+    return lower_env, upper_env
 
 
 _CB_MARGIN = 0.05
@@ -3751,11 +3797,14 @@ def plot_pareto_frontier_overlay(
     Each entry in ``calibrations`` is a dict with keys ``label`` (legend name,
     e.g. "Noiseless"), ``linestyle`` (matplotlib linestyle distinguishing this
     calibration), ``training_fitted_prescription_df``, and
-    ``test_fitted_prescription_df``. The frontier is colour-coded by whichever
+    ``test_fitted_prescription_df``. An optional ``marker`` key (e.g. "o" for
+    Noiseless, "D" for Noise-corrected) adds a point marker along the line so
+    the calibration reads clearly even where two curves sit close together;
+    omit it to draw a plain line. The frontier is colour-coded by whichever
     method family holds it at each resource level, using the same family
     colours as plot_multi_method_window_sticker_component_panels, so a reader
-    can read both which calibration a segment belongs to (linestyle) and which
-    strategy is recommended there (colour) off a single line.
+    can read both which calibration a segment belongs to (linestyle/marker)
+    and which strategy is recommended there (colour) off a single line.
     """
     panel_data = [
         ("Training instances", "training_fitted_prescription_df"),
@@ -3774,28 +3823,54 @@ def plot_pareto_frontier_overlay(
         return
     color_map, family_labels, family_p_vals = _build_family_color_map(all_labels)
 
-    def _build_entries(curve: pd.DataFrame) -> list[tuple[str, Any, np.ndarray, np.ndarray]]:
-        entries: list[tuple[str, Any, np.ndarray, np.ndarray]] = []
+    def _build_entries(
+        curve: pd.DataFrame,
+    ) -> list[tuple[str, Any, np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+        """Per-label (label, color, resource, response, ci_lower, ci_upper) entries.
+
+        ci_lower/ci_upper are NaN-filled when the source has no CI columns, so
+        callers can always index them without a separate has-CI branch.
+        """
+        lower_col = "response_lower_monotone" if "response_lower_monotone" in curve.columns else "response_lower"
+        upper_col = "response_upper_monotone" if "response_upper_monotone" in curve.columns else "response_upper"
+        has_ci = lower_col in curve.columns and upper_col in curve.columns
+        entries: list[tuple[str, Any, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
         for label, group in curve.groupby("method_label"):
             group = group.loc[:, ~group.columns.duplicated()].copy()
             group["resource"] = pd.to_numeric(group["resource"], errors="coerce")
             group["response_monotone"] = pd.to_numeric(group["response_monotone"], errors="coerce")
+            if has_ci:
+                group[lower_col] = pd.to_numeric(group[lower_col], errors="coerce")
+                group[upper_col] = pd.to_numeric(group[upper_col], errors="coerce")
             group = group.dropna(subset=["resource", "response_monotone"])
             group = group[group["resource"] > 0].sort_values("resource")
             if group.empty:
                 continue
             resource = group["resource"].to_numpy(dtype=float)
             response_percent = group["response_monotone"].to_numpy(dtype=float) * 100.0
-            entries.append((str(label), color_map[str(label)], resource, response_percent))
+            if has_ci:
+                # response_lower/upper are a 95% CI (response +/- 1.96*SEM,
+                # see _build_response_summary_from_rec_params); rescale the
+                # half-width down to 1 SEM so error-bar whiskers are on the
+                # same statistical basis wherever they're drawn.
+                _ci_lower_raw = group[lower_col].to_numpy(dtype=float) * 100.0
+                _ci_upper_raw = group[upper_col].to_numpy(dtype=float) * 100.0
+                _sem_half_width = (_ci_upper_raw - _ci_lower_raw) / 2.0 / 1.96
+                ci_lower = response_percent - _sem_half_width
+                ci_upper = response_percent + _sem_half_width
+            else:
+                ci_lower = np.full_like(response_percent, np.nan)
+                ci_upper = np.full_like(response_percent, np.nan)
+            entries.append((str(label), color_map[str(label)], resource, response_percent, ci_lower, ci_upper))
         return entries
 
-    def _envelope_winners(entries: list[tuple[str, Any, np.ndarray, np.ndarray]]) -> set[str]:
+    def _envelope_winners(entries: list[tuple]) -> set[str]:
         """Labels that actually own at least one point of the drawn envelope."""
         multi_point_entries = [e for e in entries if len(e[2]) >= 2]
         if not multi_point_entries:
             return set()
-        x_lo = min(xs[0] for _, _, xs, _ in multi_point_entries)
-        x_hi = max(xs[-1] for _, _, xs, _ in multi_point_entries)
+        x_lo = min(e[2][0] for e in multi_point_entries)
+        x_hi = max(e[2][-1] for e in multi_point_entries)
         if x_lo <= 0 or x_hi <= x_lo:
             return set()
         grid = np.logspace(np.log10(x_lo), np.log10(x_hi), 800)
@@ -3843,23 +3918,28 @@ def plot_pareto_frontier_overlay(
             if curve.empty:
                 continue
             entries = _build_entries(curve)
-            for _, _, resource, _ in entries:
-                panel_x.extend(resource.tolist())
+            for e in entries:
+                panel_x.extend(e[2].tolist())
 
             multi_point_entries = [e for e in entries if len(e[2]) >= 2]
             if not multi_point_entries:
                 continue
-            x_lo = min(xs[0] for _, _, xs, _ in multi_point_entries)
-            x_hi = max(xs[-1] for _, _, xs, _ in multi_point_entries)
+            x_lo = min(e[2][0] for e in multi_point_entries)
+            x_hi = max(e[2][-1] for e in multi_point_entries)
             if x_lo <= 0 or x_hi <= x_lo:
                 continue
             n_grid = 800
             grid = np.logspace(np.log10(x_lo), np.log10(x_hi), n_grid)
             envelope, best_idx = _pareto_envelope_and_owner(entries, grid)
             method_colors = [e[1] for e in entries]
+            bounds_entries = [(e[2], e[4], e[5]) for e in entries]
+            ci_lower, ci_upper = _pareto_envelope_bounds(bounds_entries, grid, best_idx)
 
-            # Draw the frontier as contiguous segments, colour = owning family,
-            # linestyle = this calibration.
+            # Draw the frontier as contiguous segments, colour = owning
+            # family, linestyle = this calibration. One marker per segment,
+            # placed at the start -- i.e. exactly where a strategy takes
+            # over the frontier -- rather than evenly spaced along the line.
+            _marker_idx: list[int] = []
             i = 0
             while i < n_grid:
                 seg = int(best_idx[i])
@@ -3874,9 +3954,31 @@ def plot_pareto_frontier_overlay(
                         linewidth=2.6,
                         solid_capstyle="round",
                         zorder=5,
+                        marker=cal.get("marker"),
+                        markevery=[0] if cal.get("marker") else None,
+                        markersize=10,
+                        markeredgecolor="white",
+                        markeredgewidth=0.8,
                     )
+                    if cal.get("marker"):
+                        _marker_idx.append(i)
                 i = j
             all_y.extend(envelope[np.isfinite(envelope)].tolist())
+
+            # Error-bar whiskers at exactly the marker positions, coloured by
+            # whichever family owns the envelope at that point.
+            for _idx in _marker_idx:
+                if not np.isfinite(envelope[_idx]) or best_idx[_idx] < 0:
+                    continue
+                _lo, _hi, _env = ci_lower[_idx], ci_upper[_idx], envelope[_idx]
+                if not (np.isfinite(_lo) and np.isfinite(_hi)):
+                    continue
+                ax.errorbar(
+                    grid[_idx], _env,
+                    yerr=[[max(0.0, _env - _lo)], [max(0.0, _hi - _env)]],
+                    fmt="none", ecolor=method_colors[int(best_idx[_idx])],
+                    capsize=3, elinewidth=1.1, zorder=5.5,
+                )
 
         finite_x = np.asarray([x for x in panel_x if np.isfinite(x) and x > 0], dtype=float)
         if finite_x.size:
@@ -3912,7 +4014,10 @@ def plot_pareto_frontier_overlay(
     # Linestyle legend distinguishes calibrations; family colour is read off
     # the colorbars below, shared with the component-panel figures.
     calibration_handles = [
-        Line2D([0], [0], color="black", linestyle=cal["linestyle"], linewidth=2.6, label=cal["label"])
+        Line2D(
+            [0], [0], color="black", linestyle=cal["linestyle"], linewidth=2.6,
+            marker=cal.get("marker"), markersize=10, label=cal["label"],
+        )
         for cal in calibrations
     ]
 

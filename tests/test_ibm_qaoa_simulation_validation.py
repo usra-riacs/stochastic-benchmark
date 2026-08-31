@@ -274,6 +274,13 @@ def _simulate_grid_shots(n_values, m_value, cached_ns):
     shots_by_n = {}
     for n_value in n_values:
         if n_value in cached_ns:
+            # The cached row itself carries n_value * m_value accumulated
+            # shots (a fresh cold-started historical run's cumulative total
+            # telescopes to exactly that regardless of path) -- seeding it
+            # here is what makes the next cold start's reset meaningful to
+            # test; leaving cumulative_shots untouched made the scenario
+            # below pass even with the reset call deleted entirely.
+            cumulative_shots = n_value * m_value
             previous_n = n_value
             previous_angles = None
             continue

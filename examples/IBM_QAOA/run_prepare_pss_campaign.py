@@ -56,13 +56,18 @@ def _json_dumps_pretty(payload: object) -> str:
 def _load_exact_cache_frames(paths: list[Path]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for root in paths:
-        for filename in (
-            STRATEGY_RAW_POINTS_FILENAME,
-            TRANSFER_RAW_POINTS_FILENAME,
-            LEGACY_FA_RAW_POINTS_FILENAME,
-            LEGACY_PT_RAW_POINTS_FILENAME,
+        # Legacy filenames are pre-rename leftovers, not complementary data: only
+        # writer is _write_exact_cache_checkpoints, which writes exclusively to the
+        # canonical names. If both exist for the same root, they duplicate the same
+        # underlying rows, so load canonical only and fall back to legacy just when
+        # the canonical file for that category is absent.
+        for canonical_filename, legacy_filename in (
+            (STRATEGY_RAW_POINTS_FILENAME, LEGACY_FA_RAW_POINTS_FILENAME),
+            (TRANSFER_RAW_POINTS_FILENAME, LEGACY_PT_RAW_POINTS_FILENAME),
         ):
-            candidate = root / filename
+            candidate = root / canonical_filename
+            if not candidate.exists():
+                candidate = root / legacy_filename
             if candidate.exists():
                 try:
                     frames.append(pd.read_pickle(candidate))

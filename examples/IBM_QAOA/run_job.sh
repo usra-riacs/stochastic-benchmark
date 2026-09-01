@@ -63,6 +63,26 @@ METHOD_SLUG="${METHOD_NAME/_MPSAer/}"
 METHOD_SLUG="${METHOD_SLUG/_MPS/}"
 METHOD_SLUG="${METHOD_SLUG/_PP/}"
 METHOD_SLUG="${METHOD_SLUG/_SV/}"
+METHOD_SLUG="${METHOD_SLUG/_AAA/}"
+
+# Methods with no training (only Q-sweep): route as pt_method_name so they use
+# run_pt_pss_exact_points (Q-only, evaluator stripped for FixedAngleConjecture).
+# Methods with training (N,M grid): route as fa_method_name.
+# Read from src.simulation_validation.ZERO_TRAINING_METHODS so this list cannot
+# drift out of sync with the Python side (they used to be maintained separately).
+_ZERO_TRAINING_METHODS="$("$PYTHON_BIN" -c "
+import sys
+sys.path.insert(0, 'examples/IBM_QAOA')
+from src.simulation_validation import ZERO_TRAINING_METHODS
+print(' '.join(sorted(ZERO_TRAINING_METHODS)))
+")"
+if echo "$_ZERO_TRAINING_METHODS" | grep -qw "$METHOD_NAME"; then
+    _FA_METHOD_ARG=""
+    _PT_METHOD_ARG="$METHOD_NAME"
+else
+    _FA_METHOD_ARG="$METHOD_NAME"
+    _PT_METHOD_ARG=""
+fi
 P_VALUES="${P_VALUES:-5}"
 TRAIN_COUNT="${TRAIN_COUNT:-20}"
 TEST_COUNT="${TEST_COUNT:-10}"
@@ -104,8 +124,8 @@ echo "Using qaoa_training_pipeline root: $QAOA_TRAINING_PIPELINE_ROOT"
   --train-count "$TRAIN_COUNT" \
   --test-count "$TEST_COUNT" \
   --start-train-index "$START_TRAIN_INDEX" \
-  --fa-method-name "$METHOD_NAME" \
-  --pt-method-name "" \
+  --fa-method-name "$_FA_METHOD_ARG" \
+  --pt-method-name "$_PT_METHOD_ARG" \
   --fa-n-values "$FA_N_VALUES" \
   --fa-m-values "$FA_M_VALUES" \
   --q-values "$Q_VALUES" \

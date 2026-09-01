@@ -2,7 +2,7 @@ import re
 import math
 import os
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt 
@@ -410,12 +410,6 @@ QPS_EVALUATOR_MARKERS = {
     "MPS (Aer)": "^",
     "PP": "s",
 }
-QPS_EVALUATOR_HATCHES = {
-    "SV": "\\\\\\",
-    "MPS (Quimb)": None,
-    "MPS (Aer)": "...",
-    "PP": "///",
-}
 _STYLE_FALLBACK_COLORS = list(QPS_METHOD_COLORS.values()) + [
     "#44AA99",
     "#999933",
@@ -570,12 +564,6 @@ def _marker_from_training_method(label: str) -> str:
     return QPS_EVALUATOR_MARKERS.get(evaluator, "o")
 
 
-def _hatch_from_training_method(label: str) -> str | None:
-    """Return paper-style hatch keyed only by evaluator for bar plots."""
-    evaluator = _evaluation_label_from_training_method(label)
-    return QPS_EVALUATOR_HATCHES.get(evaluator)
-
-
 def _style_plot_kwargs(label: str) -> dict[str, object]:
     """Return guide-compliant kwargs for line/point plots."""
     method_label = _plain_method_label_from_training_method(label)
@@ -635,6 +623,15 @@ def _qps_format_method_label(label: str, format: str = "latex") -> str:
 def _normalise_training_method_to_config(label: str) -> str:
     """Convert IBM method strings/filenames to canonical QPS config names."""
     value = str(label).split("|", 1)[0].strip()
+    # Our own zero-training strategy name (see ZERO_TRAINING_METHODS in
+    # simulation_validation.py) spells out "linear_ramp" instead of the "LR"
+    # prefix every other Linear Ramp config uses, so neither the prefix
+    # matching below nor the external QPS label formatter (tried first in
+    # _method_label_from_training_method) ever recognizes it -- it silently
+    # falls through to displaying the raw method name. Translate it to the
+    # equivalent canonical name directly.
+    if value == "linear_ramp_no_opt":
+        return "LR_no_opt.json"
     basename = Path(value).name
     stem = basename[:-5] if basename.endswith(".json") else basename
     parts = stem.split("_")
@@ -712,35 +709,6 @@ def _optimization_size_maps(
     raw_ms_map = {0: raw_small, 1: raw_medium, 2: raw_large}
     centroid_ms_map = {0: centroid_small, 1: centroid_medium, 2: centroid_large}
     return raw_ms_map, centroid_ms_map
-
-
-def _optimization_legend_handles(
-    marker: str = "o",
-    markerfacecolor: str = "white",
-    markeredgecolor: str = "k",
-) -> list[Line2D]:
-    """Build a compact legend key for optimization-state marker sizing."""
-    _, centroid_ms_map = _optimization_size_maps()
-    labels = {
-        0: r"$^\dagger$ no optimization",
-        1: "method-parameter optimization",
-        2: r"$^\star$ full angle optimization",
-    }
-    return [
-        Line2D(
-            [0],
-            [0],
-            marker=marker,
-            color="black",
-            markerfacecolor=markerfacecolor,
-            markeredgecolor=markeredgecolor,
-            markeredgewidth=1.2,
-            linestyle="",
-            markersize=centroid_ms_map[level],
-            label=labels[level],
-        )
-        for level in [0, 1, 2]
-    ]
 
 
 def _lighten_color(color, amount: float = 0.5):
@@ -1518,7 +1486,13 @@ def prepare_training_bricks_data(
     agg = df_rows.groupby(["job_p", "method_base"], as_index=False)[
         ["outer_init", "brick_total"] + step_cols
     ].mean()
-    agg["sem_total"] = df_rows.groupby(["job_p", "method_base"])["brick_total"].sem().values
+    sem_df = (
+        df_rows.groupby(["job_p", "method_base"])["brick_total"]
+        .sem()
+        .rename("sem_total")
+        .reset_index()
+    )
+    agg = agg.merge(sem_df, on=["job_p", "method_base"], how="left")
 
     agg = agg[~agg["method_base"].str.contains(r"_MPS(?!Aer)(?:_|$)", regex=True)]
 
@@ -2216,7 +2190,6 @@ def plot_ibm_qaoa_recommendation(
                     annotation_clip=True,
                     zorder=12,
                 )
-                fig.canvas.draw()
                 bbox = candidate.get_window_extent(renderer=renderer).expanded(1.04, 1.12)
                 overlaps_marker = any(bbox.overlaps(marker_bbox) for marker_bbox in marker_bboxes)
                 overlaps_label = any(bbox.overlaps(label_bbox) for label_bbox in placed_label_bboxes)
@@ -2256,7 +2229,6 @@ def plot_ibm_qaoa_recommendation(
                     annotation_clip=True,
                     zorder=12,
                 )
-                fig.canvas.draw()
                 placed_label_bboxes.append(
                     candidate.get_window_extent(renderer=renderer).expanded(1.04, 1.12)
                 )
@@ -3074,7 +3046,7 @@ def plot_method_curves(
         )
     plt.xscale("log")
     plt.xlabel(
-        r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + NMt_{\mathrm{shot}} + Qt_{\mathrm{shot}}$) [s]",
+        r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + t_{\mathrm{train}} + Qt_{\mathrm{shot}}$) [s]",
         fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
     )
     plt.ylabel(_percent_approx_ylabel(ylabel), fontsize=WINDOW_STICKER_LABEL_FONTSIZE)
@@ -3196,7 +3168,7 @@ def plot_multi_method_window_sticker_components(
 
     ax.set_xscale("log")
     ax.set_xlabel(
-        r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + NMt_{\mathrm{shot}} + Qt_{\mathrm{shot}}$) [s]",
+        r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + t_{\mathrm{train}} + Qt_{\mathrm{shot}}$) [s]",
         fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
     )
     display_ylabel = _percent_approx_ylabel(ylabel).replace(" on ", "\non ", 1)
@@ -3242,6 +3214,268 @@ def plot_multi_method_window_sticker_components(
     plt.show()
 
 
+# FA_star/FA_dagger shade ranges were originally (0.38, 0.92) / (0.32, 0.58),
+# which overlap on 0.38-0.58 -- at matched depths (e.g. both at p=6) the two
+# curves could land on nearly the same Blues shade. Narrowed to disjoint
+# bands (both still plt.cm.Blues, matching the paper's single Fixed-Angles
+# blue) so every depth of one variant is visually distinct from every depth
+# of the other; PT/Interp are unchanged from the original.
+#
+# Linear Ramp has three optimization tiers (see _optimization_level /
+# _QPS_METHOD_LABELS): LR_dagger = no optimization at all (fixed ramp
+# slopes), LR = ramp-parameter optimization only (LR_PP_opt), LR_star =
+# ramp-parameter + full angle optimization (LR_PP_angle_opt). Same YlOrBr
+# colormap as before, split into three disjoint bands -- more optimization
+# reads as a darker/more saturated shade, matching FA's convention.
+_FAMILY_CMAP_SPEC: dict[str, tuple] = {
+    "FA_star":   (plt.cm.Blues,   0.55, 0.92),
+    "FA_dagger": (plt.cm.Blues,   0.15, 0.42),
+    "PT":        (plt.cm.Greys,   0.35, 0.60),
+    "LR_star":   (plt.cm.YlOrBr,  0.65, 0.92),
+    "LR":        (plt.cm.YlOrBr,  0.42, 0.58),
+    "LR_dagger": (plt.cm.YlOrBr,  0.15, 0.32),
+    "Interp":    (plt.cm.Greens,  0.35, 0.85),
+}
+_FAMILY_DISPLAY: dict[str, str] = {
+    "FA_star":   r"Fixed Angles$^*$",
+    "FA_dagger": r"Fixed Angles$^\dagger$",
+    "PT":        "Param. Transfer",
+    "LR_star":   r"Linear Ramp$^*$",
+    "LR":        "Linear Ramp",
+    "LR_dagger": r"Linear Ramp$^\dagger$",
+    "Interp":    "Interpolation",
+}
+_FAMILY_ORDER = ["FA_star", "FA_dagger", "PT", "LR_star", "LR", "LR_dagger", "Interp"]
+
+
+def _detect_method_family(label: str) -> str:
+    s = str(label).lower()
+    if "fixed angles" in s and re.search(r"[†]|\$\^\\dagger\$|dagger", s):
+        return "FA_dagger"
+    if "fixed angles" in s:
+        return "FA_star"
+    if re.search(r"(?<![a-z])pt(?![a-z])|param|transfer", s):
+        return "PT"
+    if "linear" in s or "ramp" in s:
+        if re.search(r"[†]|\$\^\\dagger\$|dagger", s):
+            return "LR_dagger"
+        if re.search(r"\$\^\\star\$|[\*★⋆]", s):
+            return "LR_star"
+        return "LR"
+    if "interp" in s or "i_mps" in s or re.search(r"(?<![a-z])i_", s):
+        return "Interp"
+    return s[:20]
+
+
+def _label_depth(label: str) -> int | None:
+    m = re.search(r"\(p\s*=\s*(\d+)\)", str(label))
+    return int(m.group(1)) if m else None
+
+
+def _build_family_color_map(
+    labels: Iterable[str],
+) -> tuple[dict[str, Any], dict[str, list[str]], dict[str, list[int]]]:
+    """Depth-gradient colour map: within each method family lighter = lower p, darker = higher p."""
+    family_labels: dict[str, list[str]] = {}
+    for lbl in labels:
+        family_labels.setdefault(_detect_method_family(lbl), []).append(lbl)
+
+    family_p_vals: dict[str, list[int]] = {}
+    for fam, fam_lbls in family_labels.items():
+        ps = sorted({_label_depth(l) for l in fam_lbls if _label_depth(l) is not None})
+        family_p_vals[fam] = ps
+
+    color_map: dict[str, Any] = {}
+    for fam, fam_lbls in family_labels.items():
+        cmap_fn, lo, hi = _FAMILY_CMAP_SPEC.get(fam, (plt.cm.viridis, 0.3, 0.9))
+        p_vals = family_p_vals[fam]
+        for lbl in fam_lbls:
+            p = _label_depth(lbl)
+            if p is not None and len(p_vals) > 1:
+                t = p_vals.index(p) / (len(p_vals) - 1)
+                color_map[lbl] = cmap_fn(lo + t * (hi - lo))
+            elif p is not None:
+                color_map[lbl] = cmap_fn((lo + hi) / 2)
+            else:
+                color_map[lbl] = window_sticker_method_color(lbl)
+    return color_map, family_labels, family_p_vals
+
+
+def _pareto_envelope_and_owner(
+    entries: list[tuple[str, Any, np.ndarray, np.ndarray]],
+    grid: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Running-max Pareto envelope across method entries, and which entry holds it.
+
+    ``entries`` is a list of (label, color, resource_array, response_array)
+    tuples with natural (non-extrapolated) data, NaN before a method's data
+    starts and after it ends. The envelope is a running maximum over resource
+    so a method's record, once set, persists until a higher value from any
+    method supersedes it, matching the fact that per-method curves are
+    already forced non-decreasing via cummax().
+    """
+    n_grid = len(grid)
+    matrix = np.full((len(entries), n_grid), np.nan)
+    for i, entry in enumerate(entries):
+        # Index-based rather than a strict 4-tuple unpack, so callers that
+        # carry extra per-entry fields (e.g. CI bounds) past position 3 can
+        # pass their entries straight through without truncating first.
+        xs, ys = entry[2], entry[3]
+        if len(xs) < 2:
+            continue
+        in_range = (grid >= xs[0]) & (grid <= xs[-1])
+        matrix[i, in_range] = np.interp(grid[in_range], xs, ys)
+
+    envelope = np.full(n_grid, np.nan)
+    best_idx = np.full(n_grid, -1, dtype=int)
+    best_value_so_far = -np.inf
+    best_idx_so_far = -1
+    with np.errstate(all="ignore"):
+        col_argmax = np.where(
+            np.all(np.isnan(matrix), axis=0), -1,
+            np.nanargmax(np.nan_to_num(matrix, nan=-np.inf), axis=0),
+        )
+    for col in range(n_grid):
+        i = col_argmax[col]
+        if i >= 0 and matrix[i, col] > best_value_so_far:
+            best_value_so_far = matrix[i, col]
+            best_idx_so_far = i
+        if best_idx_so_far >= 0:
+            envelope[col] = best_value_so_far
+            best_idx[col] = best_idx_so_far
+    return envelope, best_idx
+
+
+def _pareto_envelope_bounds(
+    entries_with_bounds: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    grid: np.ndarray,
+    best_idx: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Lower/upper CI envelope consistent with an already-computed best_idx.
+
+    ``entries_with_bounds`` is a list of (resource_array, lower_array,
+    upper_array) tuples, index-aligned with the ``entries`` list that
+    produced ``best_idx`` via :func:`_pareto_envelope_and_owner`. Reuses
+    ``best_idx`` directly (rather than re-deriving ownership) so the CI band
+    always matches the entry that actually owns the envelope at each column,
+    including the flat holds where that entry's own value has plateaued.
+    """
+    n_grid = len(grid)
+    lower_matrix = np.full((len(entries_with_bounds), n_grid), np.nan)
+    upper_matrix = np.full((len(entries_with_bounds), n_grid), np.nan)
+    for i, (xs, ys_lower, ys_upper) in enumerate(entries_with_bounds):
+        if len(xs) < 2:
+            continue
+        in_range = (grid >= xs[0]) & (grid <= xs[-1])
+        lower_matrix[i, in_range] = np.interp(grid[in_range], xs, ys_lower)
+        upper_matrix[i, in_range] = np.interp(grid[in_range], xs, ys_upper)
+
+    lower_env = np.full(n_grid, np.nan)
+    upper_env = np.full(n_grid, np.nan)
+    lower_so_far = np.nan
+    upper_so_far = np.nan
+    prev_idx = -1
+    for col in range(n_grid):
+        idx = int(best_idx[col])
+        if idx < 0:
+            continue
+        if idx != prev_idx:
+            lower_so_far = lower_matrix[idx, col]
+            upper_so_far = upper_matrix[idx, col]
+            prev_idx = idx
+        lower_env[col] = lower_so_far
+        upper_env[col] = upper_so_far
+    return lower_env, upper_env
+
+
+_CB_MARGIN = 0.05
+_CB_SPACING = 0.03
+_CB_MIN_W = 0.10
+
+
+def _family_colorbar_row_count(n_cb: int) -> int:
+    """How many colorbar rows _draw_family_colorbars will use for n_cb families.
+
+    Callers need this before the figure exists (to size it), so it has to
+    match _draw_family_colorbars's own row-wrap decision exactly rather than
+    duplicating a separately-hardcoded threshold that could drift out of sync.
+    """
+    if n_cb == 0:
+        return 0
+    max_single_row = int((1.0 - 2 * _CB_MARGIN + _CB_SPACING) // (_CB_MIN_W + _CB_SPACING))
+    return 1 if n_cb <= max_single_row else 2
+
+
+def _draw_family_colorbars(
+    fig,
+    family_labels: dict[str, list[str]],
+    family_p_vals: dict[str, list[int]],
+    *,
+    row_h: float = 0.042,
+    row_gap: float = 0.15,
+    bottom: float = 0.05,
+) -> None:
+    """Draw one horizontal colorbar per method family, showing its p-depth gradient.
+
+    Every colorbar is the same width, whether there's one row or two -- a row
+    with fewer items is centered rather than stretched to fill the width, so
+    a 2-item row doesn't end up visibly wider than a 3-item row next to it.
+    Wraps onto a second row only once a single row would push colorbars
+    narrower than ``min_cb_w`` (families' titles, usually wider than the bar
+    itself, ran into each other when a wide single row got squeezed).
+    ``row_h``/``row_gap``/``bottom`` are fractions of the figure height;
+    callers reserve enough total height for however many rows this ends up
+    drawing (see the ``n_rows`` calc at each call site).
+    """
+    from matplotlib.colors import Normalize, LinearSegmentedColormap
+    from matplotlib.cm import ScalarMappable
+
+    cb_families = [f for f in _FAMILY_ORDER if f in family_labels]
+    n_cb = len(cb_families)
+    if n_cb == 0:
+        return
+    margin, spacing = _CB_MARGIN, _CB_SPACING
+    n_rows = _family_colorbar_row_count(n_cb)
+    per_row = -(-n_cb // n_rows)  # ceil: the widest row sets the uniform width
+    rows = [cb_families[i : i + per_row] for i in range(0, n_cb, per_row)]
+    cb_w = (1.0 - 2 * margin - (per_row - 1) * spacing) / per_row
+
+    for row_idx, row_families in enumerate(rows):
+        n_in_row = len(row_families)
+        # Center a shorter row instead of stretching its items to fill the
+        # width the widest row uses.
+        content_w = n_in_row * cb_w + (n_in_row - 1) * spacing
+        row_start = margin + ((1.0 - 2 * margin) - content_w) / 2
+        # Row 0 is the bottom-most row; later rows stack upward.
+        cb_bottom = bottom + row_idx * row_gap
+        for i, fam in enumerate(row_families):
+            p_vals = family_p_vals.get(fam, [])
+            cmap_fn, lo, hi = _FAMILY_CMAP_SPEC.get(fam, (plt.cm.viridis, 0.3, 0.9))
+            # Build a 2-stop gradient matching the curve colours for this family.
+            c_lo = cmap_fn(lo)
+            c_hi = cmap_fn(hi)
+            grad_cmap = LinearSegmentedColormap.from_list("", [c_lo, c_hi])
+            ax_cb = fig.add_axes([
+                row_start + i * (cb_w + spacing),
+                cb_bottom,
+                cb_w,
+                row_h,
+            ])
+            p_min = min(p_vals) if p_vals else 0
+            p_max = max(p_vals) if p_vals else 1
+            norm = Normalize(vmin=p_min - 0.5, vmax=p_max + 0.5)
+            sm = ScalarMappable(cmap=grad_cmap, norm=norm)
+            sm.set_array([])
+            cb = fig.colorbar(sm, cax=ax_cb, orientation="horizontal")
+            cb.set_ticks(p_vals if p_vals else [p_min, p_max])
+            cb.ax.tick_params(labelsize=11)
+            ax_cb.set_title(_FAMILY_DISPLAY.get(fam, fam), fontsize=12, pad=3)
+            # "circuit depth p" as an axis label below the tick numbers (not
+            # folded into the title above) so it's clear those numbers are p,
+            # not just floating digits.
+            ax_cb.set_xlabel("circuit depth $p$", fontsize=11, labelpad=2)
+
+
 def plot_multi_method_window_sticker_component_panels(
     *,
     training_virtual_best_df: pd.DataFrame,
@@ -3253,6 +3487,8 @@ def plot_multi_method_window_sticker_component_panels(
     approx_ylim: tuple[float, float] | None = None,
     approx_yticks: list[float] | None = None,
     show_ci: bool = True,
+    xlim: tuple[float, float] | None = None,
+    extend_curves_to_xlim: bool = False,
 ) -> None:
     """Plot training and test multi-method Window Sticker curves as shared-y panels.
 
@@ -3309,22 +3545,24 @@ def plot_multi_method_window_sticker_component_panels(
             for label in curve["method_label"].dropna().astype(str).unique()
         }
     )
-    # Same base color for every depth of the same method family so the legend
-    # only needs one entry per method rather than one per (method, depth) pair.
-    # Fixed Angles† (no-opt) gets a lighter blue to visually distinguish it
-    # from Fixed Angles* (full COBYLA optimisation).
-    def _family_color(lbl: str) -> str:
-        if "fixed angles" in str(lbl).lower() and re.search(r"\$\^\\dagger\$|[†]", str(lbl)):
-            return _shade_color("#4477AA", 0.40)
-        return window_sticker_method_color(lbl)
-
-    color_map = {label: _family_color(label) for label in labels}
     _ = approx_ylim, approx_yticks
 
-    fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.8), sharey=True)
+    color_map, family_labels, family_p_vals = _build_family_color_map(labels)
+
+    # Colorbars wrap onto a second row once a single row would push them
+    # narrower than a readable minimum (see _family_colorbar_row_count /
+    # _draw_family_colorbars) -- cramming 5-6 into one row squeezed each
+    # colorbar's title (usually wider than the bar) into its neighbours.
+    # Grow the figure to make room rather than shrinking the main panels.
+    _base_h = 5.8
+    _two_cb_rows = _family_colorbar_row_count(len(family_labels)) == 2
+    _fig_h = _base_h + 1.5 if _two_cb_rows else _base_h
+    fig, axes = plt.subplots(1, 2, figsize=(13.2, _fig_h), sharey=True)
 
     all_y: list[float] = []
     panel_annotations: list[list[tuple[float, float, str]]] = [[], []]
+    # Actionable prescription data collected per panel for Pareto envelope + bg shading.
+    panel_actionable_curves: list[list[tuple[str, str, np.ndarray, np.ndarray]]] = [[], []]
 
     for panel_idx, (panel_label, curves) in enumerate(panel_data):
         ax = axes[panel_idx]
@@ -3340,12 +3578,28 @@ def plot_multi_method_window_sticker_component_panels(
                 group["response_monotone"] = pd.to_numeric(group["response_monotone"], errors="coerce")
                 group = group.dropna(subset=["resource", "response_monotone"])
                 group = group[group["resource"] > 0].sort_values("resource")
+                if xlim is not None:
+                    group = group[(group["resource"] >= xlim[0]) & (group["resource"] <= xlim[1])]
                 if group.empty:
                     continue
-
-                # Natural endpoint for depth annotation.
+                # Natural (pre-extension) endpoint and series: used for the depth
+                # annotation and for the background-dominance matrix below, so a
+                # method never gets credited past where it actually has data.
                 natural_last_x = float(group["resource"].iloc[-1])
                 natural_last_y = float(group["response_monotone"].iloc[-1]) * 100.0
+                natural_resource = group["resource"].to_numpy(dtype=float)
+                natural_response_percent = group["response_monotone"].to_numpy(dtype=float) * 100.0
+
+                # Extend to right boundary: hold last value constant so every curve
+                # reaches the plot edge regardless of where its data ends. This is a
+                # display-only convenience for the drawn line; the background/Pareto
+                # dominance computation below uses the natural series instead so it
+                # doesn't treat this flat visual hold as evidence of real performance.
+                # Drawn dashed and at reduced alpha below (not the solid natural-data
+                # style) so a reader doesn't mistake the flat hold for a measurement.
+                extend_to = None
+                if extend_curves_to_xlim and xlim is not None and float(group["resource"].iloc[-1]) < xlim[1]:
+                    extend_to = xlim[1]
 
                 lower_col = "response_lower_monotone" if "response_lower_monotone" in group.columns else "response_lower"
                 upper_col = "response_upper_monotone" if "response_upper_monotone" in group.columns else "response_upper"
@@ -3378,6 +3632,21 @@ def plot_multi_method_window_sticker_component_panels(
                 panel_x.extend(group["resource"].to_numpy(dtype=float))
                 panel_y.extend(response_percent)
 
+                if extend_to is not None:
+                    ext_style = dict(style)
+                    ext_style["linestyle"] = "--"
+                    ext_style["marker"] = None
+                    ext_style["alpha"] = style.get("alpha", 1.0) * 0.5
+                    ax.plot(
+                        [natural_last_x, extend_to],
+                        [natural_last_y, natural_last_y],
+                        color=color_map[str(label)],
+                        label=None,
+                        **ext_style,
+                    )
+                    panel_x.append(extend_to)
+                    panel_y.append(natural_last_y)
+
                 # Collect depth annotation for virtual-best curves only.
                 if curve_name == "Virtual best":
                     depth_match = re.search(r"\(p\s*=\s*(\d+)\)", str(label))
@@ -3386,13 +3655,26 @@ def plot_multi_method_window_sticker_component_panels(
                             (natural_last_x, natural_last_y, f"p={depth_match.group(1)}")
                         )
 
+                # Collect actionable prescription data for Pareto envelope. Uses the
+                # natural (pre-extension) series so the flat visual-continuity hold
+                # doesn't count as evidence for the background-dominance computation.
+                if curve_name == "Actionable fit prescription":
+                    panel_actionable_curves[panel_idx].append((
+                        str(label),
+                        color_map[str(label)],
+                        natural_resource,
+                        natural_response_percent,
+                    ))
+
         finite_x = np.asarray([x for x in panel_x if np.isfinite(x) and x > 0], dtype=float)
-        if finite_x.size:
+        if xlim is not None:
+            ax.set_xlim(xlim[0], xlim[1])
+        elif finite_x.size:
             ax.set_xlim(float(finite_x.min()), float(finite_x.max()))
         all_y.extend(panel_y)
         ax.set_xscale("log")
         ax.set_xlabel(
-            r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + NMt_{\mathrm{shot}} + Qt_{\mathrm{shot}}$) [s]",
+            r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + t_{\mathrm{train}} + Qt_{\mathrm{shot}}$) [s]",
             fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
         )
         ax.tick_params(axis="both", labelsize=WINDOW_STICKER_TICK_FONTSIZE)
@@ -3400,13 +3682,49 @@ def plot_multi_method_window_sticker_component_panels(
         ax.grid(alpha=0.25)
         ax.text(
             0.03,
-            0.94,
+            0.97,
             f"({chr(ord('a') + panel_idx)}) {panel_label}",
             transform=ax.transAxes,
             fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
             va="top",
             ha="left",
         )
+
+    # Pareto envelope of actionable prescriptions + per-method background shading.
+    # Drawn after ylim is set so background spans cover the full y range.
+    for panel_idx, ax in enumerate(axes):
+        entries = panel_actionable_curves[panel_idx]
+        if not entries:
+            continue
+        x_lo, x_hi = ax.get_xlim()
+        if x_lo <= 0 or x_hi <= x_lo:
+            continue
+        n_grid = 800
+        grid = np.logspace(np.log10(x_lo), np.log10(x_hi), n_grid)
+        method_colors = [e[1] for e in entries]
+        envelope, best_idx = _pareto_envelope_and_owner(entries, grid)
+
+        # Draw background spans for each contiguous dominance segment.
+        i = 0
+        while i < n_grid:
+            seg = int(best_idx[i])
+            j = i + 1
+            while j < n_grid and int(best_idx[j]) == seg:
+                j += 1
+            if seg >= 0:
+                ax.axvspan(
+                    grid[i], grid[min(j, n_grid - 1)],
+                    alpha=0.22, color=method_colors[seg], zorder=0, linewidth=0,
+                )
+            i = j
+
+        # Draw Pareto envelope as black dotted line on top of everything.
+        valid = np.isfinite(envelope)
+        if valid.any():
+            ax.plot(
+                grid[valid], envelope[valid],
+                color="black", linestyle=":", linewidth=2.2, zorder=8, label=None,
+            )
 
     if all_y:
         finite_y = np.asarray([y for y in all_y if np.isfinite(y)], dtype=float)
@@ -3427,58 +3745,33 @@ def plot_multi_method_window_sticker_component_panels(
         labelpad=10,
     )
 
-    # Draw depth annotations in red on each panel.  Sort by y descending and
-    # apply a minimum vertical separation to avoid label overlap.
-    for panel_idx, ax in enumerate(axes):
-        annotations = sorted(panel_annotations[panel_idx], key=lambda a: a[1], reverse=True)
-        spaced: list[tuple[float, float, str]] = []
-        min_sep = 0.35
-        last_y: float | None = None
-        for ann_x, ann_y, text in annotations:
-            if last_y is not None and last_y - ann_y < min_sep:
-                ann_y = last_y - min_sep
-            spaced.append((ann_x, ann_y, text))
-            last_y = ann_y
-        for ann_x, ann_y, text in spaced:
-            ax.annotate(
-                text,
-                xy=(ann_x, ann_y),
-                xytext=(4, 0),
-                textcoords="offset points",
-                fontsize=9,
-                color="red",
-                va="center",
-                ha="left",
-                clip_on=True,
-                zorder=10,
-            )
-
-    # Build compact legend: one entry per unique method base (depth stripped) +
-    # one entry per curve type.  Place it in the gap between the two panels.
-    seen_bases: set[str] = set()
-    method_handles: list[Line2D] = []
-    for label in sorted(labels):
-        display = _ws_display_method_label(label)
-        base = re.sub(r"\s*\(p\s*=\s*\d+\)\s*$", "", display).strip()
-        if base not in seen_bases:
-            seen_bases.add(base)
-            # Render * and † as proper LaTeX superscripts in the legend.
-            legend_label = base.replace("*", r"$^*$").replace("†", r"$^\dagger$")
-            method_handles.append(
-                Line2D([0], [0], color=_family_color(label), linewidth=2.6, label=legend_label)
-            )
+    # Curve-type legend (Virtual best / Actionable / Pareto) -- method families
+    # are identified by the colorbars below, so no per-family colour handles.
     curve_handles = [
         Line2D([0], [0], color="black", label=name, **style)
         for name, style in style_map.items()
     ]
+    pareto_handle = Line2D(
+        [0], [0], color="black", linestyle=":", linewidth=2.2,
+        label="Pareto frontier (actionable)",
+    )
 
+    # Reserve bottom space: legend row + colorbar row(s). A two-row colorbar
+    # strip needs more vertical room above it for the legend.
+    cb_area_top = 0.27 if _two_cb_rows else 0.12
+    leg_row_h = 0.10  # fraction for legend row
+    bottom_reserved = cb_area_top + leg_row_h + 0.02
+
+    fig.tight_layout(rect=[0.0, bottom_reserved, 1.0, 1.0], w_pad=2.0)
+
+    # Place curve-type legend above colorbars.
     fig.legend(
-        handles=curve_handles + method_handles,
+        handles=curve_handles + [pareto_handle],
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.0),
+        bbox_to_anchor=(0.5, cb_area_top + 0.01),
         bbox_transform=fig.transFigure,
         frameon=True,
-        ncol=3,
+        ncol=len(curve_handles) + 1,
         fontsize=WINDOW_STICKER_LEGEND_FONTSIZE,
         handlelength=1.8,
         handletextpad=0.5,
@@ -3486,58 +3779,268 @@ def plot_multi_method_window_sticker_component_panels(
         labelspacing=0.4,
     )
 
-    fig.tight_layout(rect=[0.0, 0.17, 1.0, 1.0], w_pad=2.0)
+    _draw_family_colorbars(fig, family_labels, family_p_vals)
+
     save_current_plot(filename, plot_dir)
     plt.show()
 
 
-def plot_exact_resource_model_predictions(
-    prediction_df: pd.DataFrame,
-    summary_df: pd.DataFrame,
+def plot_pareto_frontier_overlay(
     *,
+    calibrations: list[dict[str, Any]],
     plot_dir: str | Path,
-    filename: str = "exact_resource_model_predictions",
+    filename: str,
+    approx_ylim: tuple[float, float] | None = None,
 ) -> None:
-    """Plot predicted versus measured exact resource for the best model."""
-    if prediction_df.empty or summary_df.empty:
-        print("Skipping exact-resource model plot: no prediction data found.")
+    """Overlay the actionable Pareto frontier from several resource calibrations.
+
+    Each entry in ``calibrations`` is a dict with keys ``label`` (legend name,
+    e.g. "Noiseless"), ``linestyle`` (matplotlib linestyle distinguishing this
+    calibration), ``training_fitted_prescription_df``, and
+    ``test_fitted_prescription_df``. An optional ``marker`` key (e.g. "o" for
+    Noiseless, "D" for Noise-corrected) adds a point marker along the line so
+    the calibration reads clearly even where two curves sit close together;
+    omit it to draw a plain line. The frontier is colour-coded by whichever
+    method family holds it at each resource level, using the same family
+    colours as plot_multi_method_window_sticker_component_panels, so a reader
+    can read both which calibration a segment belongs to (linestyle/marker)
+    and which strategy is recommended there (colour) off a single line.
+    """
+    panel_data = [
+        ("Training instances", "training_fitted_prescription_df"),
+        ("Test instances", "test_fitted_prescription_df"),
+    ]
+
+    all_labels = sorted({
+        label
+        for cal in calibrations
+        for _, df_key in panel_data
+        if not cal[df_key].empty
+        for label in curve_from_response_summary(cal[df_key])["method_label"].dropna().astype(str).unique()
+    })
+    if not all_labels:
+        print(f"Skipping {filename}: no calibrations with actionable-fit data found.")
         return
+    color_map, family_labels, family_p_vals = _build_family_color_map(all_labels)
 
-    best_model = str(summary_df.iloc[0]["model"])
-    model_df = prediction_df[prediction_df["model"].astype(str).eq(best_model)].copy()
-    if model_df.empty:
-        print("Skipping exact-resource model plot: best model has no rows.")
-        return
+    def _build_entries(
+        curve: pd.DataFrame,
+    ) -> list[tuple[str, Any, np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+        """Per-label (label, color, resource, response, ci_lower, ci_upper) entries.
 
-    measured = pd.to_numeric(model_df["T_exact"], errors="coerce")
-    predicted = pd.to_numeric(model_df["T_exact_pred"], errors="coerce")
-    finite = measured.notna() & predicted.notna() & (measured > 0) & (predicted > 0)
-    model_df = model_df.loc[finite].copy()
-    if model_df.empty:
-        print("Skipping exact-resource model plot: no positive measured/predicted pairs.")
-        return
+        ci_lower/ci_upper are NaN-filled when the source has no CI columns, so
+        callers can always index them without a separate has-CI branch.
+        """
+        lower_col = "response_lower_monotone" if "response_lower_monotone" in curve.columns else "response_lower"
+        upper_col = "response_upper_monotone" if "response_upper_monotone" in curve.columns else "response_upper"
+        has_ci = lower_col in curve.columns and upper_col in curve.columns
+        entries: list[tuple[str, Any, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
+        for label, group in curve.groupby("method_label"):
+            group = group.loc[:, ~group.columns.duplicated()].copy()
+            group["resource"] = pd.to_numeric(group["resource"], errors="coerce")
+            group["response_monotone"] = pd.to_numeric(group["response_monotone"], errors="coerce")
+            if has_ci:
+                group[lower_col] = pd.to_numeric(group[lower_col], errors="coerce")
+                group[upper_col] = pd.to_numeric(group[upper_col], errors="coerce")
+            group = group.dropna(subset=["resource", "response_monotone"])
+            group = group[group["resource"] > 0].sort_values("resource")
+            if group.empty:
+                continue
+            resource = group["resource"].to_numpy(dtype=float)
+            response_percent = group["response_monotone"].to_numpy(dtype=float) * 100.0
+            if has_ci:
+                # response_lower/upper are a 95% CI (response +/- 1.96*SEM,
+                # see _build_response_summary_from_rec_params); rescale the
+                # half-width down to 1 SEM so error-bar whiskers are on the
+                # same statistical basis wherever they're drawn.
+                _ci_lower_raw = group[lower_col].to_numpy(dtype=float) * 100.0
+                _ci_upper_raw = group[upper_col].to_numpy(dtype=float) * 100.0
+                _sem_half_width = (_ci_upper_raw - _ci_lower_raw) / 2.0 / 1.96
+                ci_lower = response_percent - _sem_half_width
+                ci_upper = response_percent + _sem_half_width
+            else:
+                ci_lower = np.full_like(response_percent, np.nan)
+                ci_upper = np.full_like(response_percent, np.nan)
+            entries.append((str(label), color_map[str(label)], resource, response_percent, ci_lower, ci_upper))
+        return entries
 
-    lo = float(min(model_df["T_exact"].min(), model_df["T_exact_pred"].min()))
-    hi = float(max(model_df["T_exact"].max(), model_df["T_exact_pred"].max()))
-    diag = np.geomspace(lo, hi, 200)
+    def _envelope_winners(entries: list[tuple]) -> set[str]:
+        """Labels that actually own at least one point of the drawn envelope."""
+        multi_point_entries = [e for e in entries if len(e[2]) >= 2]
+        if not multi_point_entries:
+            return set()
+        x_lo = min(e[2][0] for e in multi_point_entries)
+        x_hi = max(e[2][-1] for e in multi_point_entries)
+        if x_lo <= 0 or x_hi <= x_lo:
+            return set()
+        grid = np.logspace(np.log10(x_lo), np.log10(x_hi), 800)
+        envelope, best_idx = _pareto_envelope_and_owner(entries, grid)
+        finite = np.isfinite(envelope)
+        return {entries[i][0] for i in np.unique(best_idx[finite]) if i >= 0}
 
-    plt.figure(figsize=(6.5, 5.5))
-    for split, group in model_df.groupby("split"):
-        plt.scatter(
-            group["T_exact"],
-            group["T_exact_pred"],
-            s=26,
-            alpha=0.72,
-            label=str(split),
+    # The colorbar legend only shows families that actually own a segment of
+    # the drawn envelope -- a strategy that's present in the comparison data
+    # but never wins at any resource level (never becomes the visible line
+    # colour) has no business taking up a colorbar. Figure out who actually
+    # wins in a pre-pass so the figure can be sized before drawing.
+    winning_labels: set[str] = set()
+    for _, df_key in panel_data:
+        for cal in calibrations:
+            curve = curve_from_response_summary(cal[df_key])
+            if curve.empty:
+                continue
+            winning_labels |= _envelope_winners(_build_entries(curve))
+
+    dynamic_family_labels = {
+        fam: [lbl for lbl in labels if lbl in winning_labels]
+        for fam, labels in family_labels.items()
+        if any(lbl in winning_labels for lbl in labels)
+    }
+    dynamic_family_p_vals = {
+        fam: sorted({p for p in (_label_depth(lbl) for lbl in labels) if p is not None})
+        for fam, labels in dynamic_family_labels.items()
+    }
+
+    # See plot_multi_method_window_sticker_component_panels for the row-wrap
+    # logic; grow the figure to make room rather than shrinking the main panels.
+    _base_h = 5.4
+    _two_cb_rows = _family_colorbar_row_count(len(dynamic_family_labels)) == 2
+    _fig_h = _base_h + 1.5 if _two_cb_rows else _base_h
+    fig, axes = plt.subplots(1, 2, figsize=(13.2, _fig_h), sharey=True)
+    all_y: list[float] = []
+
+    for panel_idx, (panel_label, df_key) in enumerate(panel_data):
+        ax = axes[panel_idx]
+        panel_x: list[float] = []
+
+        for cal in calibrations:
+            curve = curve_from_response_summary(cal[df_key])
+            if curve.empty:
+                continue
+            entries = _build_entries(curve)
+            for e in entries:
+                panel_x.extend(e[2].tolist())
+
+            multi_point_entries = [e for e in entries if len(e[2]) >= 2]
+            if not multi_point_entries:
+                continue
+            x_lo = min(e[2][0] for e in multi_point_entries)
+            x_hi = max(e[2][-1] for e in multi_point_entries)
+            if x_lo <= 0 or x_hi <= x_lo:
+                continue
+            n_grid = 800
+            grid = np.logspace(np.log10(x_lo), np.log10(x_hi), n_grid)
+            envelope, best_idx = _pareto_envelope_and_owner(entries, grid)
+            method_colors = [e[1] for e in entries]
+            bounds_entries = [(e[2], e[4], e[5]) for e in entries]
+            ci_lower, ci_upper = _pareto_envelope_bounds(bounds_entries, grid, best_idx)
+
+            # Draw the frontier as contiguous segments, colour = owning
+            # family, linestyle = this calibration. One marker per segment,
+            # placed at the start -- i.e. exactly where a strategy takes
+            # over the frontier -- rather than evenly spaced along the line.
+            _marker_idx: list[int] = []
+            i = 0
+            while i < n_grid:
+                seg = int(best_idx[i])
+                j = i + 1
+                while j < n_grid and int(best_idx[j]) == seg:
+                    j += 1
+                if seg >= 0 and np.isfinite(envelope[i:j]).any():
+                    ax.plot(
+                        grid[i:j], envelope[i:j],
+                        color=method_colors[seg],
+                        linestyle=cal["linestyle"],
+                        linewidth=2.6,
+                        solid_capstyle="round",
+                        zorder=5,
+                        marker=cal.get("marker"),
+                        markevery=[0] if cal.get("marker") else None,
+                        markersize=10,
+                        markeredgecolor="white",
+                        markeredgewidth=0.8,
+                    )
+                    if cal.get("marker"):
+                        _marker_idx.append(i)
+                i = j
+            all_y.extend(envelope[np.isfinite(envelope)].tolist())
+
+            # Error-bar whiskers at exactly the marker positions, coloured by
+            # whichever family owns the envelope at that point.
+            for _idx in _marker_idx:
+                if not np.isfinite(envelope[_idx]) or best_idx[_idx] < 0:
+                    continue
+                _lo, _hi, _env = ci_lower[_idx], ci_upper[_idx], envelope[_idx]
+                if not (np.isfinite(_lo) and np.isfinite(_hi)):
+                    continue
+                ax.errorbar(
+                    grid[_idx], _env,
+                    yerr=[[max(0.0, _env - _lo)], [max(0.0, _hi - _env)]],
+                    fmt="none", ecolor=method_colors[int(best_idx[_idx])],
+                    capsize=3, elinewidth=1.1, zorder=5.5,
+                )
+
+        finite_x = np.asarray([x for x in panel_x if np.isfinite(x) and x > 0], dtype=float)
+        if finite_x.size:
+            ax.set_xlim(float(finite_x.min()), float(finite_x.max()))
+        ax.set_xscale("log")
+        ax.set_xlabel(
+            r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + t_{\mathrm{train}} + Qt_{\mathrm{shot}}$) [s]",
+            fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
         )
-    plt.plot(diag, diag, color="black", linewidth=2.0, linestyle="--", label="ideal")
-    plt.xscale("log")
-    plt.yscale("log")
-    plt.xlabel(r"Measured resource $T_{\mathrm{exact}}$ (s)")
-    plt.ylabel(r"Predicted resource $\hat{T}_{\mathrm{exact}}$ (s)")
-    plt.title(f"Exact-resource model: {best_model}")
-    plt.grid(alpha=0.25)
-    plt.legend()
+        ax.tick_params(axis="both", labelsize=WINDOW_STICKER_TICK_FONTSIZE)
+        ax.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+        ax.grid(alpha=0.25)
+        ax.text(
+            0.03, 0.97, f"({chr(ord('a') + panel_idx)}) {panel_label}",
+            transform=ax.transAxes, fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
+            va="top", ha="left",
+        )
+
+    if approx_ylim is not None:
+        for ax in axes:
+            ax.set_ylim(*approx_ylim)
+    elif all_y:
+        finite_y = np.asarray(all_y, dtype=float)
+        y_min, y_max = float(finite_y.min()), float(finite_y.max())
+        y_span = y_max - y_min
+        pad_low = max(0.05, 0.01 * y_span) if y_span > 0 else 0.05
+        pad_high = max(0.15, 0.025 * y_span) if y_span > 0 else 0.15
+        for ax in axes:
+            ax.set_ylim(y_min - pad_low, y_max + pad_high)
+
+    axes[0].set_ylabel("Approximation ratio (%)", fontsize=WINDOW_STICKER_LABEL_FONTSIZE, labelpad=10)
+
+    # Linestyle legend distinguishes calibrations; family colour is read off
+    # the colorbars below, shared with the component-panel figures.
+    calibration_handles = [
+        Line2D(
+            [0], [0], color="black", linestyle=cal["linestyle"], linewidth=2.6,
+            marker=cal.get("marker"), markersize=10, label=cal["label"],
+        )
+        for cal in calibrations
+    ]
+
+    cb_area_top = 0.27 if _two_cb_rows else 0.12
+    leg_row_h = 0.10
+    bottom_reserved = cb_area_top + leg_row_h + 0.02
+    fig.tight_layout(rect=[0.0, bottom_reserved, 1.0, 1.0], w_pad=2.0)
+
+    fig.legend(
+        handles=calibration_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, cb_area_top + 0.01),
+        bbox_transform=fig.transFigure,
+        frameon=True,
+        ncol=len(calibration_handles),
+        fontsize=WINDOW_STICKER_LEGEND_FONTSIZE,
+        handlelength=2.4,
+        handletextpad=0.5,
+        columnspacing=1.2,
+    )
+
+    _draw_family_colorbars(fig, dynamic_family_labels, dynamic_family_p_vals)
+
     save_current_plot(filename, plot_dir)
     plt.show()
 
@@ -3566,36 +4069,6 @@ def _prepare_parameter_curve(
         .sort_values(resource_col)
         .reset_index(drop=True)
     )
-
-
-def map_resource_to_log_range(
-    df: pd.DataFrame,
-    *,
-    source_col: str,
-    target_col: str,
-    source_range: tuple[float, float],
-    target_range: tuple[float, float],
-) -> pd.DataFrame:
-    """Map a positive resource coordinate onto another positive range in log-space."""
-    mapped = df.copy()
-    if mapped.empty or source_col not in mapped.columns:
-        return mapped
-
-    source_min, source_max = [float(value) for value in source_range]
-    target_min, target_max = [float(value) for value in target_range]
-    if source_min <= 0 or source_max <= 0 or target_min <= 0 or target_max <= 0:
-        raise ValueError("source_range and target_range must be positive.")
-    if np.isclose(np.log(source_min), np.log(source_max)):
-        raise ValueError("source_range must span more than one positive value.")
-
-    values = pd.to_numeric(mapped[source_col], errors="coerce").to_numpy(dtype=float)
-    transformed = np.full(len(mapped), np.nan, dtype=float)
-    mask = np.isfinite(values) & (values > 0)
-    if mask.any():
-        normalized = (np.log(values[mask]) - np.log(source_min)) / (np.log(source_max) - np.log(source_min))
-        transformed[mask] = np.exp(np.log(target_min) + normalized * (np.log(target_max) - np.log(target_min)))
-    mapped[target_col] = transformed
-    return mapped
 
 
 def plot_parameter_prescriptions_by_resource(

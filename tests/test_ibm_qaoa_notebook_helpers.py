@@ -30,7 +30,19 @@ for path in (REPO_ROOT / "src", IBM_QAOA_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from src.utils import curve_from_response_summary, _method_label_from_training_method  # noqa: E402
+from src.utils import (  # noqa: E402
+    curve_from_response_summary,
+    _method_label_from_training_method,
+    _pareto_envelope_and_owner,
+    prepare_ibm_qaoa_plot_data,
+    build_recommendation_data,
+)
+from src.approx_ratio_calc import (  # noqa: E402
+    extract_minmax_args as _extract_minmax_args,
+    get_minmax as _get_minmax,
+    maxcut_approximation_ratio as _maxcut_approximation_ratio,
+    maxcut_energy_from_bitstring as _maxcut_energy_from_bitstring,
+)
 
 
 def _extract_cell_source(cell_id: str) -> str:
@@ -46,13 +58,24 @@ def _extract_function(cell_id: str, func_name: str, namespace: dict) -> None:
 
     Slices from the `def` line to the next top-level (unindented, non-blank)
     line so cell code before/after the function (which may reference names
-    that don't exist in this test's namespace) is never executed.
+    that don't exist in this test's namespace) is never executed. The `def`
+    line's own parens are paren-balance-tracked first, since a multi-line
+    signature (e.g. `def f(\n    a, b,\n) -> X:`) has an unindented closing
+    `)` line that would otherwise look like the top-level line ending the
+    function.
     """
     src = _extract_cell_source(cell_id)
     lines = src.split("\n")
     start = next(i for i, line in enumerate(lines) if line.startswith(f"def {func_name}("))
+    sig_end = start
+    paren_depth = 0
+    for i in range(start, len(lines)):
+        paren_depth += lines[i].count("(") - lines[i].count(")")
+        if paren_depth <= 0:
+            sig_end = i
+            break
     end = len(lines)
-    for i in range(start + 1, len(lines)):
+    for i in range(sig_end + 1, len(lines)):
         line = lines[i]
         if line.strip() and not line.startswith((" ", "\t")):
             end = i
@@ -378,3 +401,217 @@ class TestLabelHwFrontier:
 
         # ASSERT
         assert "method_label" not in frontier.columns
+
+
+# ---------------------------------------------------------------------------
+# _best_bitstring_ar  (cell 612c9536)
+#
+# minmax_path/graph_type/num_nodes/minmax_cache/instance_context_cache are
+# explicit params as of the Step-1b signature fix (they used to be closures
+# over notebook globals _bb_minmax_path etc., which made this untestable in
+# isolation). _get_minmax/_extract_minmax_args are the file-I/O boundary and
+# are monkeypatched; _maxcut_energy_from_bitstring/_maxcut_approximation_ratio
+# are real, pure functions from src.approx_ratio_calc.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def best_bitstring_ar_ns():
+    ns = {
+        "pd": pd,
+        "np": np,
+        "_get_minmax": _get_minmax,
+        "_extract_minmax_args": _extract_minmax_args,
+        "_maxcut_energy_from_bitstring": _maxcut_energy_from_bitstring,
+        "_maxcut_approximation_ratio": _maxcut_approximation_ratio,
+    }
+    _extract_function("612c9536", "_best_bitstring_ar", ns)
+    return ns
+
+
+class TestBestBitstringAr:
+    def test__best_bitstring_ar__given_several_bitstrings__picks_the_highest_ratio_one(self, best_bitstring_ar_ns):
+        # ARRANGE -- a 3-node, 2-edge (0-1, 1-2) unweighted instance;
+        # min_cut=0, max_cut=2 chosen so the approximation ratio equals the
+        # cut value directly, making the expected winner easy to hand-verify.
+        ns = best_bitstring_ar_ns
+        ns["_get_minmax"] = lambda *a, **k: "unused-path"
+        ns["_extract_minmax_args"] = lambda path: (0.0, 2.0, 2.0)  # min_cut, max_cut, sum_weights
+        row = pd.Series({"file_name": "000_MC_A.json", "counts": ["001", "010", "111"]})
+        instance_context_cache = {
+            "000": {
+                "u": np.array([0, 1]),
+                "v": np.array([1, 2]),
+                "w": np.array([1.0, 1.0]),
+                "sum_weights": 2.0,
+            }
+        }
+
+        # ACT
+        result = ns["_best_bitstring_ar"](
+            row,
+            minmax_path="unused",
+            graph_type="heavy_hex",
+            num_nodes=3,
+            minmax_cache={},
+            instance_context_cache=instance_context_cache,
+        )
+
+        # ASSERT -- "010" cuts both edges (ratio 1.0), the other two cut only one or zero
+        assert result["best_bitstring"] == "010"
+        assert result["approximation_ratio"] == pytest.approx(1.0)
+
+    def test__best_bitstring_ar__caches_minmax_lookup_by_instance_id(self, best_bitstring_ar_ns):
+        # ARRANGE
+        ns = best_bitstring_ar_ns
+        call_count = {"n": 0}
+
+        def _fake_get_minmax(*a, **k):
+            call_count["n"] += 1
+            return "path"
+        ns["_get_minmax"] = _fake_get_minmax
+        ns["_extract_minmax_args"] = lambda path: (0.0, 2.0, 2.0)
+        row = pd.Series({"file_name": "000_MC_A.json", "counts": ["001"]})
+        instance_context_cache = {
+            "000": {"u": np.array([0, 1]), "v": np.array([1, 2]), "w": np.array([1.0, 1.0]), "sum_weights": 2.0}
+        }
+        minmax_cache = {}
+
+        # ACT -- call twice for the same instance id
+        ns["_best_bitstring_ar"](row, minmax_path="p", graph_type="g", num_nodes=3,
+                                   minmax_cache=minmax_cache, instance_context_cache=instance_context_cache)
+        ns["_best_bitstring_ar"](row, minmax_path="p", graph_type="g", num_nodes=3,
+                                   minmax_cache=minmax_cache, instance_context_cache=instance_context_cache)
+
+        # ASSERT -- second call reuses the cached minmax, no second _get_minmax call
+        assert call_count["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# _build_hw_frontier  (cell 612c9536)
+#
+# hardware_new_df/hardware_df/num_nodes are explicit params as of the Step-1b
+# signature fix. Exercises the real prepare_ibm_qaoa_plot_data/
+# build_recommendation_data from src.utils, not mocks, since this function's
+# whole job is gluing those two together correctly.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def build_hw_frontier_ns():
+    ns = {
+        "pd": pd,
+        "_prepare_ibm_qaoa_plot_data": prepare_ibm_qaoa_plot_data,
+        "_build_recommendation_data": build_recommendation_data,
+    }
+    _extract_function("612c9536", "_build_hw_frontier", ns)
+    return ns
+
+
+class TestBuildHwFrontier:
+    def test__build_hw_frontier__combines_qpu_time_and_training_cost_into_total_duration(self, build_hw_frontier_ns):
+        # ARRANGE
+        hardware_new_df = pd.DataFrame({
+            "file_name": ["000_MC_A.json", "001_MC_A.json"],
+            "job_p": [6, 6],
+            "training_method": ["FA_PP_opt_6", "FA_PP_opt_6"],
+            "approximation_ratio": [0.9, 0.92],
+            "QPU_time (s)": [1.0, 1.0],
+            "QPU_time_noiseless (s)": [1.5, 1.5],
+            "QPU_time_noise_corrected (s)": [3.0, 3.0],
+            "total_train_cost": [100.0, 100.0],
+        })
+        hardware_df = pd.DataFrame({
+            "file_name": ["000_MC_A.json", "001_MC_A.json"],
+            "instance_name": ["000", "001"],
+        })
+
+        # ACT
+        result = build_hw_frontier_ns["_build_hw_frontier"](
+            "QPU_time_noise_corrected (s)", hardware_new_df, hardware_df, 144
+        )
+
+        # ASSERT -- 3.0 (QPU_time_noise_corrected) + 100.0 (total_train_cost) = 103.0
+        assert not result.empty
+        assert result["dur_mean"].iloc[0] == pytest.approx(103.0)
+        assert result["ar_mean"].iloc[0] == pytest.approx(0.91)  # mean of 0.9, 0.92
+        assert result["color_label"].iloc[0] == "FA_PP_opt"
+
+    def test__build_hw_frontier__given_missing_required_column__raises_keyerror(self, build_hw_frontier_ns):
+        # ARRANGE -- no "total_train_cost" column
+        hardware_new_df = pd.DataFrame({
+            "file_name": ["000_MC_A.json"],
+            "job_p": [6],
+            "training_method": ["FA_PP_opt_6"],
+            "approximation_ratio": [0.9],
+            "QPU_time (s)": [1.0],
+            "QPU_time_noiseless (s)": [1.5],
+            "QPU_time_noise_corrected (s)": [3.0],
+        })
+        hardware_df = pd.DataFrame({"file_name": ["000_MC_A.json"], "instance_name": ["000"]})
+
+        # ACT / ASSERT
+        with pytest.raises(KeyError):
+            build_hw_frontier_ns["_build_hw_frontier"](
+                "QPU_time_noise_corrected (s)", hardware_new_df, hardware_df, 144
+            )
+
+
+# ---------------------------------------------------------------------------
+# _sim_winners  (cell 612c9536)
+#
+# color_map is an explicit param as of the Step-1b signature fix (previously
+# a closure over the notebook's color_map global).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def sim_winners_ns():
+    ns = {"np": np, "_pareto_envelope_and_owner": _pareto_envelope_and_owner}
+    _extract_function("612c9536", "_sim_winners", ns)
+    return ns
+
+
+class TestSimWinners:
+    def test__sim_winners__given_one_entry_dominating_the_whole_range__returns_just_that_label(self, sim_winners_ns):
+        # ARRANGE -- "A" is strictly above "B" everywhere on [1, 4]. x values
+        # must be strictly positive: _sim_winners bails out to an empty set
+        # whenever the shared x_lo is <= 0 (it feeds a log-spaced grid).
+        # entries are (label, xs, ys, ci_lower, ci_upper) 5-tuples, matching
+        # _sim_entries' output shape; the CI columns are irrelevant here.
+        _nan_pair = (np.array([np.nan, np.nan]), np.array([np.nan, np.nan]))
+        entries = [
+            ("A", np.array([1.0, 4.0]), np.array([2.0, 2.0]), *_nan_pair),
+            ("B", np.array([1.0, 4.0]), np.array([1.0, 1.0]), *_nan_pair),
+        ]
+        color_map = {"A": "blue", "B": "red"}
+
+        # ACT
+        result = sim_winners_ns["_sim_winners"](entries, color_map)
+
+        # ASSERT
+        assert result == {"A"}
+
+    def test__sim_winners__given_a_crossover__both_labels_win_some_of_the_range(self, sim_winners_ns):
+        # ARRANGE -- "A" starts ahead, "B" overtakes partway through
+        _nan_pair = (np.array([np.nan, np.nan]), np.array([np.nan, np.nan]))
+        entries = [
+            ("A", np.array([1.0, 4.0]), np.array([2.0, 2.0]), *_nan_pair),
+            ("B", np.array([1.0, 4.0]), np.array([0.5, 5.0]), *_nan_pair),
+        ]
+        color_map = {"A": "blue", "B": "red"}
+
+        # ACT
+        result = sim_winners_ns["_sim_winners"](entries, color_map)
+
+        # ASSERT
+        assert result == {"A", "B"}
+
+    def test__sim_winners__given_no_entries_with_at_least_two_points__returns_empty_set(self, sim_winners_ns):
+        # ARRANGE -- single-point entries can't form a curve
+        _nan_single = (np.array([np.nan]), np.array([np.nan]))
+        entries = [("A", np.array([1.0]), np.array([2.0]), *_nan_single)]
+        color_map = {"A": "blue"}
+
+        # ACT
+        result = sim_winners_ns["_sim_winners"](entries, color_map)
+
+        # ASSERT
+        assert result == set()

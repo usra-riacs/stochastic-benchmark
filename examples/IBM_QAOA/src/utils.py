@@ -21,6 +21,13 @@ from matplotlib.ticker import (
 )
 from matplotlib.transforms import Bbox
 
+from .approx_ratio_calc import (
+    extract_minmax_args as _extract_minmax_args,
+    get_minmax as _get_minmax,
+    maxcut_approximation_ratio as _maxcut_approximation_ratio,
+    maxcut_energy_from_bitstring as _maxcut_energy_from_bitstring,
+)
+
 WINDOW_STICKER_LABEL_FONTSIZE = 16
 WINDOW_STICKER_TICK_FONTSIZE = 14
 WINDOW_STICKER_LEGEND_FONTSIZE = 13
@@ -50,6 +57,69 @@ def is_empty_nested_list(x):
         True if `x` is a list with at least one element and every element is an empty list.
     """
     return isinstance(x, list) and len(x) > 0 and all(isinstance(i, list) and len(i) == 0 for i in x)
+
+
+def _relativize_warning_filename(filename: str, workspace_root: str | Path) -> str:
+    """Scrub a warning's absolute source-file path down to a portable one.
+
+    ``warnings.warn``'s default formatter prints the absolute source-file
+    path of the call site, bypassing dataframe-path scrubbing conventions
+    like :func:`_relativize_paths` entirely -- e.g. a duplicate-resource
+    warning from ``src/interpolate.py`` would otherwise leak a contributor's
+    local filesystem layout into committed notebook output. This strips it
+    down to a path relative to ``workspace_root`` (or the container
+    ``/workspace`` mount prefix), matching :func:`_relativize_paths`' own
+    convention.
+    """
+    try:
+        return str(Path(filename).resolve().relative_to(workspace_root))
+    except ValueError:
+        pass
+    if filename.startswith("/workspace/"):
+        return filename[len("/workspace/"):]
+    return filename
+
+
+def _scrubbed_formatwarning(
+    message, category, filename, lineno, line=None, *, workspace_root: str | Path
+) -> str:
+    """A ``warnings.formatwarning`` replacement that scrubs the source path.
+
+    ``workspace_root`` is keyword-only and has no default since
+    ``warnings.formatwarning`` is called positionally by the ``warnings``
+    module; bind it with ``functools.partial`` before assigning, e.g.
+    ``warnings.formatwarning = functools.partial(_scrubbed_formatwarning, workspace_root=WORKSPACE_ROOT)``.
+    """
+    return f"{_relativize_warning_filename(filename, workspace_root)}:{lineno}: {category.__name__}: {message}\n"
+
+
+def _relativize_paths(df: pd.DataFrame, cols: Iterable[str], base: str | Path) -> pd.DataFrame:
+    """Scrub absolute filesystem paths in ``cols`` down to a path relative to ``base``.
+
+    Falls back to stripping a container ``/workspace/`` mount prefix when a
+    path isn't under ``base`` (e.g. it came from a Nautilus job), and leaves
+    a path unscrubbed (rather than raising) when neither applies, since this
+    is a display convenience only.
+    """
+    df = df.copy()
+
+    def _rel(p):
+        if not pd.notna(p):
+            return p
+        try:
+            return str(Path(p).resolve().relative_to(base))
+        except ValueError:
+            pass
+        p_str = str(p)
+        if p_str.startswith("/workspace/"):
+            return p_str[len("/workspace/"):]
+        return p_str
+
+    for col in cols:
+        if col in df.columns:
+            df[col] = df[col].apply(_rel)
+    return df
+
 
 def counts_to_samples_df(df_hardware: pd.DataFrame) -> pd.DataFrame:
     """
@@ -1834,6 +1904,60 @@ def build_recommendation_data(
     return df_centroids, df_frontier
 
 
+def _best_bitstring_ar(
+    row: pd.Series, *, minmax_path, graph_type, num_nodes, minmax_cache, instance_context_cache
+) -> pd.Series:
+    """Best-observed-bitstring approximation ratio for one hardware job row.
+
+    Every unique bitstring a hardware job actually measured (via its raw
+    counts histogram, in ``row["counts"]``) is scored and the single best one
+    kept -- the same definition ``best_prefix_metrics`` uses for
+    ``BestApproximationRatio``, just applied to a counts dict instead of an
+    ordered shot stream (order doesn't matter for a global best).
+
+    ``minmax_cache``/``instance_context_cache`` are mutated in place so
+    repeated calls (one per row via ``DataFrame.apply``) reuse the per-instance
+    minmax lookup and graph context instead of recomputing them every row.
+    """
+    _n = row["file_name"][:3]
+    if _n not in minmax_cache:
+        _mmp = _get_minmax(
+            minmax_path, graph_type, _n, num_nodes,
+            ER_probability="None", swap_layers="None", degree="None",
+        )
+        minmax_cache[_n] = _extract_minmax_args(_mmp)
+    _min_cut, _max_cut, _sum_weights = minmax_cache[_n]
+    _ctx = instance_context_cache[_n]
+    _best_ar, _best_bs = -np.inf, None
+    for _bs in row["counts"]:
+        _e = _maxcut_energy_from_bitstring(_bs, _ctx)
+        _ar = _maxcut_approximation_ratio(_min_cut, _max_cut, _sum_weights, _e)
+        if _ar > _best_ar:
+            _best_ar, _best_bs = _ar, _bs
+    return pd.Series({"approximation_ratio": _best_ar, "best_bitstring": _best_bs})
+
+
+def _build_hw_frontier(
+    qpu_time_col: str, hardware_new_df: pd.DataFrame, hardware_df: pd.DataFrame, num_nodes: int
+) -> pd.DataFrame:
+    """Real-hardware Pareto frontier on a given QPU-time basis.
+
+    Combines ``qpu_time_col`` with each row's ``total_train_cost`` into a
+    ``"total duration"`` resource column, then routes through
+    :func:`prepare_ibm_qaoa_plot_data`/:func:`build_recommendation_data`
+    (the same pipeline the simulated curves use) to get a Pareto frontier on
+    a comparable basis.
+    """
+    _df_sb = hardware_new_df.copy()
+    _df_sb["total duration"] = _df_sb[qpu_time_col] + _df_sb["total_train_cost"]
+    _df_sb = _df_sb.drop(columns=[
+        "QPU_time (s)", "QPU_time_noiseless (s)", "QPU_time_noise_corrected (s)", "total_train_cost",
+    ])
+    _plot_data = prepare_ibm_qaoa_plot_data(_df_sb, hardware_df, num_nodes)
+    _, _frontier = build_recommendation_data(_plot_data["df_points"])
+    return _frontier
+
+
 def plot_ibm_qaoa_recommendation(
     df_points: pd.DataFrame,
     df_frontier: pd.DataFrame,
@@ -2887,6 +3011,23 @@ def curve_from_response_summary(df: pd.DataFrame) -> pd.DataFrame:
     return curve_from_window_summary(df)
 
 
+def _rescale_resource(df: pd.DataFrame | None, scale_by_label: dict[str, float]) -> pd.DataFrame:
+    """Multiply a ``resource`` column by a per-``method_label`` scale factor.
+
+    Used to recalibrate a curve's resource axis onto a different shot-rate
+    basis per method (e.g. simulated-vs-hardware time-per-shot). A row whose
+    ``method_label`` has no entry in ``scale_by_label`` is left unscaled.
+    """
+    if df is None or df.empty or "resource" not in df.columns:
+        return (df if df is not None else pd.DataFrame()).copy()
+    df = df.copy()
+    if "method_label" in df.columns:
+        for lbl, factor in scale_by_label.items():
+            mask = df["method_label"] == lbl
+            df.loc[mask, "resource"] = df.loc[mask, "resource"] * factor
+    return df
+
+
 def cross_strategy_envelope(
     curve_df: pd.DataFrame,
     resource_col: str,
@@ -3386,6 +3527,92 @@ def _pareto_envelope_bounds(
         lower_env[col] = lower_so_far
         upper_env[col] = upper_so_far
     return lower_env, upper_env
+
+
+def _sim_entries(df_test: pd.DataFrame) -> list[tuple[str, np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+    """Per-method (label, resource, response%, ci_lower, ci_upper) curves for a Pareto overlay.
+
+    Drops methods with fewer than two resource points (they can't form a
+    curve). ``response_lower``/``response_upper`` (from
+    :func:`curve_from_response_summary`, see
+    ``_build_response_summary_from_rec_params``) are a 95% CI
+    (response +/- 1.96*SEM); the CI half-width is rescaled down to 1 SEM so
+    these whiskers are on the same statistical basis as a real-hardware
+    curve's ``dur_sem``/``ar_sem``.
+    """
+    curve = curve_from_response_summary(df_test)
+    if curve.empty:
+        return []
+    lower_col = "response_lower_monotone" if "response_lower_monotone" in curve.columns else "response_lower"
+    upper_col = "response_upper_monotone" if "response_upper_monotone" in curve.columns else "response_upper"
+    has_ci = lower_col in curve.columns and upper_col in curve.columns
+    entries = []
+    for label, group in curve.groupby("method_label"):
+        group = group.loc[:, ~group.columns.duplicated()].copy()
+        group["resource"] = pd.to_numeric(group["resource"], errors="coerce")
+        group["response_monotone"] = pd.to_numeric(group["response_monotone"], errors="coerce")
+        if has_ci:
+            group[lower_col] = pd.to_numeric(group[lower_col], errors="coerce")
+            group[upper_col] = pd.to_numeric(group[upper_col], errors="coerce")
+        group = group.dropna(subset=["resource", "response_monotone"])
+        group = group[group["resource"] > 0].sort_values("resource")
+        if len(group) < 2:
+            continue
+        response_percent = group["response_monotone"].to_numpy(dtype=float) * 100.0
+        if has_ci:
+            _ci_lower_raw = group[lower_col].to_numpy(dtype=float) * 100.0
+            _ci_upper_raw = group[upper_col].to_numpy(dtype=float) * 100.0
+            _sem_half_width = (_ci_upper_raw - _ci_lower_raw) / 2.0 / 1.96
+            ci_lower = response_percent - _sem_half_width
+            ci_upper = response_percent + _sem_half_width
+        else:
+            ci_lower = np.full_like(response_percent, np.nan)
+            ci_upper = np.full_like(response_percent, np.nan)
+        entries.append((
+            str(label),
+            group["resource"].to_numpy(dtype=float),
+            response_percent,
+            ci_lower,
+            ci_upper,
+        ))
+    return entries
+
+
+def _label_hw_frontier(frontier: pd.DataFrame) -> pd.DataFrame:
+    """Tag a hardware-frontier table with the shared "<family> (p=<depth>)" method_label.
+
+    Uses the same label format the simulated curves use (via
+    :func:`_method_label_from_training_method`) so both datasets can share
+    one family colour map instead of an arbitrary flat colour.
+    """
+    _hw = frontier.copy()
+    _hw["method_label"] = [
+        f"{_method_label_from_training_method(color_label, format='latex')} (p={int(job_p)})"
+        for color_label, job_p in zip(_hw["color_label"], _hw["job_p"])
+    ]
+    return _hw
+
+
+def _sim_winners(
+    entries: list[tuple[str, np.ndarray, np.ndarray, np.ndarray, np.ndarray]],
+    color_map: dict[str, object],
+) -> set[str]:
+    """Which method labels actually own some stretch of the simulated Pareto envelope.
+
+    Used to restrict the plotted colorbars/legend to methods that are
+    actually visible on the frontier, rather than every method with data.
+    """
+    colored = [(lbl, color_map[lbl], xs, ys) for lbl, xs, ys, _, _ in entries if len(xs) >= 2]
+    if not colored:
+        return set()
+    x_lo = min(e[2][0] for e in colored)
+    x_hi = max(e[2][-1] for e in colored)
+    if x_lo <= 0 or x_hi <= x_lo:
+        return set()
+    grid = np.logspace(np.log10(x_lo), np.log10(x_hi), 800)
+    envelope, best_idx = _pareto_envelope_and_owner(colored, grid)
+    finite = np.isfinite(envelope)
+    return {colored[i][0] for i in np.unique(best_idx[finite]) if i >= 0}
 
 
 _CB_MARGIN = 0.05

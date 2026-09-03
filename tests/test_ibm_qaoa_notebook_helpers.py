@@ -1,20 +1,18 @@
-"""Characterization tests for helper functions still living inline inside
-Simulation_Method_Validation_and_WS.ipynb, ahead of moving them into
+"""Characterization tests for helper functions that used to live inline inside
+Simulation_Method_Validation_and_WS.ipynb and now live in
 examples/IBM_QAOA/src/utils.py.
 
 These tests lock CURRENT behavior (Protect phase of the sefop-training-hub
-refactoring guide) so the move in the next step can be verified byte-for-byte
-against them rather than against what the function is assumed to do.
-
-Since the functions don't live in an importable module yet, each one is
-extracted verbatim from the notebook's own JSON at test-collection time and
-exec'd into a private namespace -- this is throwaway scaffolding for this one
-test file and goes away once Step 2 moves the functions into src/utils.py and
-this file is repointed to import them normally.
+refactoring guide), written before the Step 2 move so the move itself could
+be verified byte-for-byte against them rather than against what the function
+is assumed to do. Each test still stores the function under test in a small
+per-fixture ``ns`` dict (rather than calling it directly) so the diff from
+the pre-move version of this file -- when each fixture extracted the
+function's source straight out of the notebook's own JSON -- stayed minimal;
+the indirection is otherwise no longer load-bearing.
 """
 from __future__ import annotations
 
-import json
 import sys
 import warnings
 from pathlib import Path
@@ -25,75 +23,39 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 IBM_QAOA_ROOT = REPO_ROOT / "examples" / "IBM_QAOA"
-NOTEBOOK_PATH = IBM_QAOA_ROOT / "notebooks" / "Simulation_Method_Validation_and_WS.ipynb"
 for path in (REPO_ROOT / "src", IBM_QAOA_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
 from src.utils import (  # noqa: E402
-    curve_from_response_summary,
-    _method_label_from_training_method,
-    _pareto_envelope_and_owner,
-    prepare_ibm_qaoa_plot_data,
-    build_recommendation_data,
+    _relativize_warning_filename,
+    _scrubbed_formatwarning,
+    _relativize_paths,
+    _rescale_resource,
+    _best_bitstring_ar,
+    _build_hw_frontier,
+    _sim_entries,
+    _label_hw_frontier,
+    _sim_winners,
 )
-from src.approx_ratio_calc import (  # noqa: E402
-    extract_minmax_args as _extract_minmax_args,
-    get_minmax as _get_minmax,
-    maxcut_approximation_ratio as _maxcut_approximation_ratio,
-    maxcut_energy_from_bitstring as _maxcut_energy_from_bitstring,
-)
-
-
-def _extract_cell_source(cell_id: str) -> str:
-    nb = json.loads(NOTEBOOK_PATH.read_text())
-    for cell in nb["cells"]:
-        if cell.get("id") == cell_id:
-            return "".join(cell.get("source", []))
-    raise KeyError(f"No cell with id={cell_id!r} in {NOTEBOOK_PATH}")
-
-
-def _extract_function(cell_id: str, func_name: str, namespace: dict) -> None:
-    """Exec just the `def <func_name>(...): ...` block from a notebook cell.
-
-    Slices from the `def` line to the next top-level (unindented, non-blank)
-    line so cell code before/after the function (which may reference names
-    that don't exist in this test's namespace) is never executed. The `def`
-    line's own parens are paren-balance-tracked first, since a multi-line
-    signature (e.g. `def f(\n    a, b,\n) -> X:`) has an unindented closing
-    `)` line that would otherwise look like the top-level line ending the
-    function.
-    """
-    src = _extract_cell_source(cell_id)
-    lines = src.split("\n")
-    start = next(i for i, line in enumerate(lines) if line.startswith(f"def {func_name}("))
-    sig_end = start
-    paren_depth = 0
-    for i in range(start, len(lines)):
-        paren_depth += lines[i].count("(") - lines[i].count(")")
-        if paren_depth <= 0:
-            sig_end = i
-            break
-    end = len(lines)
-    for i in range(sig_end + 1, len(lines)):
-        line = lines[i]
-        if line.strip() and not line.startswith((" ", "\t")):
-            end = i
-            break
-    func_src = "\n".join(lines[start:end])
-    exec(compile(func_src, f"<notebook cell {cell_id}:{func_name}>", "exec"), namespace)
 
 
 # ---------------------------------------------------------------------------
-# _relativize_warning_filename / _scrubbed_formatwarning  (cell 914a9b2d)
+# _relativize_warning_filename / _scrubbed_formatwarning
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
 def warning_scrub_ns(tmp_path):
-    ns = {"Path": Path, "WORKSPACE_ROOT": tmp_path}
-    _extract_function("914a9b2d", "_relativize_warning_filename", ns)
-    _extract_function("914a9b2d", "_scrubbed_formatwarning", ns)
-    return ns
+    # src.utils' versions take workspace_root/... as explicit parameters
+    # (the notebook used to close over WORKSPACE_ROOT/a fixed signature
+    # instead); bind tmp_path here so the test bodies below, written against
+    # the notebook's original call arity, don't need to change.
+    return {
+        "_relativize_warning_filename": lambda filename: _relativize_warning_filename(filename, tmp_path),
+        "_scrubbed_formatwarning": lambda message, category, filename, lineno, line=None: _scrubbed_formatwarning(
+            message, category, filename, lineno, line, workspace_root=tmp_path
+        ),
+    }
 
 
 class TestRelativizeWarningFilename:
@@ -162,14 +124,12 @@ class TestScrubbedFormatwarning:
 
 
 # ---------------------------------------------------------------------------
-# _relativize_paths  (cell d78417eb)
+# _relativize_paths
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
 def relativize_paths_ns():
-    ns = {"pd": pd, "Path": Path}
-    _extract_function("d78417eb", "_relativize_paths", ns)
-    return ns
+    return {"_relativize_paths": _relativize_paths}
 
 
 class TestRelativizePaths:
@@ -230,14 +190,12 @@ class TestRelativizePaths:
 
 
 # ---------------------------------------------------------------------------
-# _rescale_resource  (cell 7f87d664)
+# _rescale_resource
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
 def rescale_resource_ns():
-    ns = {"pd": pd}
-    _extract_function("7f87d664", "_rescale_resource", ns)
-    return ns
+    return {"_rescale_resource": _rescale_resource}
 
 
 class TestRescaleResource:
@@ -291,18 +249,12 @@ class TestRescaleResource:
 
 
 # ---------------------------------------------------------------------------
-# _sim_entries  (cell 612c9536)
+# _sim_entries
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
 def sim_entries_ns():
-    ns = {
-        "pd": pd,
-        "np": np,
-        "_curve_from_response_summary": curve_from_response_summary,
-    }
-    _extract_function("612c9536", "_sim_entries", ns)
-    return ns
+    return {"_sim_entries": _sim_entries}
 
 
 class TestSimEntries:
@@ -371,14 +323,12 @@ class TestSimEntries:
 
 
 # ---------------------------------------------------------------------------
-# _label_hw_frontier  (cell 612c9536)
+# _label_hw_frontier
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
 def label_hw_frontier_ns():
-    ns = {"_method_label_from_training_method": _method_label_from_training_method}
-    _extract_function("612c9536", "_label_hw_frontier", ns)
-    return ns
+    return {"_label_hw_frontier": _label_hw_frontier}
 
 
 class TestLabelHwFrontier:
@@ -404,7 +354,7 @@ class TestLabelHwFrontier:
 
 
 # ---------------------------------------------------------------------------
-# _best_bitstring_ar  (cell 612c9536)
+# _best_bitstring_ar
 #
 # minmax_path/graph_type/num_nodes/minmax_cache/instance_context_cache are
 # explicit params as of the Step-1b signature fix (they used to be closures
@@ -415,17 +365,11 @@ class TestLabelHwFrontier:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def best_bitstring_ar_ns():
-    ns = {
-        "pd": pd,
-        "np": np,
-        "_get_minmax": _get_minmax,
-        "_extract_minmax_args": _extract_minmax_args,
-        "_maxcut_energy_from_bitstring": _maxcut_energy_from_bitstring,
-        "_maxcut_approximation_ratio": _maxcut_approximation_ratio,
-    }
-    _extract_function("612c9536", "_best_bitstring_ar", ns)
-    return ns
+def best_bitstring_ar_ns(monkeypatch):
+    # _best_bitstring_ar calls the module-level _get_minmax/_extract_minmax_args
+    # names inside src.utils directly, so patch them there rather than passing
+    # replacements in as parameters.
+    return {"_best_bitstring_ar": _best_bitstring_ar, "monkeypatch": monkeypatch}
 
 
 class TestBestBitstringAr:
@@ -433,9 +377,9 @@ class TestBestBitstringAr:
         # ARRANGE -- a 3-node, 2-edge (0-1, 1-2) unweighted instance;
         # min_cut=0, max_cut=2 chosen so the approximation ratio equals the
         # cut value directly, making the expected winner easy to hand-verify.
-        ns = best_bitstring_ar_ns
-        ns["_get_minmax"] = lambda *a, **k: "unused-path"
-        ns["_extract_minmax_args"] = lambda path: (0.0, 2.0, 2.0)  # min_cut, max_cut, sum_weights
+        monkeypatch = best_bitstring_ar_ns["monkeypatch"]
+        monkeypatch.setattr("src.utils._get_minmax", lambda *a, **k: "unused-path")
+        monkeypatch.setattr("src.utils._extract_minmax_args", lambda path: (0.0, 2.0, 2.0))
         row = pd.Series({"file_name": "000_MC_A.json", "counts": ["001", "010", "111"]})
         instance_context_cache = {
             "000": {
@@ -447,7 +391,7 @@ class TestBestBitstringAr:
         }
 
         # ACT
-        result = ns["_best_bitstring_ar"](
+        result = best_bitstring_ar_ns["_best_bitstring_ar"](
             row,
             minmax_path="unused",
             graph_type="heavy_hex",
@@ -462,14 +406,14 @@ class TestBestBitstringAr:
 
     def test__best_bitstring_ar__caches_minmax_lookup_by_instance_id(self, best_bitstring_ar_ns):
         # ARRANGE
-        ns = best_bitstring_ar_ns
+        monkeypatch = best_bitstring_ar_ns["monkeypatch"]
         call_count = {"n": 0}
 
         def _fake_get_minmax(*a, **k):
             call_count["n"] += 1
             return "path"
-        ns["_get_minmax"] = _fake_get_minmax
-        ns["_extract_minmax_args"] = lambda path: (0.0, 2.0, 2.0)
+        monkeypatch.setattr("src.utils._get_minmax", _fake_get_minmax)
+        monkeypatch.setattr("src.utils._extract_minmax_args", lambda path: (0.0, 2.0, 2.0))
         row = pd.Series({"file_name": "000_MC_A.json", "counts": ["001"]})
         instance_context_cache = {
             "000": {"u": np.array([0, 1]), "v": np.array([1, 2]), "w": np.array([1.0, 1.0]), "sum_weights": 2.0}
@@ -477,17 +421,17 @@ class TestBestBitstringAr:
         minmax_cache = {}
 
         # ACT -- call twice for the same instance id
-        ns["_best_bitstring_ar"](row, minmax_path="p", graph_type="g", num_nodes=3,
-                                   minmax_cache=minmax_cache, instance_context_cache=instance_context_cache)
-        ns["_best_bitstring_ar"](row, minmax_path="p", graph_type="g", num_nodes=3,
-                                   minmax_cache=minmax_cache, instance_context_cache=instance_context_cache)
+        best_bitstring_ar_ns["_best_bitstring_ar"](row, minmax_path="p", graph_type="g", num_nodes=3,
+                                                     minmax_cache=minmax_cache, instance_context_cache=instance_context_cache)
+        best_bitstring_ar_ns["_best_bitstring_ar"](row, minmax_path="p", graph_type="g", num_nodes=3,
+                                                     minmax_cache=minmax_cache, instance_context_cache=instance_context_cache)
 
         # ASSERT -- second call reuses the cached minmax, no second _get_minmax call
         assert call_count["n"] == 1
 
 
 # ---------------------------------------------------------------------------
-# _build_hw_frontier  (cell 612c9536)
+# _build_hw_frontier
 #
 # hardware_new_df/hardware_df/num_nodes are explicit params as of the Step-1b
 # signature fix. Exercises the real prepare_ibm_qaoa_plot_data/
@@ -497,13 +441,7 @@ class TestBestBitstringAr:
 
 @pytest.fixture
 def build_hw_frontier_ns():
-    ns = {
-        "pd": pd,
-        "_prepare_ibm_qaoa_plot_data": prepare_ibm_qaoa_plot_data,
-        "_build_recommendation_data": build_recommendation_data,
-    }
-    _extract_function("612c9536", "_build_hw_frontier", ns)
-    return ns
+    return {"_build_hw_frontier": _build_hw_frontier}
 
 
 class TestBuildHwFrontier:
@@ -556,7 +494,7 @@ class TestBuildHwFrontier:
 
 
 # ---------------------------------------------------------------------------
-# _sim_winners  (cell 612c9536)
+# _sim_winners
 #
 # color_map is an explicit param as of the Step-1b signature fix (previously
 # a closure over the notebook's color_map global).
@@ -564,9 +502,7 @@ class TestBuildHwFrontier:
 
 @pytest.fixture
 def sim_winners_ns():
-    ns = {"np": np, "_pareto_envelope_and_owner": _pareto_envelope_and_owner}
-    _extract_function("612c9536", "_sim_winners", ns)
-    return ns
+    return {"_sim_winners": _sim_winners}
 
 
 class TestSimWinners:

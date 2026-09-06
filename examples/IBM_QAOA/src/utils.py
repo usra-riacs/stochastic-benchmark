@@ -4586,7 +4586,7 @@ def plot_cost_model_comparison_panels(
 
     two_cb_rows = _family_colorbar_row_count(len(dynamic_family_labels)) == 2
     fig, axes = plt.subplots(
-        1, len(panels), figsize=(7.6 * len(panels), 8.0 if two_cb_rows else 6.8), sharey=True
+        1, len(panels), figsize=(6.1 * len(panels), 6.9 if two_cb_rows else 5.9), sharey=True
     )
     if len(panels) == 1:
         axes = [axes]
@@ -4671,14 +4671,17 @@ def plot_cost_model_comparison_panels(
     ]
     if unique_handles:
         axes[-1].legend(handles=unique_handles, loc="lower right", frameon=True,
-                        handlelength=2.4, handletextpad=0.5, labelspacing=0.4)
+                        fontsize=10, handlelength=2.0, handletextpad=0.5,
+                        labelspacing=0.3, borderpad=0.5)
 
-    cb_area_top = 0.26 if two_cb_rows else 0.14
-    bottom = cb_area_top + (0.05 if footnote else 0.02)
-    fig.tight_layout(rect=[0.0, bottom, 1.0, 1.0])
+    # The colorbar strip is placed in figure coordinates, so the axes have to
+    # be told to stop above it or tight_layout will overlap them.
+    cb_area_top = 0.27 if two_cb_rows else 0.12
+    bottom = cb_area_top + (0.045 if footnote else 0.005)
+    fig.tight_layout(rect=[0.0, bottom, 1.0, 1.0], w_pad=0.8)
     if footnote:
-        fig.text(0.5, cb_area_top + 0.005, footnote, ha="center", va="bottom",
-                 fontsize=11, style="italic", color="#444444")
+        fig.text(0.5, cb_area_top - 0.005, footnote, ha="center", va="bottom",
+                 fontsize=9.5, style="italic", color="#555555", wrap=True)
     _draw_family_colorbars(fig, dynamic_family_labels, dynamic_family_p_vals)
 
     save_current_plot(filename, plot_dir)

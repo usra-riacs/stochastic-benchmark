@@ -46,6 +46,7 @@ from src.utils import (  # noqa: E402
     _window_sticker_label_base,
     _window_sticker_label_depth,
     _ws_display_method_label,
+    draw_hardware_frontier_steps,
     load_cost_model_panels,
     load_multi_strategy_summaries,
     read_first_summary_csv,
@@ -332,61 +333,114 @@ def _write_campaign_root(base, tag, suffix, resources=(1.0, 2.0), responses=(0.5
 
 
 class TestLoadCostModelPanels:
-    def test__load_cost_model_panels__builds_one_panel_per_variant(self, tmp_path):
-        # ARRANGE
-        for suffix in ("prep0", "prep13p87s"):
+    def _spec(self, title, calibrations):
+        return {"title": title, "calibrations": calibrations}
+
+    def test__load_cost_model_panels__fills_prescription_data_per_calibration(self, tmp_path):
+        # ARRANGE -- two calibrations in one panel, each its own root suffix
+        for suffix in ("prep0", "nc_prep0"):
             _write_campaign_root(tmp_path, "camp_a", suffix)
 
         # ACT
         panels = load_cost_model_panels(
-            ["camp_a"], tmp_path,
-            [("baseline", "prep0"), ("charged", "prep13p87s")],
+            [self._spec("baseline", [
+                {"label": "Noiseless", "suffix": "prep0"},
+                {"label": "Noise-Corrected", "suffix": "nc_prep0"},
+            ])],
+            ["camp_a"], tmp_path, verbose=False,
         )
 
         # ASSERT
-        assert [p["title"] for p in panels] == ["baseline", "charged"]
-        assert len(panels[0]["calibrations"]) == 1
-        assert not panels[0]["calibrations"][0]["prescription_df"].empty
+        calibrations = panels[0]["calibrations"]
+        assert [c["label"] for c in calibrations] == ["Noiseless", "Noise-Corrected"]
+        assert all(not c["prescription_df"].empty for c in calibrations)
 
-    def test__load_cost_model_panels__given_a_variant_with_no_roots__raises(self, tmp_path):
+    def test__load_cost_model_panels__builds_one_panel_per_spec(self, tmp_path):
+        for suffix in ("prep0", "prep13p87s"):
+            _write_campaign_root(tmp_path, "camp_a", suffix)
+        panels = load_cost_model_panels(
+            [self._spec("baseline", [{"label": "nl", "suffix": "prep0"}]),
+             self._spec("charged", [{"label": "nl", "suffix": "prep13p87s"}])],
+            ["camp_a"], tmp_path, verbose=False,
+        )
+        assert [p["title"] for p in panels] == ["baseline", "charged"]
+
+    def test__load_cost_model_panels__given_a_suffix_with_no_roots__raises(self, tmp_path):
         _write_campaign_root(tmp_path, "camp_a", "prep0")
         with pytest.raises(FileNotFoundError):
-            load_cost_model_panels(["camp_a"], tmp_path, [("charged", "prep13p87s")])
+            load_cost_model_panels(
+                [self._spec("charged", [{"label": "nl", "suffix": "prep13p87s"}])],
+                ["camp_a"], tmp_path, verbose=False,
+            )
 
     def test__load_cost_model_panels__given_a_partial_set__continues_and_reports(self, tmp_path, capsys):
-        # ARRANGE -- only one of the two campaigns has been generated
-        _write_campaign_root(tmp_path, "camp_a", "prep0")
-
-        # ACT
-        panels = load_cost_model_panels(["camp_a", "camp_b"], tmp_path, [("baseline", "prep0")])
-
-        # ASSERT
-        assert len(panels) == 1
-        assert "1/2 roots present" in capsys.readouterr().out
-
-    def test__load_cost_model_panels__excluded_tags_are_dropped(self, tmp_path, capsys):
-        # ARRANGE -- both exist, but one family is excluded from the figure
-        _write_campaign_root(tmp_path, "camp_a", "prep0")
-        _write_campaign_root(tmp_path, "camp_interp", "prep0")
-
-        # ACT
-        load_cost_model_panels(
-            ["camp_a", "camp_interp"], tmp_path, [("baseline", "prep0")],
-            exclude_tags=["camp_interp"],
-        )
-
-        # ASSERT -- one root used, and no missing-root warning for the excluded one
-        out = capsys.readouterr().out
-        assert "1 roots" in out
-        assert "camp_interp" not in out
-
-    def test__load_cost_model_panels__carries_the_calibration_style_through(self, tmp_path):
         _write_campaign_root(tmp_path, "camp_a", "prep0")
         panels = load_cost_model_panels(
-            ["camp_a"], tmp_path, [("baseline", "prep0")],
-            calibration_label="my label", linestyle="--", marker="D",
+            [self._spec("baseline", [{"label": "nl", "suffix": "prep0"}])],
+            ["camp_a", "camp_b"], tmp_path,
         )
+        assert len(panels) == 1
+        assert "1/2 roots" in capsys.readouterr().out
+
+    def test__load_cost_model_panels__excluded_tags_are_dropped(self, tmp_path, capsys):
+        _write_campaign_root(tmp_path, "camp_a", "prep0")
+        _write_campaign_root(tmp_path, "camp_interp", "prep0")
+        load_cost_model_panels(
+            [self._spec("baseline", [{"label": "nl", "suffix": "prep0"}])],
+            ["camp_a", "camp_interp"], tmp_path, exclude_tags=["camp_interp"],
+        )
+        out = capsys.readouterr().out
+        assert "1 roots" in out and "camp_interp" not in out
+
+    def test__load_cost_model_panels__preserves_style_and_panel_extras(self, tmp_path):
+        _write_campaign_root(tmp_path, "camp_a", "prep0")
+        spec = self._spec("baseline", [
+            {"label": "Noiseless", "suffix": "prep0", "linestyle": "--", "marker": "D"}])
+        spec["hardware"] = {"label": "hw", "frontier_df": None}
+        panels = load_cost_model_panels([spec], ["camp_a"], tmp_path, verbose=False)
         calibration = panels[0]["calibrations"][0]
-        assert calibration["label"] == "my label"
-        assert calibration["linestyle"] == "--"
-        assert calibration["marker"] == "D"
+        assert calibration["linestyle"] == "--" and calibration["marker"] == "D"
+        assert panels[0]["hardware"]["label"] == "hw"
+
+
+class TestDrawHardwareFrontierSteps:
+    def _axes(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        return plt.subplots()
+
+    def _frontier(self):
+        return pd.DataFrame({
+            "dur_mean": [10.0, 100.0],
+            "ar_mean": [0.85, 0.90],
+            "dur_sem": [1.0, 5.0],
+            "ar_sem": [0.01, 0.01],
+            "method_label": ["FA (p=5)", "FA (p=6)"],
+        })
+
+    def test__draw_hardware_frontier_steps__returns_the_plotted_resources(self):
+        fig, ax = self._axes()
+        x = draw_hardware_frontier_steps(ax, self._frontier(), {"FA (p=5)": "r", "FA (p=6)": "b"})
+        np.testing.assert_allclose(x, [10.0, 100.0])
+
+    def test__draw_hardware_frontier_steps__extra_cost_shifts_every_point(self):
+        # ARRANGE / ACT -- the charged panel bills the one submitted circuit
+        fig, ax = self._axes()
+        x = draw_hardware_frontier_steps(
+            ax, self._frontier(), {"FA (p=5)": "r", "FA (p=6)": "b"}, extra_cost=13.87
+        )
+
+        # ASSERT
+        np.testing.assert_allclose(x, [23.87, 113.87])
+
+    def test__draw_hardware_frontier_steps__given_empty_frontier__draws_nothing(self):
+        fig, ax = self._axes()
+        x = draw_hardware_frontier_steps(ax, pd.DataFrame(), {})
+        assert x.size == 0
+        assert len(ax.lines) == 0
+
+    def test__draw_hardware_frontier_steps__unknown_label_falls_back_to_a_default_colour(self):
+        fig, ax = self._axes()
+        x = draw_hardware_frontier_steps(ax, self._frontier(), {})  # empty colour map
+        assert x.size == 2

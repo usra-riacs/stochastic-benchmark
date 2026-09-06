@@ -186,10 +186,15 @@ def build_variant(exact_df: pd.DataFrame, out_root: Path, codebooks: dict,
     return {"frontier_rows": len(frontier_df), "results": results, "priced": priced}
 
 
-def variant_label(circuit_prep_time: float) -> str:
-    if circuit_prep_time <= 0:
-        return "prep0"
-    return "prep" + f"{circuit_prep_time:g}".replace(".", "p") + "s"
+def variant_label(circuit_prep_time: float, variant_tag: str = "") -> str:
+    """Directory suffix for one (calibration, charge) combination.
+
+    ``variant_tag`` distinguishes shot-time calibrations, e.g. "nc" for the
+    noise-corrected basis, so those roots do not collide with the noiseless
+    ones. An empty tag keeps the plain ``prep0`` / ``prep<t>s`` names.
+    """
+    charge = "prep0" if circuit_prep_time <= 0 else "prep" + f"{circuit_prep_time:g}".replace(".", "p") + "s"
+    return f"{variant_tag}_{charge}" if variant_tag else charge
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -221,6 +226,9 @@ def main(argv: list[str] | None = None) -> int:
         "--no-hardware-shot-times", dest="use_hardware_shot_times", action="store_false",
         default=True, help="Skip the measured per-depth hardware lookup.",
     )
+    parser.add_argument("--variant-tag", default="",
+                        help='Prefix distinguishing a shot-time calibration in the output '
+                             'directory names, e.g. "nc" for noise-corrected.')
     parser.add_argument("--num-bins", type=int, default=1000)
     parser.add_argument("--train-test-split", type=float, default=0.5)
     parser.add_argument("--bootstrap-start", type=int, default=10)
@@ -249,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"results base : {results_base}")
     print(f"hardware root: {hardware_root}")
     print(f"campaigns    : {len(tags)}")
-    print(f"variants     : {[variant_label(v) for v in variants]}")
+    print(f"variants     : {[variant_label(v, args.variant_tag) for v in variants]}")
     print(f"Q cap        : {args.q_cap or 'none'}")
     print()
 
@@ -286,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         for prep in variants:
-            label = variant_label(prep)
+            label = variant_label(prep, args.variant_tag)
             if args.q_cap:
                 label += f"_Q{args.q_cap}"
             out_root = results_base / f"{tag}__{label}"

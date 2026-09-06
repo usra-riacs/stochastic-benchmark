@@ -10,6 +10,7 @@ import matplotlib.gridspec as gridspec
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 import matplotlib.colors as mcolors
+import matplotlib.patheffects as _pe
 from matplotlib.ticker import (
     FixedLocator,
     FormatStrFormatter,
@@ -4360,82 +4361,151 @@ def collect_cost_model_panel_entries(
     return per_panel, sorted(labels)
 
 
-def load_cost_model_panels(
-    result_tags: Iterable[str],
-    results_base: str | Path,
-    variants: Iterable[tuple[str, str]],
+def draw_hardware_frontier_steps(
+    ax,
+    frontier_df: pd.DataFrame,
+    color_map: dict[str, Any],
     *,
-    calibration_label: str = "Actionable prescription (test instances)",
-    linestyle: str = "-",
-    marker: str = "o",
-    summary_key: str = "fitted_projection_test",
-    exclude_tags: Iterable[str] = (),
-) -> list[dict[str, Any]]:
-    """Assemble comparison panels from re-costed campaign roots.
+    extend_to: float | None = None,
+    extra_cost: float = 0.0,
+    linestyle: str = ":",
+    marker: str = "s",
+    linewidth: float = 2.2,
+    markersize: float = 100,
+    show_error_bars: bool = True,
+    zorder: float = 6,
+) -> np.ndarray:
+    """Draw a measured-hardware Pareto frontier as a coloured step curve.
 
-    ``variants`` pairs a panel title with the directory suffix the re-costing
-    script wrote, e.g. ``("Shot time only", "prep0")``. Each campaign tag is
-    looked up as ``<results_base>/<tag>__<suffix>``; suffixes with no roots at
-    all raise, while a partial set warns and continues so a comparison can
-    still be eyeballed mid-generation.
+    The hardware frontier is a handful of discrete measured points rather
+    than a dense curve, so it is drawn as a step: each point holds its ratio
+    until the next one takes over, coloured by the strategy family that owns
+    it, with a white halo so it stays readable where it crosses the simulated
+    envelopes. The last step extends to ``extend_to`` to show the record
+    persisting rather than the curve simply stopping.
 
     Parameters
     ----------
-    result_tags : iterable of str
-        Campaign roots to include, without any variant suffix.
-    results_base : str or pathlib.Path
-        Directory holding the campaign roots.
-    variants : iterable of (str, str)
-        ``(panel_title, directory_suffix)`` pairs, one per panel.
-    calibration_label : str
-        Legend entry for the drawn curve.
-    summary_key : str
-        Which loaded summary table to plot, defaulting to the fitted
-        actionable projection on test instances.
-    exclude_tags : iterable of str
-        Campaign tags to drop, e.g. families that never reach the frontier
-        and only widen the resource axis.
+    frontier_df : pandas.DataFrame
+        Hardware frontier carrying ``dur_mean``, ``ar_mean``, ``method_label``
+        and optionally ``dur_sem`` / ``ar_sem``.
+    color_map : dict
+        Method label to colour, shared with the simulated curves.
+    extend_to : float, optional
+        Resource value the final step runs out to. Defaults to the last
+        measured point, i.e. no extension.
+    extra_cost : float, default=0.0
+        Seconds added to every point's resource. Used to charge the single
+        hardware execution job its circuit-preparation time; the classical
+        training already carries real measured wall-clock, and only one
+        circuit is ever submitted, so one charge is all that applies.
+    show_error_bars : bool, default=True
+        Draw the standard error over instances in both axes.
 
     Returns
     -------
-    list of dict
-        Panels ready for :func:`plot_cost_model_comparison_panels`.
+    numpy.ndarray
+        The plotted resource values, so a caller can widen axis limits.
+    """
+    if frontier_df is None or frontier_df.empty:
+        return np.array([], dtype=float)
+
+    x = pd.to_numeric(frontier_df["dur_mean"], errors="coerce").to_numpy(dtype=float) + float(extra_cost)
+    y = pd.to_numeric(frontier_df["ar_mean"], errors="coerce").to_numpy(dtype=float) * 100.0
+    if not x.size:
+        return np.array([], dtype=float)
+
+    colors = [color_map.get(label, "#444444") for label in frontier_df["method_label"]]
+    halo = [_pe.Stroke(linewidth=linewidth + 1.8, foreground="white"), _pe.Normal()]
+    right_edge = float(extend_to) if extend_to is not None else float(x[-1])
+
+    for i in range(len(x)):
+        x_end = x[i + 1] if i + 1 < len(x) else max(right_edge, x[i])
+        ax.plot([x[i], x_end], [y[i], y[i]], color=colors[i], linestyle=linestyle,
+                linewidth=linewidth, path_effects=halo, zorder=zorder)
+        if i > 0:
+            ax.plot([x[i], x[i]], [y[i - 1], y[i]], color=colors[i], linestyle=linestyle,
+                    linewidth=linewidth, path_effects=halo, zorder=zorder)
+
+    ax.scatter(x, y, c=colors, marker=marker, s=markersize,
+               edgecolor="white", linewidth=0.8, zorder=zorder + 1)
+
+    if show_error_bars and {"dur_sem", "ar_sem"}.issubset(frontier_df.columns):
+        x_sem = pd.to_numeric(frontier_df["dur_sem"], errors="coerce").to_numpy(dtype=float)
+        y_sem = pd.to_numeric(frontier_df["ar_sem"], errors="coerce").to_numpy(dtype=float) * 100.0
+        usable = np.isfinite(x_sem) & np.isfinite(y_sem)
+        for i in np.flatnonzero(usable):
+            ax.errorbar(x[i], y[i], xerr=x_sem[i], yerr=y_sem[i], fmt="none",
+                        ecolor=colors[i], capsize=3, elinewidth=1.1, zorder=zorder + 0.5)
+    return x
+
+
+def load_cost_model_panels(
+    panel_specs: list[dict[str, Any]],
+    result_tags: Iterable[str],
+    results_base: str | Path,
+    *,
+    summary_key: str = "fitted_projection_test",
+    exclude_tags: Iterable[str] = (),
+    verbose: bool = True,
+) -> list[dict[str, Any]]:
+    """Fill in prescription tables for a set of comparison panels.
+
+    ``panel_specs`` mirrors the structure
+    :func:`plot_cost_model_comparison_panels` consumes, except each
+    calibration names a ``suffix`` rather than carrying data::
+
+        [{"title": "Shot time only",
+          "calibrations": [{"label": "Noiseless", "suffix": "prep0",
+                            "linestyle": "-", "marker": "o"}]}]
+
+    Each campaign tag is looked up as ``<results_base>/<tag>__<suffix>``.
+    A calibration whose suffix has no roots at all raises, since that means
+    the re-costing run for it was never done; a partial set reports and
+    continues so a comparison can still be eyeballed mid-generation.
+
+    Returns the same structure with ``prescription_df`` added to every
+    calibration and ``suffix`` left in place for reference.
     """
     base = Path(results_base)
     excluded = set(exclude_tags)
     wanted = [tag for tag in result_tags if tag not in excluded]
 
     panels: list[dict[str, Any]] = []
-    for title, suffix in variants:
-        roots = [f"{tag}__{suffix}" for tag in wanted]
-        present = [root for root in roots if (base / root).exists()]
-        if not present:
-            raise FileNotFoundError(
-                f'No campaign roots found for variant "{suffix}" under {base}. '
-                "Generate them with examples/IBM_QAOA/run_latency_recost.py."
-            )
-        if len(present) < len(roots):
-            missing = sorted(set(roots) - set(present))
-            print(f"  {title}: {len(present)}/{len(roots)} roots present, missing {missing}")
+    for spec in panel_specs:
+        calibrations: list[dict[str, Any]] = []
+        for calibration in spec.get("calibrations", []):
+            suffix = calibration["suffix"]
+            roots = [f"{tag}__{suffix}" for tag in wanted]
+            present = [root for root in roots if (base / root).exists()]
+            if not present:
+                raise FileNotFoundError(
+                    f'No campaign roots found for variant "{suffix}" under {base}. '
+                    "Generate them with examples/IBM_QAOA/run_latency_recost.py."
+                )
+            if len(present) < len(roots) and verbose:
+                missing = sorted(set(roots) - set(present))
+                print(f"  {spec.get('title', '')} / {calibration.get('label', suffix)}: "
+                      f"{len(present)}/{len(roots)} roots, missing {missing}")
 
-        summaries = load_multi_strategy_summaries(present, base)
-        projection_df = concat_summary(summaries, summary_key)
-        panels.append({
-            "title": title,
-            "calibrations": [{
-                "label": calibration_label,
-                "linestyle": linestyle,
-                "marker": marker,
-                "prescription_df": projection_df,
-            }],
-        })
+            projection_df = concat_summary(load_multi_strategy_summaries(present, base), summary_key)
+            filled = dict(calibration)
+            filled["prescription_df"] = projection_df
+            calibrations.append(filled)
 
-        if projection_df.empty or "resource" not in projection_df.columns:
-            print(f"{title}: {len(present)} roots, no projection rows")
-            continue
-        resource = pd.to_numeric(projection_df["resource"], errors="coerce").dropna()
-        print(f"{title}: {len(present)} roots, {len(projection_df)} rows, "
-              f"resource [{resource.min():.4g}, {resource.max():.4g}] s")
+            if verbose:
+                if projection_df.empty or "resource" not in projection_df.columns:
+                    print(f"{spec.get('title', '')} / {calibration.get('label', suffix)}: "
+                          f"{len(present)} roots, no projection rows")
+                else:
+                    resource = pd.to_numeric(projection_df["resource"], errors="coerce").dropna()
+                    print(f"{spec.get('title', '')} / {calibration.get('label', suffix)}: "
+                          f"{len(present)} roots, {len(projection_df)} rows, "
+                          f"resource [{resource.min():.4g}, {resource.max():.4g}] s")
+
+        panel = dict(spec)
+        panel["calibrations"] = calibrations
+        panels.append(panel)
     return panels
 
 
@@ -4473,18 +4543,33 @@ def plot_cost_model_comparison_panels(
         Shared response limits. Derived from the drawn data when omitted.
     show_error_bars : bool, default=True
         Draw 1-SEM whiskers at each strategy takeover point.
+    hardware : dict, optional (per panel)
+        A panel may carry ``{"frontier_df": ..., "label": ..., "extra_cost":
+        ...}`` to overlay a measured-hardware frontier via
+        :func:`draw_hardware_frontier_steps`. ``extra_cost`` charges that
+        workflow's single submitted circuit, which is the only preparation
+        cost it incurs since its training ran classically.
     footnote : str, optional
         Caveat text placed under the panels, e.g. a note that one axis is
         limited by the explored parameter grid rather than by physics.
     """
     per_panel, all_labels = collect_cost_model_panel_entries(panels)
+    # Hardware frontiers share the family colour map with the simulated
+    # curves, so colour means the same thing on every curve in the figure.
+    hardware_labels = {
+        str(label)
+        for panel in panels
+        if panel.get("hardware") and panel["hardware"].get("frontier_df") is not None
+        for label in panel["hardware"]["frontier_df"].get("method_label", pd.Series(dtype=str)).dropna()
+    }
+    all_labels = sorted(set(all_labels) | hardware_labels)
     if not all_labels:
         print(f"Skipping {filename}: no panels with actionable-fit data found.")
         return
 
     color_map, family_labels, family_p_vals = _build_family_color_map(all_labels)
 
-    winning: set[str] = set()
+    winning: set[str] = set(hardware_labels)
     for panel_entries in per_panel:
         for _, entries in panel_entries:
             winning |= _sim_winners(entries, color_map)
@@ -4538,6 +4623,20 @@ def plot_cost_model_comparison_panels(
                         capsize=3, elinewidth=1.1, zorder=5.5,
                     )
 
+        hardware = panel.get("hardware")
+        if hardware and hardware.get("frontier_df") is not None:
+            hw_x = draw_hardware_frontier_steps(
+                ax, hardware["frontier_df"], color_map,
+                extend_to=hardware.get("extend_to"),
+                extra_cost=hardware.get("extra_cost", 0.0),
+                linestyle=hardware.get("linestyle", ":"),
+                marker=hardware.get("marker", "s"),
+                show_error_bars=show_error_bars,
+            )
+            if hw_x.size:
+                hw_y = pd.to_numeric(hardware["frontier_df"]["ar_mean"], errors="coerce")
+                y_all.extend((hw_y.dropna() * 100.0).tolist())
+
         ax.set_xscale("log")
         ax.set_xlabel(xlabel)
         ax.set_title(panel.get("title", ""), fontsize=15)
@@ -4555,6 +4654,15 @@ def plot_cost_model_comparison_panels(
                linewidth=2.6, marker=calibration.get("marker", "o"),
                markersize=10, label=calibration["label"])
         for panel in panels for calibration in panel.get("calibrations", [])
+    ]
+    source_handles += [
+        Line2D([0], [0], color="black",
+               linestyle=panel["hardware"].get("linestyle", ":"),
+               linewidth=2.2, marker=panel["hardware"].get("marker", "s"),
+               markersize=10, label=panel["hardware"]["label"])
+        for panel in panels
+        if panel.get("hardware") and panel["hardware"].get("frontier_df") is not None
+        and panel["hardware"].get("label")
     ]
     seen: set[str] = set()
     unique_handles = [

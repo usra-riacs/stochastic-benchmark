@@ -3620,6 +3620,64 @@ _CB_SPACING = 0.03
 _CB_MIN_W = 0.10
 
 
+def _envelope_segment_bounds(best_idx: np.ndarray) -> list[tuple[int, int, int]]:
+    """Split a Pareto envelope into runs of grid columns held by one method.
+
+    Returns ``(start, stop, owner)`` triples with ``stop`` exclusive, skipping
+    stretches no method owns (``owner < 0``). Consecutive runs share no grid
+    column, so a colour change lands exactly where ownership changes.
+    """
+    runs: list[tuple[int, int, int]] = []
+    n_grid = len(best_idx)
+    i = 0
+    while i < n_grid:
+        owner = int(best_idx[i])
+        j = i + 1
+        while j < n_grid and int(best_idx[j]) == owner:
+            j += 1
+        if owner >= 0:
+            runs.append((i, j, owner))
+        i = j
+    return runs
+
+
+def _draw_pareto_envelope_segments(
+    ax,
+    grid: np.ndarray,
+    envelope: np.ndarray,
+    best_idx: np.ndarray,
+    method_colors: list,
+    *,
+    linestyle: str = "-",
+    marker: str | None = "o",
+    linewidth: float = 2.6,
+    markersize: float = 10,
+    zorder: float = 5,
+) -> list[int]:
+    """Draw a Pareto envelope one owner-coloured segment at a time.
+
+    One marker is placed at the start of each segment, i.e. exactly where a
+    strategy takes over the frontier, rather than at evenly spaced intervals
+    which would cluster on short segments.
+
+    Returns the grid indices where markers were placed, so a caller can hang
+    error bars on the same points.
+    """
+    marker_idx: list[int] = []
+    for start, stop, owner in _envelope_segment_bounds(best_idx):
+        if not np.isfinite(envelope[start:stop]).any():
+            continue
+        ax.plot(
+            grid[start:stop], envelope[start:stop],
+            color=method_colors[owner], linestyle=linestyle,
+            linewidth=linewidth, solid_capstyle="round", zorder=zorder,
+            marker=marker, markevery=[0] if marker else None,
+            markersize=markersize, markeredgecolor="white", markeredgewidth=0.8,
+        )
+        marker_idx.append(start)
+    return marker_idx
+
+
 def _family_colorbar_row_count(n_cb: int) -> int:
     """How many colorbar rows _draw_family_colorbars will use for n_cb families.
 
@@ -4266,6 +4324,174 @@ def plot_pareto_frontier_overlay(
         columnspacing=1.2,
     )
 
+    _draw_family_colorbars(fig, dynamic_family_labels, dynamic_family_p_vals)
+
+    save_current_plot(filename, plot_dir)
+    plt.show()
+
+
+def collect_cost_model_panel_entries(
+    panels: list[dict[str, Any]],
+) -> tuple[list[list[tuple]], list[str]]:
+    """Turn per-panel calibration frames into drawable curve entries.
+
+    ``panels`` is a list of dicts, each with a ``title`` and a
+    ``calibrations`` list whose entries carry ``label``, ``linestyle``,
+    ``marker`` and ``prescription_df``. Returns one entry list per panel,
+    where an entry is ``(calibration, curve_entries)``, alongside the sorted
+    union of every method label seen. That union is what a shared family
+    colour map must be built from, so the same strategy takes the same colour
+    in both panels.
+    """
+    per_panel: list[list[tuple]] = []
+    labels: set[str] = set()
+    for panel in panels:
+        panel_entries: list[tuple] = []
+        for calibration in panel.get("calibrations", []):
+            df = calibration.get("prescription_df")
+            if df is None or df.empty:
+                continue
+            entries = _sim_entries(df)
+            if not entries:
+                continue
+            labels.update(entry[0] for entry in entries)
+            panel_entries.append((calibration, entries))
+        per_panel.append(panel_entries)
+    return per_panel, sorted(labels)
+
+
+def plot_cost_model_comparison_panels(
+    *,
+    panels: list[dict[str, Any]],
+    plot_dir: str | Path,
+    filename: str,
+    xlabel: str = "Resource (s)",
+    ylabel: str = "Approximation ratio (%)",
+    approx_ylim: tuple[float, float] | None = None,
+    show_error_bars: bool = True,
+    footnote: str | None = None,
+) -> None:
+    """Compare the actionable Pareto frontier under two resource cost models.
+
+    Each panel gets its own log resource axis while sharing the response axis,
+    because the two cost models differ by a per-point offset rather than a
+    constant factor. A single rescaled axis cannot represent that, which is
+    why this draws side-by-side panels instead of stacked scales.
+
+    Colour still means the same thing in both panels, namely which strategy
+    family and depth owns that stretch of the frontier, since the family
+    colour map is built from the union of labels across both.
+
+    Parameters
+    ----------
+    panels : list of dict
+        One dict per panel with ``title`` and ``calibrations``; each
+        calibration carries ``label``, ``linestyle``, optional ``marker`` and
+        ``prescription_df`` (a fitted actionable-projection table).
+    plot_dir, filename : str or pathlib.Path
+        Where the figure is written.
+    approx_ylim : tuple, optional
+        Shared response limits. Derived from the drawn data when omitted.
+    show_error_bars : bool, default=True
+        Draw 1-SEM whiskers at each strategy takeover point.
+    footnote : str, optional
+        Caveat text placed under the panels, e.g. a note that one axis is
+        limited by the explored parameter grid rather than by physics.
+    """
+    per_panel, all_labels = collect_cost_model_panel_entries(panels)
+    if not all_labels:
+        print(f"Skipping {filename}: no panels with actionable-fit data found.")
+        return
+
+    color_map, family_labels, family_p_vals = _build_family_color_map(all_labels)
+
+    winning: set[str] = set()
+    for panel_entries in per_panel:
+        for _, entries in panel_entries:
+            winning |= _sim_winners(entries, color_map)
+
+    dynamic_family_labels = {
+        family: [label for label in labels if label in winning]
+        for family, labels in family_labels.items()
+        if any(label in winning for label in labels)
+    }
+    dynamic_family_p_vals = {
+        family: sorted({_label_depth(label) for label in labels if _label_depth(label) is not None})
+        for family, labels in dynamic_family_labels.items()
+    }
+
+    two_cb_rows = _family_colorbar_row_count(len(dynamic_family_labels)) == 2
+    fig, axes = plt.subplots(
+        1, len(panels), figsize=(7.6 * len(panels), 8.0 if two_cb_rows else 6.8), sharey=True
+    )
+    if len(panels) == 1:
+        axes = [axes]
+
+    y_all: list[float] = []
+    for ax, panel, panel_entries in zip(axes, panels, per_panel):
+        for calibration, entries in panel_entries:
+            colored = [(lbl, color_map[lbl], xs, ys) for lbl, xs, ys, _, _ in entries]
+            bounds = [(xs, lo, hi) for _, xs, _, lo, hi in entries]
+            x_lo = min(entry[2][0] for entry in colored)
+            x_hi = max(entry[2][-1] for entry in colored)
+            if not (x_lo > 0 and x_hi > x_lo):
+                continue
+            grid = np.logspace(np.log10(x_lo), np.log10(x_hi), 800)
+            envelope, best_idx = _pareto_envelope_and_owner(colored, grid)
+            method_colors = [entry[1] for entry in colored]
+            marker_idx = _draw_pareto_envelope_segments(
+                ax, grid, envelope, best_idx, method_colors,
+                linestyle=calibration.get("linestyle", "-"),
+                marker=calibration.get("marker", "o"),
+            )
+            y_all.extend(envelope[np.isfinite(envelope)].tolist())
+
+            if show_error_bars:
+                ci_lower, ci_upper = _pareto_envelope_bounds(bounds, grid, best_idx)
+                for idx in marker_idx:
+                    lo, hi, mid = ci_lower[idx], ci_upper[idx], envelope[idx]
+                    if not (np.isfinite(lo) and np.isfinite(hi) and np.isfinite(mid)):
+                        continue
+                    ax.errorbar(
+                        grid[idx], mid,
+                        yerr=[[max(0.0, mid - lo)], [max(0.0, hi - mid)]],
+                        fmt="none", ecolor=method_colors[int(best_idx[idx])],
+                        capsize=3, elinewidth=1.1, zorder=5.5,
+                    )
+
+        ax.set_xscale("log")
+        ax.set_xlabel(xlabel)
+        ax.set_title(panel.get("title", ""), fontsize=15)
+        ax.grid(alpha=0.25, which="both")
+
+    axes[0].set_ylabel(ylabel)
+    if approx_ylim is not None:
+        axes[0].set_ylim(*approx_ylim)
+    elif y_all:
+        axes[0].set_ylim(min(y_all), max(y_all) + 0.5)
+
+    source_handles = [
+        Line2D([0], [0], color="black",
+               linestyle=calibration.get("linestyle", "-"),
+               linewidth=2.6, marker=calibration.get("marker", "o"),
+               markersize=10, label=calibration["label"])
+        for panel in panels for calibration in panel.get("calibrations", [])
+    ]
+    seen: set[str] = set()
+    unique_handles = [
+        handle for handle in source_handles
+        if not (handle.get_label() in seen or seen.add(handle.get_label()))
+    ]
+    if unique_handles:
+        axes[-1].legend(handles=unique_handles, loc="lower right", frameon=True,
+                        handlelength=2.4, handletextpad=0.5, labelspacing=0.4)
+
+    cb_area_top = 0.26 if two_cb_rows else 0.14
+    bottom = cb_area_top + (0.05 if footnote else 0.02)
+    fig.tight_layout(rect=[0.0, bottom, 1.0, 1.0])
+    if footnote:
+        fig.text(0.5, cb_area_top + 0.005, footnote, ha="center", va="bottom",
+                 fontsize=11, style="italic", color="#444444")
     _draw_family_colorbars(fig, dynamic_family_labels, dynamic_family_p_vals)
 
     save_current_plot(filename, plot_dir)

@@ -20,10 +20,13 @@ for path in (REPO_ROOT / "src", IBM_QAOA_ROOT):
         sys.path.insert(0, str(path))
 
 from src.utils import (  # noqa: E402
+    _draw_pareto_envelope_segments,
+    _envelope_segment_bounds,
     _force_dagger_label,
     _is_no_opt_metadata,
     _pareto_envelope_and_owner,
     _pareto_envelope_bounds,
+    collect_cost_model_panel_entries,
     _percent_approx_ylabel,
     _percent_axis_values,
     attach_result_metadata,
@@ -486,3 +489,123 @@ class TestPrepareTrainingBricksData:
 
         # ASSERT
         assert agg.empty
+
+
+# ---------------------------------------------------------------------------
+# _envelope_segment_bounds / _draw_pareto_envelope_segments /
+# collect_cost_model_panel_entries
+#
+# The segment splitting was inline in the notebook's Pareto cell until the
+# two-panel cost-model figure needed the same logic; these pin the behaviour
+# the drawn figure depends on (one marker exactly where ownership changes,
+# unowned stretches skipped).
+# ---------------------------------------------------------------------------
+
+class TestEnvelopeSegmentBounds:
+    def test__envelope_segment_bounds__splits_into_runs_of_one_owner(self):
+        # ARRANGE / ACT
+        runs = _envelope_segment_bounds(np.array([0, 0, 0, 1, 1, 2]))
+
+        # ASSERT -- (start, stop exclusive, owner)
+        assert runs == [(0, 3, 0), (3, 5, 1), (5, 6, 2)]
+
+    def test__envelope_segment_bounds__skips_stretches_no_method_owns(self):
+        runs = _envelope_segment_bounds(np.array([-1, -1, 0, 0, -1, 1]))
+        assert runs == [(2, 4, 0), (5, 6, 1)]
+
+    def test__envelope_segment_bounds__consecutive_runs_share_no_grid_column(self):
+        # ARRANGE -- a colour change must land exactly at the handover, so
+        # segment n's stop is segment n+1's start
+        runs = _envelope_segment_bounds(np.array([0, 0, 1, 1, 0]))
+
+        # ASSERT
+        for (_, stop, _), (next_start, _, _) in zip(runs, runs[1:]):
+            assert stop == next_start
+
+    def test__envelope_segment_bounds__given_no_owner_anywhere__returns_empty(self):
+        assert _envelope_segment_bounds(np.array([-1, -1])) == []
+
+
+class TestDrawParetoEnvelopeSegments:
+    def _axes(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        return plt.subplots()
+
+    def test__draw_pareto_envelope_segments__marks_each_takeover_point(self):
+        # ARRANGE -- ownership changes at index 2 and 4
+        fig, ax = self._axes()
+        grid = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        envelope = np.array([1.0, 1.0, 2.0, 2.0, 3.0])
+        best_idx = np.array([0, 0, 1, 1, 0])
+
+        # ACT
+        marker_idx = _draw_pareto_envelope_segments(ax, grid, envelope, best_idx, ["r", "b"])
+
+        # ASSERT -- one marker at the start of each owned run
+        assert marker_idx == [0, 2, 4]
+        assert len(ax.lines) == 3
+
+    def test__draw_pareto_envelope_segments__skips_all_nan_segments(self):
+        # ARRANGE -- the middle run has no finite envelope value to draw
+        fig, ax = self._axes()
+        grid = np.array([1.0, 2.0, 3.0, 4.0])
+        envelope = np.array([1.0, np.nan, np.nan, 2.0])
+        best_idx = np.array([0, 1, 1, 0])
+
+        # ACT
+        marker_idx = _draw_pareto_envelope_segments(ax, grid, envelope, best_idx, ["r", "b"])
+
+        # ASSERT
+        assert marker_idx == [0, 3]
+
+    def test__draw_pareto_envelope_segments__given_no_owned_runs__draws_nothing(self):
+        fig, ax = self._axes()
+        marker_idx = _draw_pareto_envelope_segments(
+            ax, np.array([1.0, 2.0]), np.array([1.0, 1.0]), np.array([-1, -1]), ["r"]
+        )
+        assert marker_idx == []
+        assert len(ax.lines) == 0
+
+
+class TestCollectCostModelPanelEntries:
+    def _prescription(self, label, resources, responses):
+        return pd.DataFrame({
+            "method_label": [label] * len(resources),
+            "resource": resources,
+            "response": responses,
+        })
+
+    def test__collect_cost_model_panel_entries__returns_entries_per_panel_and_the_label_union(self):
+        # ARRANGE -- different strategies in each panel; the colour map has to
+        # be built from the union so a strategy keeps its colour across panels
+        panels = [
+            {"title": "A", "calibrations": [
+                {"label": "cal", "prescription_df": self._prescription("FA (p=5)", [1.0, 2.0], [0.5, 0.6])}]},
+            {"title": "B", "calibrations": [
+                {"label": "cal", "prescription_df": self._prescription("PT (p=2)", [1.0, 2.0], [0.4, 0.7])}]},
+        ]
+
+        # ACT
+        per_panel, labels = collect_cost_model_panel_entries(panels)
+
+        # ASSERT
+        assert labels == ["FA (p=5)", "PT (p=2)"]
+        assert len(per_panel) == 2
+        assert per_panel[0][0][1][0][0] == "FA (p=5)"
+
+    def test__collect_cost_model_panel_entries__skips_empty_and_missing_frames(self):
+        panels = [{"title": "A", "calibrations": [
+            {"label": "empty", "prescription_df": pd.DataFrame()},
+            {"label": "missing"},
+            {"label": "real", "prescription_df": self._prescription("FA (p=5)", [1.0, 2.0], [0.5, 0.6])},
+        ]}]
+        per_panel, labels = collect_cost_model_panel_entries(panels)
+        assert labels == ["FA (p=5)"]
+        assert len(per_panel[0]) == 1
+
+    def test__collect_cost_model_panel_entries__given_nothing_drawable__returns_no_labels(self):
+        per_panel, labels = collect_cost_model_panel_entries([{"title": "A", "calibrations": []}])
+        assert labels == []
+        assert per_panel == [[]]

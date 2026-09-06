@@ -57,9 +57,11 @@ from src.simulation_validation import (  # noqa: E402
     build_budget_bin_edges,
     build_budget_frontier,
     build_dense_budget_grid,
+    build_pss_proxy_costs,
     build_sampled_training_config,
     build_strategy_budget_summary,
     decode_ws_params,
+    infer_proxy_time_per_shot,
     instance_cache_root_path,
     instance_specs_to_dataframe,
     latest_stage_data,
@@ -69,7 +71,9 @@ from src.simulation_validation import (  # noqa: E402
     normalize_sb_compatible_dtypes,
     persist_campaign_exp_raw,
     pipeline_repo_path,
+    pt_transfer_strategy_mask,
     raw_results_group_name,
+    recost_exact_points_with_circuit_prep,
     resource_metric_column,
     snap_actionable_fit_to_feasible_grid,
     snap_resources_to_grid,
@@ -837,3 +841,256 @@ class TestInstanceSpecsToDataframe:
         df = instance_specs_to_dataframe(specs)
         assert list(df["instance"]) == ["000", "001"]
         assert list(df["split"]) == ["train", "test"]
+
+
+# ---------------------------------------------------------------------------
+# infer_proxy_time_per_shot / recost_exact_points_with_circuit_prep
+#
+# The re-costing path used to answer "what does Fig. 12 look like if every
+# submitted circuit is charged a fixed preparation time?" without re-running
+# any simulation. T_SHOT below is the rate a real campaign's stored proxy
+# costs imply (~3.6 kHz); the assertions are hand-computed against the
+# documented formula rather than against the implementation.
+# ---------------------------------------------------------------------------
+
+T_SHOT = 0.000275788
+
+
+@pytest.fixture
+def exact_points_frame():
+    """Two rows: one optimized (N>0), one zero-training (N=0)."""
+    return pd.DataFrame([
+        {
+            "strategy": "FA_PP_opt", "p": 6, "instance": "100", "split": "train",
+            "N": 10, "M": 10, "Q": 100,
+            "num_objective_evaluations": 15, "total_training_shots": 150,
+            "classical_setup_cost_proxy": 0.0,
+            "training_cost_proxy": 10 * 10 * T_SHOT,
+            "sampling_cost_proxy": 100 * T_SHOT,
+            "T_exact_proxy": (10 * 10 + 100) * T_SHOT,
+            "BestApproximationRatio": 0.85,
+        },
+        {
+            "strategy": "PT_PP_AAA", "p": 5, "instance": "100", "split": "train",
+            "N": 0, "M": 0, "Q": 1000,
+            "num_objective_evaluations": 0, "total_training_shots": 0,
+            "classical_setup_cost_proxy": 0.0,
+            "training_cost_proxy": 0.0,
+            "sampling_cost_proxy": 1000 * T_SHOT,
+            "T_exact_proxy": 1000 * T_SHOT,
+            "BestApproximationRatio": 0.83,
+        },
+    ])
+
+
+class TestInferProxyTimePerShot:
+    def test__infer_proxy_time_per_shot__recovers_the_rate_from_sampling_cost(self, exact_points_frame):
+        assert infer_proxy_time_per_shot(exact_points_frame) == pytest.approx(T_SHOT)
+
+    def test__infer_proxy_time_per_shot__given_missing_columns__raises_keyerror(self):
+        with pytest.raises(KeyError):
+            infer_proxy_time_per_shot(pd.DataFrame({"Q": [100]}))
+
+    def test__infer_proxy_time_per_shot__given_no_usable_rows__raises_valueerror(self):
+        df = pd.DataFrame({"Q": [0, 0], "sampling_cost_proxy": [0.0, 0.0]})
+        with pytest.raises(ValueError):
+            infer_proxy_time_per_shot(df)
+
+
+class TestRecostExactPointsWithCircuitPrep:
+    def test__recost__zero_training_row__is_charged_exactly_one_job(self, exact_points_frame):
+        # ARRANGE / ACT
+        out = recost_exact_points_with_circuit_prep(exact_points_frame, circuit_prep_time=13.87)
+
+        # ASSERT -- N=0 means no training jobs at all, so the only prep charge
+        # is the single final sampling job: 13.87 + 1000 shots
+        pt = out[out["strategy"] == "PT_PP_AAA"].iloc[0]
+        assert pt["training_cost_proxy"] == pytest.approx(0.0)
+        assert pt["sampling_cost_proxy"] == pytest.approx(13.87 + 1000 * T_SHOT)
+        assert pt["T_exact_proxy"] == pytest.approx(13.87 + 1000 * T_SHOT)
+
+    def test__recost__optimized_row__charges_every_objective_evaluation(self, exact_points_frame):
+        # ARRANGE / ACT
+        out = recost_exact_points_with_circuit_prep(exact_points_frame, circuit_prep_time=13.87)
+
+        # ASSERT -- 15 evaluations (not N=10) plus the sampling job
+        fa = out[out["strategy"] == "FA_PP_opt"].iloc[0]
+        assert fa["training_cost_proxy"] == pytest.approx(15 * 13.87 + 150 * T_SHOT)
+        assert fa["sampling_cost_proxy"] == pytest.approx(13.87 + 100 * T_SHOT)
+        assert fa["T_exact_proxy"] == pytest.approx(16 * 13.87 + 250 * T_SHOT)
+
+    def test__recost__preserves_the_original_costs_under_a_zero_prep_suffix(self, exact_points_frame):
+        original = exact_points_frame["T_exact_proxy"].tolist()
+        out = recost_exact_points_with_circuit_prep(exact_points_frame, circuit_prep_time=13.87)
+        assert out["T_exact_proxy_zero_prep"].tolist() == original
+        assert "training_cost_proxy_zero_prep" in out.columns
+        assert "sampling_cost_proxy_zero_prep" in out.columns
+
+    def test__recost__records_the_settings_it_used(self, exact_points_frame):
+        out = recost_exact_points_with_circuit_prep(exact_points_frame, circuit_prep_time=13.87)
+        assert out["circuit_prep_time"].unique().tolist() == [13.87]
+        assert out["proxy_time_per_shot"].iloc[0] == pytest.approx(T_SHOT)
+
+    def test__recost__use_recorded_shots_false__falls_back_to_n_times_m(self, exact_points_frame):
+        # ARRANGE / ACT -- isolates the t_prep effect by keeping the old
+        # (undercounted) N*M training-shot accounting
+        out = recost_exact_points_with_circuit_prep(
+            exact_points_frame, circuit_prep_time=13.87, use_recorded_shots=False
+        )
+
+        # ASSERT -- 100 shots (10*10), not the 150 actually consumed
+        fa = out[out["strategy"] == "FA_PP_opt"].iloc[0]
+        assert fa["training_cost_proxy"] == pytest.approx(15 * 13.87 + 100 * T_SHOT)
+
+    def test__recost__charge_sampling_job_false__leaves_zero_training_rows_nearly_free(self, exact_points_frame):
+        out = recost_exact_points_with_circuit_prep(
+            exact_points_frame, circuit_prep_time=13.87, charge_sampling_job=False
+        )
+        pt = out[out["strategy"] == "PT_PP_AAA"].iloc[0]
+        assert pt["T_exact_proxy"] == pytest.approx(1000 * T_SHOT)
+
+    def test__recost__given_zero_prep_time__only_the_shot_count_correction_remains(self, exact_points_frame):
+        # ARRANGE / ACT
+        out = recost_exact_points_with_circuit_prep(exact_points_frame, circuit_prep_time=0.0)
+
+        # ASSERT -- no prep charge, but training is billed for the 150 shots
+        # actually used rather than the 100 the old model assumed
+        fa = out[out["strategy"] == "FA_PP_opt"].iloc[0]
+        assert fa["T_exact_proxy"] == pytest.approx(250 * T_SHOT)
+
+    def test__recost__accepts_an_explicit_time_per_shot(self, exact_points_frame):
+        out = recost_exact_points_with_circuit_prep(
+            exact_points_frame, circuit_prep_time=0.0, time_per_shot=0.001
+        )
+        pt = out[out["strategy"] == "PT_PP_AAA"].iloc[0]
+        assert pt["T_exact_proxy"] == pytest.approx(1000 * 0.001)
+
+    def test__recost__given_empty_dataframe__returns_empty(self):
+        assert recost_exact_points_with_circuit_prep(pd.DataFrame(), circuit_prep_time=13.87).empty
+
+    def test__recost__given_missing_columns__raises_keyerror(self):
+        df = pd.DataFrame({"Q": [100], "sampling_cost_proxy": [0.03]})
+        with pytest.raises(KeyError):
+            recost_exact_points_with_circuit_prep(df, circuit_prep_time=13.87)
+
+    def test__recost__given_negative_prep_time__raises_valueerror(self, exact_points_frame):
+        with pytest.raises(ValueError):
+            recost_exact_points_with_circuit_prep(exact_points_frame, circuit_prep_time=-1.0)
+
+
+# ---------------------------------------------------------------------------
+# pt_transfer_strategy_mask / build_pss_proxy_costs
+#
+# build_pss_proxy_costs is the clean proxy resource model the Window Sticker
+# figures rest on, extracted out of the notebook so the notebook and the
+# latency re-costing script share one implementation. Verified against the
+# notebook's previous inline formula on 10,290 real FA_PP_opt rows (exact
+# match) and against a real PT campaign; these tests pin the branches.
+# ---------------------------------------------------------------------------
+
+class TestPtTransferStrategyMask:
+    @pytest.mark.parametrize("strategy,expected", [
+        ("PT_PP_AAA", True),
+        ("PT", True),
+        ("Param. Transfer", True),
+        ("Parameter Transfer", True),
+        ("FA_PP_opt", False),   # contains "pt" inside "_opt" -- must not match
+        ("LR_opt", False),      # same trap
+        ("I_MPSAer", False),
+    ])
+    def test__pt_transfer_strategy_mask__matches_only_real_transfer_strategies(self, strategy, expected):
+        df = pd.DataFrame({"strategy": [strategy]})
+        assert bool(pt_transfer_strategy_mask(df).iloc[0]) is expected
+
+    def test__pt_transfer_strategy_mask__checks_every_metadata_column(self):
+        df = pd.DataFrame({"strategy": ["something"], "strategy_family": ["PT"]})
+        assert bool(pt_transfer_strategy_mask(df).iloc[0]) is True
+
+
+class TestBuildPssProxyCosts:
+    def test__build_pss_proxy_costs__bills_n_times_m_plus_q_shots(self):
+        # ARRANGE
+        df = pd.DataFrame([{"strategy": "FA_PP_opt", "p": 6, "N": 10, "M": 20, "Q": 100}])
+
+        # ACT
+        out = build_pss_proxy_costs(df, default_time_per_shot=0.001)
+
+        # ASSERT -- training 10*20 shots, sampling 100 shots
+        assert out.loc[0, "training_cost_proxy"] == pytest.approx(200 * 0.001)
+        assert out.loc[0, "sampling_cost_proxy"] == pytest.approx(100 * 0.001)
+        assert out.loc[0, "T_proxy"] == pytest.approx(300 * 0.001)
+        assert out.loc[0, "T_exact_proxy"] == pytest.approx(out.loc[0, "T_proxy"])
+
+    def test__build_pss_proxy_costs__uses_per_depth_shot_times(self):
+        df = pd.DataFrame([
+            {"strategy": "FA_PP_opt", "p": 5, "N": 0, "M": 0, "Q": 100},
+            {"strategy": "FA_PP_opt", "p": 6, "N": 0, "M": 0, "Q": 100},
+        ])
+        out = build_pss_proxy_costs(
+            df, time_per_shot_by_p={5: 0.001, 6: 0.002}, default_time_per_shot=0.009
+        )
+        assert out.loc[0, "sampling_cost_proxy"] == pytest.approx(0.1)
+        assert out.loc[1, "sampling_cost_proxy"] == pytest.approx(0.2)
+
+    def test__build_pss_proxy_costs__falls_back_for_depths_absent_from_the_mapping(self):
+        df = pd.DataFrame([{"strategy": "FA_PP_opt", "p": 9, "N": 0, "M": 0, "Q": 100}])
+        out = build_pss_proxy_costs(df, time_per_shot_by_p={5: 0.001}, default_time_per_shot=0.002)
+        assert out.loc[0, "sampling_cost_proxy"] == pytest.approx(0.2)
+
+    def test__build_pss_proxy_costs__interp_bills_recorded_shots_not_n_times_m(self):
+        # ARRANGE -- RecursionTrainer shares one evaluator across every
+        # sub-depth, so N*M (=200) badly understates the 5000 shots actually used
+        df = pd.DataFrame([
+            {"strategy": "I_MPSAer", "p": 7, "N": 10, "M": 20, "Q": 100, "total_training_shots": 5000},
+        ])
+
+        # ACT
+        out = build_pss_proxy_costs(df, default_time_per_shot=0.001)
+
+        # ASSERT
+        assert out.loc[0, "training_cost_proxy"] == pytest.approx(5000 * 0.001)
+
+    def test__build_pss_proxy_costs__non_interp_ignores_recorded_shots(self):
+        df = pd.DataFrame([
+            {"strategy": "FA_PP_opt", "p": 6, "N": 10, "M": 20, "Q": 100, "total_training_shots": 5000},
+        ])
+        out = build_pss_proxy_costs(df, default_time_per_shot=0.001)
+        assert out.loc[0, "training_cost_proxy"] == pytest.approx(200 * 0.001)
+
+    def test__build_pss_proxy_costs__pt_adds_measured_transfer_preprocessing(self):
+        # ARRANGE -- zero-training, so the whole training cost is the lookup
+        df = pd.DataFrame([
+            {"strategy": "PT_PP_AAA", "p": 5, "N": 0, "M": 0, "Q": 100, "runtime_train_wallclock": 0.5},
+        ])
+
+        # ACT
+        out = build_pss_proxy_costs(df, default_time_per_shot=0.001)
+
+        # ASSERT
+        assert out.loc[0, "classical_setup_cost_proxy"] == pytest.approx(0.5)
+        assert out.loc[0, "T_proxy"] == pytest.approx(0.5 + 100 * 0.001)
+
+    def test__build_pss_proxy_costs__pt_accepts_a_fixed_transfer_cost(self):
+        df = pd.DataFrame([
+            {"strategy": "PT_PP_AAA", "p": 5, "N": 0, "M": 0, "Q": 100, "runtime_train_wallclock": 0.5},
+        ])
+        out = build_pss_proxy_costs(df, default_time_per_shot=0.001, pt_transfer_cost_seconds=2.0)
+        assert out.loc[0, "classical_setup_cost_proxy"] == pytest.approx(2.0)
+
+    def test__build_pss_proxy_costs__pt_transfer_cost_can_be_switched_off(self):
+        df = pd.DataFrame([
+            {"strategy": "PT_PP_AAA", "p": 5, "N": 0, "M": 0, "Q": 100, "runtime_train_wallclock": 0.5},
+        ])
+        out = build_pss_proxy_costs(df, default_time_per_shot=0.001, include_pt_transfer_cost=False)
+        assert out.loc[0, "classical_setup_cost_proxy"] == pytest.approx(0.0)
+        assert out.loc[0, "T_proxy"] == pytest.approx(100 * 0.001)
+
+    def test__build_pss_proxy_costs__missing_n_m_q_columns_default_to_zero(self):
+        df = pd.DataFrame([{"strategy": "FA_no_opt", "p": 3}])
+        out = build_pss_proxy_costs(df, default_time_per_shot=0.001)
+        assert out.loc[0, "T_proxy"] == pytest.approx(0.0)
+
+    def test__build_pss_proxy_costs__does_not_mutate_the_input(self):
+        df = pd.DataFrame([{"strategy": "FA_PP_opt", "p": 6, "N": 10, "M": 20, "Q": 100}])
+        build_pss_proxy_costs(df, default_time_per_shot=0.001)
+        assert "T_proxy" not in df.columns

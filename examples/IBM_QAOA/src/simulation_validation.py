@@ -1940,6 +1940,245 @@ def run_fa_pss_exact_points(
     return pd.DataFrame(rows)
 
 
+_INTERP_STRATEGY_NAMES = {"I_MPSAer", "I_PP", "I_MPS", "I_SV"}
+
+# Alphanumeric-only boundaries rather than \b, which counts underscore as a
+# word character: strategy names like "FA_PP_opt" and "LR_opt" both contain
+# the substring "pt" and must NOT be treated as Parameter Transfer.
+_PT_STRATEGY_PATTERN = (
+    r"(?<![a-zA-Z0-9])PT(?![a-zA-Z0-9])"
+    r"|Param\.? Transfer|Parameter Transfer"
+    r"|(?<![a-zA-Z0-9])transfer(?![a-zA-Z0-9])"
+)
+
+
+def pt_transfer_strategy_mask(df: pd.DataFrame) -> pd.Series:
+    """Rows whose strategy metadata identifies them as Parameter Transfer."""
+    mask = pd.Series(False, index=df.index)
+    for col in ["strategy", "strategy_family", "method_label", "strategy_runtime_label"]:
+        if col in df.columns:
+            mask |= df[col].astype(str).str.contains(
+                _PT_STRATEGY_PATTERN, case=False, regex=True, na=False
+            )
+    return mask
+
+
+def build_pss_proxy_costs(
+    exact_df: pd.DataFrame,
+    *,
+    time_per_shot_by_p: dict[int, float] | None = None,
+    default_time_per_shot: float,
+    include_pt_transfer_cost: bool = True,
+    pt_transfer_cost_seconds: float | None = None,
+) -> pd.DataFrame:
+    """Attach the clean proxy resource columns to a frame of exact points.
+
+    This is the resource model the Window Sticker figures are built on,
+
+    ``T_proxy = t_preprocessing + N M t_shot + Q t_shot``
+
+    with two wrinkles that matter. Interpolation strategies route through
+    RecursionTrainer, which chains sub-optimizations at every depth from 1 up
+    to the target and shares one shot-based evaluator across all of them, so
+    ``N * M`` understates their shot count badly; those rows bill the recorded
+    ``total_training_shots`` instead. Parameter Transfer pays a classical
+    preprocessing cost for its angle lookup, taken from the measured
+    ``runtime_train_wallclock`` unless overridden.
+
+    Parameters
+    ----------
+    exact_df : pandas.DataFrame
+        Exact points with ``N``, ``M``, ``Q`` and strategy metadata.
+    time_per_shot_by_p : dict, optional
+        Per-depth hardware shot times. Depths absent from the mapping fall
+        back to ``default_time_per_shot``.
+    default_time_per_shot : float
+        Shot time used when no per-depth value applies.
+    include_pt_transfer_cost : bool, default=True
+        Charge Parameter Transfer for its angle-lookup preprocessing.
+    pt_transfer_cost_seconds : float, optional
+        Fixed preprocessing cost. When omitted the measured per-row value is
+        used.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy of ``exact_df`` with ``_hardware_time_per_shot``,
+        ``classical_setup_cost_proxy``, ``training_cost_proxy``,
+        ``sampling_cost_proxy``, ``T_proxy`` and ``T_exact_proxy`` set.
+    """
+    out = exact_df.copy()
+    for col in ["N", "M", "Q"]:
+        if col not in out.columns:
+            out[col] = 0
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+
+    by_p = dict(time_per_shot_by_p or {})
+    if "p" in out.columns and by_p:
+        depth = pd.to_numeric(out["p"], errors="coerce").round().astype("Int64")
+        out["_hardware_time_per_shot"] = depth.map(by_p).astype(float).fillna(default_time_per_shot)
+    else:
+        out["_hardware_time_per_shot"] = float(default_time_per_shot)
+
+    training_shot_cost = out["N"] * out["M"] * out["_hardware_time_per_shot"]
+
+    interp_mask = pd.Series(False, index=out.index)
+    if "strategy" in out.columns:
+        interp_mask = out["strategy"].astype(str).isin(_INTERP_STRATEGY_NAMES)
+    if interp_mask.any() and "total_training_shots" in out.columns:
+        interp_shots = pd.to_numeric(out.loc[interp_mask, "total_training_shots"], errors="coerce")
+        training_shot_cost = training_shot_cost.copy()
+        training_shot_cost.loc[interp_mask] = (
+            interp_shots * out.loc[interp_mask, "_hardware_time_per_shot"]
+        )
+
+    transfer_mask = pt_transfer_strategy_mask(out)
+    transfer_cost = pd.Series(0.0, index=out.index)
+    if include_pt_transfer_cost and transfer_mask.any():
+        if pt_transfer_cost_seconds is None:
+            for col in ["runtime_train_wallclock", "classical_setup_cost"]:
+                if col in out.columns:
+                    measured = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+                    break
+            else:
+                measured = pd.Series(0.0, index=out.index)
+            transfer_cost.loc[transfer_mask] = measured.loc[transfer_mask]
+        else:
+            transfer_cost.loc[transfer_mask] = float(pt_transfer_cost_seconds)
+
+    out["classical_setup_cost_proxy"] = transfer_cost
+    out["training_cost_proxy"] = training_shot_cost + transfer_cost
+    out["sampling_cost_proxy"] = out["Q"] * out["_hardware_time_per_shot"]
+    out["T_proxy"] = out["training_cost_proxy"] + out["sampling_cost_proxy"]
+    out["T_exact_proxy"] = out["T_proxy"]
+    return out
+
+
+def infer_proxy_time_per_shot(df: pd.DataFrame) -> float:
+    """Recover the per-shot time baked into a campaign's stored proxy costs.
+
+    ``sampling_cost_proxy`` was written as ``Q * t_shot`` using whatever
+    hardware shot rate that campaign was calibrated against, so the rate can
+    be read straight back off any row with a positive ``Q``. Campaigns differ
+    slightly (measured per run), which is why this is inferred per dataframe
+    rather than assumed.
+    """
+    required = {"Q", "sampling_cost_proxy"}
+    missing = required - set(df.columns)
+    if missing:
+        raise KeyError(f"Cannot infer time-per-shot, missing columns: {sorted(missing)}")
+
+    q = pd.to_numeric(df["Q"], errors="coerce")
+    cost = pd.to_numeric(df["sampling_cost_proxy"], errors="coerce")
+    usable = q.notna() & cost.notna() & (q > 0) & (cost > 0)
+    if not usable.any():
+        raise ValueError("No rows with positive Q and sampling_cost_proxy to infer time-per-shot from.")
+    return float((cost[usable] / q[usable]).median())
+
+
+def recost_exact_points_with_circuit_prep(
+    df: pd.DataFrame,
+    *,
+    circuit_prep_time: float,
+    time_per_shot: float | None = None,
+    use_recorded_shots: bool = True,
+    charge_sampling_job: bool = True,
+) -> pd.DataFrame:
+    """Recharge stored exact points for per-job circuit-preparation time.
+
+    The proxy resource model as originally written bills only shot time,
+
+    ``T_proxy = N * M * t_shot + Q * t_shot``
+
+    which treats a job's shots as the whole cost of getting results off the
+    device. Hardware measurements say otherwise: a single submitted circuit
+    takes on the order of ten seconds to return regardless of whether it asks
+    for ten shots or ten thousand, because compilation, transfer, queueing and
+    control-electronics load dominate. This recharges each submitted job for
+    that fixed cost,
+
+    ``T_proxy = t_setup + n_evals * t_prep + S_train * t_shot + t_prep + Q * t_shot``
+
+    where ``n_evals`` is the number of objective evaluations the optimizer
+    actually ran and ``S_train`` the training shots it actually consumed.
+
+    Two corrections are applied, not one. Besides the ``t_prep`` charge, the
+    training shot count comes from the recorded ``total_training_shots``
+    rather than ``N * M``. Those differ because a COBYLA run with
+    ``maxiter = N`` submits somewhat more than ``N`` circuits, so the original
+    model undercounted training shots as well. Pass
+    ``use_recorded_shots=False`` to keep the old ``N * M`` accounting and
+    isolate the effect of ``t_prep`` alone.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Exact points carrying ``N``, ``M``, ``Q``, ``num_objective_evaluations``,
+        ``total_training_shots``, ``sampling_cost_proxy`` and
+        ``classical_setup_cost_proxy``.
+    circuit_prep_time : float
+        Seconds charged per submitted circuit job.
+    time_per_shot : float, optional
+        Per-shot time. Inferred from the frame via
+        :func:`infer_proxy_time_per_shot` when omitted.
+    use_recorded_shots : bool, default=True
+        Bill ``total_training_shots`` rather than ``N * M``.
+    charge_sampling_job : bool, default=True
+        Charge one additional ``t_prep`` for the final sampling job. This is
+        what keeps zero-training strategies from appearing free.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy of ``df`` with ``training_cost_proxy``, ``sampling_cost_proxy``
+        and ``T_exact_proxy`` recomputed, the pre-existing values preserved
+        under a ``*_zero_prep`` suffix, and the settings used recorded in
+        ``circuit_prep_time`` / ``proxy_time_per_shot`` columns.
+    """
+    if df.empty:
+        return df.copy()
+
+    required = [
+        "Q",
+        "sampling_cost_proxy",
+        "training_cost_proxy",
+        "T_exact_proxy",
+        "num_objective_evaluations",
+    ]
+    missing = [col for col in required if col not in df.columns]
+    if missing:
+        raise KeyError(f"recost_exact_points_with_circuit_prep is missing columns: {missing}")
+
+    t_prep = float(circuit_prep_time)
+    if t_prep < 0:
+        raise ValueError("circuit_prep_time must be non-negative.")
+    t_shot = float(time_per_shot) if time_per_shot is not None else infer_proxy_time_per_shot(df)
+
+    out = df.copy()
+    for col in ("training_cost_proxy", "sampling_cost_proxy", "T_exact_proxy"):
+        out[f"{col}_zero_prep"] = out[col]
+
+    n_evals = pd.to_numeric(out["num_objective_evaluations"], errors="coerce").fillna(0.0)
+    q_shots = pd.to_numeric(out["Q"], errors="coerce").fillna(0.0)
+
+    if use_recorded_shots and "total_training_shots" in out.columns:
+        train_shots = pd.to_numeric(out["total_training_shots"], errors="coerce").fillna(0.0)
+    else:
+        train_shots = (
+            pd.to_numeric(out.get("N", 0.0), errors="coerce").fillna(0.0)
+            * pd.to_numeric(out.get("M", 0.0), errors="coerce").fillna(0.0)
+        )
+
+    setup = pd.to_numeric(out.get("classical_setup_cost_proxy", 0.0), errors="coerce").fillna(0.0)
+
+    out["training_cost_proxy"] = setup + n_evals * t_prep + train_shots * t_shot
+    out["sampling_cost_proxy"] = (t_prep if charge_sampling_job else 0.0) + q_shots * t_shot
+    out["T_exact_proxy"] = out["training_cost_proxy"] + out["sampling_cost_proxy"]
+    out["circuit_prep_time"] = t_prep
+    out["proxy_time_per_shot"] = t_shot
+    return out
+
+
 def build_dense_budget_grid(
     exact_df: pd.DataFrame,
     *,

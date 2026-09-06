@@ -4360,6 +4360,85 @@ def collect_cost_model_panel_entries(
     return per_panel, sorted(labels)
 
 
+def load_cost_model_panels(
+    result_tags: Iterable[str],
+    results_base: str | Path,
+    variants: Iterable[tuple[str, str]],
+    *,
+    calibration_label: str = "Actionable prescription (test instances)",
+    linestyle: str = "-",
+    marker: str = "o",
+    summary_key: str = "fitted_projection_test",
+    exclude_tags: Iterable[str] = (),
+) -> list[dict[str, Any]]:
+    """Assemble comparison panels from re-costed campaign roots.
+
+    ``variants`` pairs a panel title with the directory suffix the re-costing
+    script wrote, e.g. ``("Shot time only", "prep0")``. Each campaign tag is
+    looked up as ``<results_base>/<tag>__<suffix>``; suffixes with no roots at
+    all raise, while a partial set warns and continues so a comparison can
+    still be eyeballed mid-generation.
+
+    Parameters
+    ----------
+    result_tags : iterable of str
+        Campaign roots to include, without any variant suffix.
+    results_base : str or pathlib.Path
+        Directory holding the campaign roots.
+    variants : iterable of (str, str)
+        ``(panel_title, directory_suffix)`` pairs, one per panel.
+    calibration_label : str
+        Legend entry for the drawn curve.
+    summary_key : str
+        Which loaded summary table to plot, defaulting to the fitted
+        actionable projection on test instances.
+    exclude_tags : iterable of str
+        Campaign tags to drop, e.g. families that never reach the frontier
+        and only widen the resource axis.
+
+    Returns
+    -------
+    list of dict
+        Panels ready for :func:`plot_cost_model_comparison_panels`.
+    """
+    base = Path(results_base)
+    excluded = set(exclude_tags)
+    wanted = [tag for tag in result_tags if tag not in excluded]
+
+    panels: list[dict[str, Any]] = []
+    for title, suffix in variants:
+        roots = [f"{tag}__{suffix}" for tag in wanted]
+        present = [root for root in roots if (base / root).exists()]
+        if not present:
+            raise FileNotFoundError(
+                f'No campaign roots found for variant "{suffix}" under {base}. '
+                "Generate them with examples/IBM_QAOA/run_latency_recost.py."
+            )
+        if len(present) < len(roots):
+            missing = sorted(set(roots) - set(present))
+            print(f"  {title}: {len(present)}/{len(roots)} roots present, missing {missing}")
+
+        summaries = load_multi_strategy_summaries(present, base)
+        projection_df = concat_summary(summaries, summary_key)
+        panels.append({
+            "title": title,
+            "calibrations": [{
+                "label": calibration_label,
+                "linestyle": linestyle,
+                "marker": marker,
+                "prescription_df": projection_df,
+            }],
+        })
+
+        if projection_df.empty or "resource" not in projection_df.columns:
+            print(f"{title}: {len(present)} roots, no projection rows")
+            continue
+        resource = pd.to_numeric(projection_df["resource"], errors="coerce").dropna()
+        print(f"{title}: {len(present)} roots, {len(projection_df)} rows, "
+              f"resource [{resource.min():.4g}, {resource.max():.4g}] s")
+    return panels
+
+
 def plot_cost_model_comparison_panels(
     *,
     panels: list[dict[str, Any]],

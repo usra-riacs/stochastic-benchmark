@@ -46,6 +46,7 @@ from src.utils import (  # noqa: E402
     _window_sticker_label_base,
     _window_sticker_label_depth,
     _ws_display_method_label,
+    load_cost_model_panels,
     load_multi_strategy_summaries,
     read_first_summary_csv,
     read_summary_csv,
@@ -309,3 +310,83 @@ class TestLoadMultiStrategySummaries:
         assert "p=5" in entry["method_label"]
         assert entry["strategy_budget"]["result_tag"].iloc[0] == "my_strategy"
         assert entry["actionable_lookup"].empty  # no matching CSV was written
+
+
+# ---------------------------------------------------------------------------
+# load_cost_model_panels
+#
+# Assembles the two panels of the resource-cost comparison figure from the
+# re-costed campaign roots that run_latency_recost.py writes.
+# ---------------------------------------------------------------------------
+
+def _write_campaign_root(base, tag, suffix, resources=(1.0, 2.0), responses=(0.5, 0.6)):
+    root = base / f"{tag}__{suffix}"
+    root.mkdir(parents=True)
+    rows = "\n".join(
+        f"{r},{resp},FA_PP_opt,5" for r, resp in zip(resources, responses)
+    )
+    (root / "fitted_actionable_projection_test.csv").write_text(
+        "resource,response,strategy,p\n" + rows + "\n"
+    )
+    return root
+
+
+class TestLoadCostModelPanels:
+    def test__load_cost_model_panels__builds_one_panel_per_variant(self, tmp_path):
+        # ARRANGE
+        for suffix in ("prep0", "prep13p87s"):
+            _write_campaign_root(tmp_path, "camp_a", suffix)
+
+        # ACT
+        panels = load_cost_model_panels(
+            ["camp_a"], tmp_path,
+            [("baseline", "prep0"), ("charged", "prep13p87s")],
+        )
+
+        # ASSERT
+        assert [p["title"] for p in panels] == ["baseline", "charged"]
+        assert len(panels[0]["calibrations"]) == 1
+        assert not panels[0]["calibrations"][0]["prescription_df"].empty
+
+    def test__load_cost_model_panels__given_a_variant_with_no_roots__raises(self, tmp_path):
+        _write_campaign_root(tmp_path, "camp_a", "prep0")
+        with pytest.raises(FileNotFoundError):
+            load_cost_model_panels(["camp_a"], tmp_path, [("charged", "prep13p87s")])
+
+    def test__load_cost_model_panels__given_a_partial_set__continues_and_reports(self, tmp_path, capsys):
+        # ARRANGE -- only one of the two campaigns has been generated
+        _write_campaign_root(tmp_path, "camp_a", "prep0")
+
+        # ACT
+        panels = load_cost_model_panels(["camp_a", "camp_b"], tmp_path, [("baseline", "prep0")])
+
+        # ASSERT
+        assert len(panels) == 1
+        assert "1/2 roots present" in capsys.readouterr().out
+
+    def test__load_cost_model_panels__excluded_tags_are_dropped(self, tmp_path, capsys):
+        # ARRANGE -- both exist, but one family is excluded from the figure
+        _write_campaign_root(tmp_path, "camp_a", "prep0")
+        _write_campaign_root(tmp_path, "camp_interp", "prep0")
+
+        # ACT
+        load_cost_model_panels(
+            ["camp_a", "camp_interp"], tmp_path, [("baseline", "prep0")],
+            exclude_tags=["camp_interp"],
+        )
+
+        # ASSERT -- one root used, and no missing-root warning for the excluded one
+        out = capsys.readouterr().out
+        assert "1 roots" in out
+        assert "camp_interp" not in out
+
+    def test__load_cost_model_panels__carries_the_calibration_style_through(self, tmp_path):
+        _write_campaign_root(tmp_path, "camp_a", "prep0")
+        panels = load_cost_model_panels(
+            ["camp_a"], tmp_path, [("baseline", "prep0")],
+            calibration_label="my label", linestyle="--", marker="D",
+        )
+        calibration = panels[0]["calibrations"][0]
+        assert calibration["label"] == "my label"
+        assert calibration["linestyle"] == "--"
+        assert calibration["marker"] == "D"

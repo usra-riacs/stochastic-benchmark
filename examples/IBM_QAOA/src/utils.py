@@ -4518,6 +4518,7 @@ def plot_cost_model_comparison_panels(
     ylabel: str = "Approximation ratio (%)",
     approx_ylim: tuple[float, float] | None = None,
     show_error_bars: bool = True,
+    show_titles: bool = True,
     footnote: str | None = None,
 ) -> None:
     """Compare the actionable Pareto frontier under two resource cost models.
@@ -4543,6 +4544,10 @@ def plot_cost_model_comparison_panels(
         Shared response limits. Derived from the drawn data when omitted.
     show_error_bars : bool, default=True
         Draw 1-SEM whiskers at each strategy takeover point.
+    show_titles : bool, default=True
+        Draw each panel's title. Turn off for a figure whose panels are
+        identified in the caption instead; the titles are still used for the
+        progress output while the panels load.
     hardware : dict, optional (per panel)
         A panel may carry ``{"frontier_df": ..., "label": ..., "extra_cost":
         ...}`` to overlay a measured-hardware frontier via
@@ -4639,7 +4644,8 @@ def plot_cost_model_comparison_panels(
 
         ax.set_xscale("log")
         ax.set_xlabel(xlabel)
-        ax.set_title(panel.get("title", ""), fontsize=15)
+        if show_titles and panel.get("title"):
+            ax.set_title(panel["title"], fontsize=15)
         ax.grid(alpha=0.25, which="both")
 
     axes[0].set_ylabel(ylabel)

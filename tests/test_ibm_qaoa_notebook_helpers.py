@@ -473,6 +473,31 @@ class TestBuildHwFrontier:
         assert result["ar_mean"].iloc[0] == pytest.approx(0.91)  # mean of 0.9, 0.92
         assert result["color_label"].iloc[0] == "FA_PP_opt"
 
+    def test__build_hw_frontier__given_only_the_noiseless_basis__still_builds(self, build_hw_frontier_ns):
+        # ARRANGE -- a caller that never built a second calibration column
+        hardware_new_df = pd.DataFrame({
+            "file_name": ["000_MC_A.json", "001_MC_A.json"],
+            "job_p": [6, 6],
+            "training_method": ["FA_PP_opt_6", "FA_PP_opt_6"],
+            "approximation_ratio": [0.9, 0.92],
+            "QPU_time (s)": [1.0, 1.0],
+            "QPU_time_noiseless (s)": [1.5, 1.5],
+            "total_train_cost": [100.0, 100.0],
+        })
+        hardware_df = pd.DataFrame({
+            "file_name": ["000_MC_A.json", "001_MC_A.json"],
+            "instance_name": ["000", "001"],
+        })
+
+        # ACT
+        result = build_hw_frontier_ns["_build_hw_frontier"](
+            "QPU_time_noiseless (s)", hardware_new_df, hardware_df, 144
+        )
+
+        # ASSERT -- 1.5 + 100.0, and no KeyError for a basis this caller never had
+        assert not result.empty
+        assert result["dur_mean"].iloc[0] == pytest.approx(101.5)
+
     def test__build_hw_frontier__given_missing_required_column__raises_keyerror(self, build_hw_frontier_ns):
         # ARRANGE -- no "total_train_cost" column
         hardware_new_df = pd.DataFrame({

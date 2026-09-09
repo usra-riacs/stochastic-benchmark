@@ -1951,9 +1951,11 @@ def _build_hw_frontier(
     """
     _df_sb = hardware_new_df.copy()
     _df_sb["total duration"] = _df_sb[qpu_time_col] + _df_sb["total_train_cost"]
-    _df_sb = _df_sb.drop(columns=[
-        "QPU_time (s)", "QPU_time_noiseless (s)", "QPU_time_noise_corrected (s)", "total_train_cost",
-    ])
+    # Drop whichever QPU-time bases the caller happens to carry rather than a
+    # fixed list of names: the resource is now in "total duration", and which
+    # calibration columns exist depends on what the caller built.
+    _qpu_cols = [col for col in _df_sb.columns if col.startswith("QPU_time")]
+    _df_sb = _df_sb.drop(columns=[*_qpu_cols, "total_train_cost"])
     _plot_data = prepare_ibm_qaoa_plot_data(_df_sb, hardware_df, num_nodes)
     _, _frontier = build_recommendation_data(_plot_data["df_points"])
     return _frontier

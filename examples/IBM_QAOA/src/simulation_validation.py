@@ -2054,6 +2054,88 @@ def build_pss_proxy_costs(
     return out
 
 
+# COBYLA submits somewhat more circuits than the requested maxiter, measured
+# from the campaign runs (num_objective_evaluations against N). Intermediate
+# N on a fitted prescription is interpolated between these.
+COBYLA_EVALUATIONS_BY_N = {10: 15, 20: 30, 40: 51, 60: 72, 80: 93, 100: 114, 150: 165}
+
+
+def circuit_submissions_for_n(n_values, evaluations_by_n: dict[int, int] | None = None):
+    """Circuits an optimizer submits for a requested COBYLA ``maxiter``.
+
+    Zero-training strategies (``N = 0``) submit none. Above the measured
+    range the trend is extended linearly rather than clamped, since the
+    evaluation count keeps growing with maxiter.
+    """
+    table = dict(evaluations_by_n or COBYLA_EVALUATIONS_BY_N)
+    xs = np.array(sorted(table), dtype=float)
+    ys = np.array([table[int(k)] for k in sorted(table)], dtype=float)
+
+    n = pd.to_numeric(pd.Series(n_values), errors="coerce").to_numpy(dtype=float)
+    out = np.zeros_like(n)
+    positive = np.isfinite(n) & (n > 0)
+    if positive.any():
+        slope = (ys[-1] - ys[-2]) / (xs[-1] - xs[-2])
+        interpolated = np.interp(n[positive], xs, ys)
+        beyond = n[positive] > xs[-1]
+        interpolated[beyond] = ys[-1] + slope * (n[positive][beyond] - xs[-1])
+        out[positive] = interpolated
+    return out
+
+
+def apply_circuit_prep_to_prescription(
+    df: pd.DataFrame,
+    *,
+    circuit_prep_time: float,
+    resource_col: str = "resource",
+    evaluations_by_n: dict[int, int] | None = None,
+    charge_sampling_job: bool = True,
+) -> pd.DataFrame:
+    """Re-price an existing actionable prescription for per-submission cost.
+
+    Adds the measured circuit-preparation time to every circuit a prescribed
+    ``(N, M, Q)`` point actually submits, leaving the prescription itself
+    untouched. This answers "what does the published recommendation really
+    cost" rather than "what would you recommend if submissions were priced
+    correctly" -- the latter needs the frontier rebuilt, since a prescription
+    chosen when shots dominated will not be the one you would pick when a
+    fixed per-submission cost dominates instead.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Prescription table with ``N`` and the resource column. Passed through
+        unchanged when empty.
+    circuit_prep_time : float
+        Seconds per submitted circuit.
+    charge_sampling_job : bool, default=True
+        Charge the final sampling circuit too. This is what stops
+        zero-training strategies from still appearing free.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy with the resource column re-priced, the original preserved as
+        ``<resource_col>_zero_prep``, and ``n_circuit_submissions`` recorded.
+    """
+    if df is None or df.empty:
+        return df.copy() if df is not None else pd.DataFrame()
+    if resource_col not in df.columns:
+        raise KeyError(f"Prescription is missing the resource column {resource_col!r}.")
+    if circuit_prep_time < 0:
+        raise ValueError("circuit_prep_time must be non-negative.")
+
+    out = df.copy()
+    submissions = circuit_submissions_for_n(out.get("N", 0.0), evaluations_by_n)
+    if charge_sampling_job:
+        submissions = submissions + 1.0
+
+    out[f"{resource_col}_zero_prep"] = out[resource_col]
+    out["n_circuit_submissions"] = submissions
+    out[resource_col] = pd.to_numeric(out[resource_col], errors="coerce") + submissions * float(circuit_prep_time)
+    return out
+
+
 def infer_proxy_time_per_shot(df: pd.DataFrame) -> float:
     """Recover the per-shot time baked into a campaign's stored proxy costs.
 

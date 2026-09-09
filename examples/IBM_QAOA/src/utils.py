@@ -3391,6 +3391,149 @@ _FAMILY_DISPLAY: dict[str, str] = {
 }
 _FAMILY_ORDER = ["FA_star", "FA_dagger", "PT", "LR_star", "LR", "LR_dagger", "Interp"]
 
+# Strategy colours as used by Analysis.ipynb's recommendation plot, which keys
+# colour on the angle-setting method alone and shows depth as a text label
+# rather than as a shade. Resolved per family because the labels here are
+# display strings ("Fixed Angles$^\\star$ (p=5)"), not the training-method
+# strings QPS_METHOD_COLORS is keyed on.
+_QPS_FAMILY_COLORS: dict[str, str] = {
+    "FA_star":   QPS_METHOD_COLORS["Fixed Angles*"],
+    "FA_dagger": QPS_METHOD_COLORS["Fixed Angles\u2020"],
+    "PT":        QPS_METHOD_COLORS["Param. Transfer"],
+    "LR_star":   QPS_METHOD_COLORS["Linear Ramp*"],
+    "LR":        QPS_METHOD_COLORS["Linear Ramp"],
+    "LR_dagger": QPS_METHOD_COLORS["Linear Ramp\u2020"],
+    "Interp":    QPS_METHOD_COLORS["Interp.*"],
+}
+
+
+def _family_marker_style(family: str, color: Any) -> dict[str, Any]:
+    """Fill/edge convention separating optimization levels within one colour.
+
+    Matches :func:`_style_plot_kwargs`: a dagger method is hollow, a starred
+    method is filled with a dark edge, and method-parameter optimization is
+    filled with no edge. Needed because this colour scheme gives, say, Fixed
+    Angles$^\star$ and Fixed Angles$^\dagger$ the same colour.
+    """
+    if family.endswith("_dagger"):
+        return {"markerfacecolor": "white", "markeredgecolor": color, "markeredgewidth": 1.6}
+    if family.endswith("_star"):
+        return {"markerfacecolor": color, "markeredgecolor": "k", "markeredgewidth": 1.0}
+    return {"markerfacecolor": color, "markeredgecolor": "white", "markeredgewidth": 0.8}
+
+
+def build_qps_method_color_map(
+    labels: Iterable[str],
+) -> tuple[dict[str, Any], dict[str, list[str]], dict[str, dict[str, Any]]]:
+    """Flat per-strategy colour map matching the recommendation plot.
+
+    Unlike :func:`_build_family_color_map`, every depth within a family gets
+    the same colour, so depth has to be read off the annotations rather than a
+    colorbar. Returns the colour map, the labels grouped by family, and the
+    per-family marker style.
+    """
+    family_labels: dict[str, list[str]] = {}
+    for label in labels:
+        family_labels.setdefault(_detect_method_family(label), []).append(label)
+
+    color_map: dict[str, Any] = {}
+    family_styles: dict[str, dict[str, Any]] = {}
+    for family, fam_labels in family_labels.items():
+        color = _QPS_FAMILY_COLORS.get(family, window_sticker_method_color(fam_labels[0]))
+        family_styles[family] = _family_marker_style(family, color)
+        for label in fam_labels:
+            color_map[label] = color
+    return color_map, family_labels, family_styles
+
+
+def family_legend_handles(
+    family_labels: Iterable[str],
+    family_styles: dict[str, dict[str, Any]],
+    *,
+    linewidth: float = 2.6,
+    markersize: float = 10,
+) -> list[Line2D]:
+    """One legend handle per strategy family, in canonical family order.
+
+    Replaces the depth colorbars: with a flat per-strategy colour map there is
+    no scale to show, only which colour and marker style belongs to which
+    family.
+    """
+    families = set(family_labels)
+    return [
+        Line2D([0], [0], color=_QPS_FAMILY_COLORS.get(family, "#777777"),
+               linestyle="-", linewidth=linewidth, marker="o",
+               markersize=markersize, label=_FAMILY_DISPLAY.get(family, family),
+               **family_styles[family])
+        for family in _FAMILY_ORDER if family in families
+    ]
+
+
+def annotate_frontier_depths(
+    ax,
+    points: list[dict[str, Any]],
+    *,
+    fontsize: float = 9.0,
+    color: str = "0.15",
+    marker_size: float = 10.0,
+    marker_pad: float = 4.0,
+) -> None:
+    """Label each frontier takeover with its QAOA depth, avoiding overlaps.
+
+    ``points`` carries ``x``, ``y`` and ``p`` per marker. Offsets are tried in
+    order and the first that does not collide with an already-placed label is
+    used, which is the same idea as the recommendation plot's annotator but
+    without its marker-and-frontier bbox bookkeeping.
+    """
+    if not points:
+        return
+    fig = ax.get_figure()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    axes_bbox = ax.get_window_extent(renderer=renderer)
+
+    # Seed the occupied list with the markers themselves, so a label never
+    # lands on the point it describes or on a neighbouring one.
+    placed: list[Bbox] = []
+    for point in points:
+        x_disp, y_disp = ax.transData.transform((point["x"], point["y"]))
+        half = 0.5 * marker_size * fig.dpi / 72.0 + marker_pad
+        placed.append(Bbox.from_extents(x_disp - half, y_disp - half,
+                                        x_disp + half, y_disp + half))
+
+    offsets = [(0, 13), (0, -17), (16, 6), (-16, 6), (16, -10), (-16, -10),
+               (0, 23), (0, -27), (26, 0), (-26, 0)]
+    for point in points:
+        if point.get("p") is None:
+            continue
+        best = None
+        for dx, dy in offsets:
+            text = ax.annotate(
+                f"p={int(point['p'])}", (point["x"], point["y"]),
+                textcoords="offset points", xytext=(dx, dy),
+                ha="center", va="center", fontsize=fontsize, color=color,
+                zorder=12, annotation_clip=False,
+            )
+            bbox = text.get_window_extent(renderer=renderer).expanded(1.08, 1.08)
+            inside = axes_bbox.containsx(bbox.x0) and axes_bbox.containsx(bbox.x1) \
+                and axes_bbox.containsy(bbox.y0) and axes_bbox.containsy(bbox.y1)
+            if inside and not any(bbox.overlaps(other) for other in placed):
+                best = bbox
+                break
+            text.remove()
+        if best is None:
+            # Nothing fits cleanly; keep the label rather than drop the depth.
+            dx, dy = offsets[0]
+            text = ax.annotate(
+                f"p={int(point['p'])}", (point["x"], point["y"]),
+                textcoords="offset points", xytext=(dx, dy),
+                ha="center", va="center", fontsize=fontsize, color=color,
+                zorder=12, annotation_clip=False,
+            )
+            best = text.get_window_extent(renderer=renderer)
+        placed.append(best)
+
+
 
 def _detect_method_family(label: str) -> str:
     s = str(label).lower()
@@ -3651,6 +3794,7 @@ def _draw_pareto_envelope_segments(
     best_idx: np.ndarray,
     method_colors: list,
     *,
+    method_styles: list | None = None,
     linestyle: str = "-",
     marker: str | None = "o",
     linewidth: float = 2.6,
@@ -3680,12 +3824,15 @@ def _draw_pareto_envelope_segments(
         # frontier is built from discrete (N, M, Q) points, so it can) shows
         # up as a break between two differently-coloured segments.
         end = stop + 1 if stop < n_grid and best_idx[stop] >= 0 else stop
+        style = {"markeredgecolor": "white", "markeredgewidth": 0.8}
+        if method_styles is not None:
+            style = dict(method_styles[owner])
         ax.plot(
             grid[start:end], envelope[start:end],
             color=method_colors[owner], linestyle=linestyle,
             linewidth=linewidth, solid_capstyle="round", zorder=zorder,
             marker=marker, markevery=[0] if marker else None,
-            markersize=markersize, markeredgecolor="white", markeredgewidth=0.8,
+            markersize=markersize, **style,
         )
         marker_idx.append(start)
     return marker_idx
@@ -4584,7 +4731,7 @@ def plot_cost_model_comparison_panels(
         print(f"Skipping {filename}: no panels with actionable-fit data found.")
         return
 
-    color_map, family_labels, family_p_vals = _build_family_color_map(all_labels)
+    color_map, family_labels, family_styles = build_qps_method_color_map(all_labels)
 
     winning: set[str] = set(hardware_labels)
     for panel_entries in per_panel:
@@ -4596,20 +4743,16 @@ def plot_cost_model_comparison_panels(
         for family, labels in family_labels.items()
         if any(label in winning for label in labels)
     }
-    dynamic_family_p_vals = {
-        family: sorted({_label_depth(label) for label in labels if _label_depth(label) is not None})
-        for family, labels in dynamic_family_labels.items()
-    }
 
-    two_cb_rows = _family_colorbar_row_count(len(dynamic_family_labels)) == 2
     fig, axes = plt.subplots(
-        1, len(panels), figsize=(7.3 * len(panels), 7.0 if two_cb_rows else 6.0), sharey=True
+        1, len(panels), figsize=(7.3 * len(panels), 6.0), sharey=True
     )
     if len(panels) == 1:
         axes = [axes]
 
     y_all: list[float] = []
     for ax, panel, panel_entries in zip(axes, panels, per_panel):
+        depth_points: list[dict[str, Any]] = []
         for calibration, entries in panel_entries:
             colored = [(lbl, color_map[lbl], xs, ys) for lbl, xs, ys, _, _ in entries]
             bounds = [(xs, lo, hi) for _, xs, _, lo, hi in entries]
@@ -4620,10 +4763,19 @@ def plot_cost_model_comparison_panels(
             grid = np.logspace(np.log10(x_lo), np.log10(x_hi), 800)
             envelope, best_idx = _pareto_envelope_and_owner(colored, grid)
             method_colors = [entry[1] for entry in colored]
+            method_marker_styles = [
+                family_styles[_detect_method_family(entry[0])] for entry in colored
+            ]
             marker_idx = _draw_pareto_envelope_segments(
                 ax, grid, envelope, best_idx, method_colors,
+                method_styles=method_marker_styles,
                 linestyle=calibration.get("linestyle", "-"),
                 marker=calibration.get("marker", "o"),
+            )
+            depth_points.extend(
+                {"x": float(grid[idx]), "y": float(envelope[idx]),
+                 "p": _label_depth(colored[int(best_idx[idx])][0])}
+                for idx in marker_idx if np.isfinite(envelope[idx])
             )
             y_all.extend(envelope[np.isfinite(envelope)].tolist())
 
@@ -4653,12 +4805,21 @@ def plot_cost_model_comparison_panels(
             if hw_x.size:
                 hw_y = pd.to_numeric(hardware["frontier_df"]["ar_mean"], errors="coerce")
                 y_all.extend((hw_y.dropna() * 100.0).tolist())
+                depth_points.extend(
+                    {"x": float(x), "y": float(y) * 100.0, "p": _label_depth(lbl)}
+                    for x, y, lbl in zip(
+                        hw_x, hw_y.to_numpy(dtype=float),
+                        hardware["frontier_df"]["method_label"].tolist(),
+                    )
+                    if np.isfinite(x) and np.isfinite(y)
+                )
 
         ax.set_xscale("log")
         ax.set_xlabel(xlabel)
         if show_titles and panel.get("title"):
             ax.set_title(panel["title"], fontsize=15)
         ax.grid(alpha=0.25, which="both")
+        ax._depth_points = depth_points
 
     axes[0].set_ylabel(ylabel)
     if approx_ylim is not None:
@@ -4692,15 +4853,25 @@ def plot_cost_model_comparison_panels(
                         fontsize=10, handlelength=2.0, handletextpad=0.5,
                         labelspacing=0.3, borderpad=0.5)
 
-    # The colorbar strip is placed in figure coordinates, so the axes have to
-    # be told to stop above it or tight_layout will overlap them.
-    cb_area_top = 0.27 if two_cb_rows else 0.13
-    bottom = cb_area_top + (0.045 if footnote else 0.005)
+    # A single legend row, where the depth colorbars used to sit. Depth is now
+    # annotated per marker, so nothing needs a colour scale any more.
+    legend_area_top = 0.10
+    bottom = legend_area_top + (0.045 if footnote else 0.005)
     fig.tight_layout(rect=[0.0, bottom, 1.0, 1.0], w_pad=0.8)
     if footnote:
-        fig.text(0.5, cb_area_top - 0.005, footnote, ha="center", va="bottom",
+        fig.text(0.5, legend_area_top - 0.005, footnote, ha="center", va="bottom",
                  fontsize=9.5, style="italic", color="#555555", wrap=True)
-    _draw_family_colorbars(fig, dynamic_family_labels, dynamic_family_p_vals)
+
+    family_handles = family_legend_handles(dynamic_family_labels, family_styles)
+    if family_handles:
+        fig.legend(handles=family_handles, loc="lower center",
+                   ncol=min(len(family_handles), 4), frameon=False, fontsize=11,
+                   handlelength=2.2, handletextpad=0.6, columnspacing=1.8,
+                   bbox_to_anchor=(0.5, 0.005))
+
+    # Annotated last, so the axes limits and layout are already final.
+    for ax in axes:
+        annotate_frontier_depths(ax, getattr(ax, "_depth_points", []))
 
     save_current_plot(filename, plot_dir)
     plt.show()

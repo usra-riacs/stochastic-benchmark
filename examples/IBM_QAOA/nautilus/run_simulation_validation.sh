@@ -80,6 +80,10 @@ PIPELINE_REPO="${REPOS_DIR}/qaoa_training_pipeline"
 
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r "${SB_REPO}/requirements.txt" -r "${SB_REPO}/requirements-examples.txt"
+# The pipeline declares quimb (its MPS evaluator imports it at package
+# import time) in requirements.txt but not in setup.py, so "pip install -e"
+# alone leaves it out and every evaluator import fails.
+python -m pip install -r "${PIPELINE_REPO}/requirements.txt"
 python -m pip install -e "${PIPELINE_REPO}" "qiskit-aer==0.17.2"
 python -m pip install -e "${QPS_REPO}"
 python -m pip install -e "${SB_REPO}"

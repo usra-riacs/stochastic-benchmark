@@ -14,6 +14,15 @@ QPS_BRANCH="${QPS_BRANCH:-main}"
 QAOA_PIPELINE_REPO_URL="${QAOA_PIPELINE_REPO_URL:-https://github.com/qiskit-community/qaoa_training_pipeline.git}"
 QAOA_PIPELINE_BRANCH="${QAOA_PIPELINE_BRANCH:-main}"
 
+# Optional exact-commit pins. Both upstreams have moved on incompatibly since
+# the campaigns were run: qaoa_training_pipeline dropped the TRAINERS registry
+# that src/simulation_validation.py imports, so a run against a bare "main"
+# dies on ImportError. Pinning also keeps a new campaign comparable with the
+# roots already on disk, which matters because the p-sweeps are combined into
+# one Pareto frontier. Leave empty to track the branch head.
+QPS_COMMIT="${QPS_COMMIT:-}"
+QAOA_PIPELINE_COMMIT="${QAOA_PIPELINE_COMMIT:-}"
+
 mkdir -p "${REPOS_DIR}" "${DATA_DIR}" "${RESULTS_DIR}" /tmp/matplotlib /tmp/numba-cache
 
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
@@ -61,6 +70,21 @@ clone_or_update_sparse() {
     git -C "${dest}" sparse-checkout set --no-cone "${paths[@]}"
 }
 
+checkout_commit() {
+    local dest="$1"
+    local commit="$2"
+
+    if [[ -z "${commit}" ]]; then
+        return
+    fi
+
+    # The clones above are --depth 1, so the pinned object is usually absent.
+    # Fetch just that commit rather than deepening the whole history.
+    git -C "${dest}" fetch --depth 1 origin "${commit}"
+    git -C "${dest}" checkout --detach "${commit}"
+    echo "Pinned $(basename "${dest}") to ${commit}"
+}
+
 clone_or_update "${STOCHASTIC_BENCHMARK_REPO}" "${STOCHASTIC_BENCHMARK_BRANCH}" "${REPOS_DIR}/stochastic-benchmark"
 clone_or_update_sparse "${QPS_REPO_URL}" "${QPS_BRANCH}" "${REPOS_DIR}/QAOA-Parameter-Setting" \
   qaoa_parameter_setting \
@@ -72,7 +96,9 @@ clone_or_update_sparse "${QPS_REPO_URL}" "${QPS_BRANCH}" "${REPOS_DIR}/QAOA-Para
   requirements.txt \
   VERSION.txt \
   README.md
+checkout_commit "${REPOS_DIR}/QAOA-Parameter-Setting" "${QPS_COMMIT}"
 clone_or_update "${QAOA_PIPELINE_REPO_URL}" "${QAOA_PIPELINE_BRANCH}" "${REPOS_DIR}/qaoa_training_pipeline"
+checkout_commit "${REPOS_DIR}/qaoa_training_pipeline" "${QAOA_PIPELINE_COMMIT}"
 
 SB_REPO="${REPOS_DIR}/stochastic-benchmark"
 QPS_REPO="${REPOS_DIR}/QAOA-Parameter-Setting"

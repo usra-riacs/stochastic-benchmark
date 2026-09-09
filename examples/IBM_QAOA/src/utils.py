@@ -4591,7 +4591,7 @@ def plot_cost_model_comparison_panels(
 
     two_cb_rows = _family_colorbar_row_count(len(dynamic_family_labels)) == 2
     fig, axes = plt.subplots(
-        1, len(panels), figsize=(6.1 * len(panels), 6.9 if two_cb_rows else 5.9), sharey=True
+        1, len(panels), figsize=(7.3 * len(panels), 7.0 if two_cb_rows else 6.0), sharey=True
     )
     if len(panels) == 1:
         axes = [axes]
@@ -4682,7 +4682,7 @@ def plot_cost_model_comparison_panels(
 
     # The colorbar strip is placed in figure coordinates, so the axes have to
     # be told to stop above it or tight_layout will overlap them.
-    cb_area_top = 0.27 if two_cb_rows else 0.12
+    cb_area_top = 0.27 if two_cb_rows else 0.13
     bottom = cb_area_top + (0.045 if footnote else 0.005)
     fig.tight_layout(rect=[0.0, bottom, 1.0, 1.0], w_pad=0.8)
     if footnote:

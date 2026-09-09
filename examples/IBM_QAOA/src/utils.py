@@ -3416,10 +3416,13 @@ def _family_marker_style(family: str, color: Any) -> dict[str, Any]:
     Angles$^\star$ and Fixed Angles$^\dagger$ the same colour.
     """
     if family.endswith("_dagger"):
-        return {"markerfacecolor": "white", "markeredgecolor": color, "markeredgewidth": 1.6}
+        # Hollow with a coloured rim, which is what reads as "blueish white"
+        # next to the solid blue of the starred variant.
+        return {"markerfacecolor": "white", "markeredgecolor": color, "markeredgewidth": 1.2}
     if family.endswith("_star"):
         return {"markerfacecolor": color, "markeredgecolor": "k", "markeredgewidth": 1.0}
-    return {"markerfacecolor": color, "markeredgecolor": "white", "markeredgewidth": 0.8}
+    # Method-parameter optimization only: filled, no rim.
+    return {"markerfacecolor": color, "markeredgecolor": "none", "markeredgewidth": 0.0}
 
 
 def build_qps_method_color_map(
@@ -3474,7 +3477,7 @@ def annotate_frontier_depths(
     points: list[dict[str, Any]],
     *,
     fontsize: float = 9.0,
-    color: str = "0.15",
+    color: str = "#B00020",
     marker_size: float = 10.0,
     marker_pad: float = 4.0,
 ) -> None:

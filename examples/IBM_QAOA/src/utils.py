@@ -3661,15 +3661,25 @@ def _draw_pareto_envelope_segments(
     strategy takes over the frontier, rather than at evenly spaced intervals
     which would cluster on short segments.
 
+    Consecutive segments share their boundary grid column so the envelope
+    reads as one continuous curve through every ownership handover.
+
     Returns the grid indices where markers were placed, so a caller can hang
     error bars on the same points.
     """
     marker_idx: list[int] = []
+    n_grid = len(grid)
     for start, stop, owner in _envelope_segment_bounds(best_idx):
         if not np.isfinite(envelope[start:stop]).any():
             continue
+        # Draw one column past the run so a segment ends on the same vertex
+        # its successor starts from. Without that shared vertex nothing spans
+        # the takeover step, and a handover where the envelope jumps (the
+        # frontier is built from discrete (N, M, Q) points, so it can) shows
+        # up as a break between two differently-coloured segments.
+        end = stop + 1 if stop < n_grid and best_idx[stop] >= 0 else stop
         ax.plot(
-            grid[start:stop], envelope[start:stop],
+            grid[start:end], envelope[start:end],
             color=method_colors[owner], linestyle=linestyle,
             linewidth=linewidth, solid_capstyle="round", zorder=zorder,
             marker=marker, markevery=[0] if marker else None,

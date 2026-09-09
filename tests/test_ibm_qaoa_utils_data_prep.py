@@ -560,6 +560,34 @@ class TestDrawParetoEnvelopeSegments:
         # ASSERT
         assert marker_idx == [0, 3]
 
+    def test__draw_pareto_envelope_segments__segments_join_at_the_takeover(self):
+        # ARRANGE -- ownership changes at index 2, where the envelope steps up
+        fig, ax = self._axes()
+        grid = np.array([1.0, 2.0, 3.0, 4.0])
+        envelope = np.array([1.0, 1.0, 2.0, 2.0])
+        best_idx = np.array([0, 0, 1, 1])
+
+        # ACT
+        _draw_pareto_envelope_segments(ax, grid, envelope, best_idx, ["r", "b"])
+
+        # ASSERT -- the first segment reaches the second's opening vertex, so
+        # the step at the handover is drawn rather than left as a gap
+        first, second = (line.get_xydata() for line in ax.lines)
+        assert tuple(first[-1]) == tuple(second[0]) == (3.0, 2.0)
+
+    def test__draw_pareto_envelope_segments__last_segment_stops_at_the_grid_end(self):
+        # ARRANGE -- a single owner running to the final column
+        fig, ax = self._axes()
+        grid = np.array([1.0, 2.0, 3.0])
+
+        # ACT
+        _draw_pareto_envelope_segments(
+            ax, grid, np.array([1.0, 2.0, 3.0]), np.array([0, 0, 0]), ["r"]
+        )
+
+        # ASSERT -- no column past the end of the grid is invented
+        assert len(ax.lines[0].get_xydata()) == 3
+
     def test__draw_pareto_envelope_segments__given_no_owned_runs__draws_nothing(self):
         fig, ax = self._axes()
         marker_idx = _draw_pareto_envelope_segments(

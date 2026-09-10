@@ -3504,37 +3504,63 @@ def annotate_frontier_depths(
         placed.append(Bbox.from_extents(x_disp - half, y_disp - half,
                                         x_disp + half, y_disp + half))
 
-    offsets = [(0, 13), (0, -17), (16, 6), (-16, 6), (16, -10), (-16, -10),
-               (0, 23), (0, -27), (26, 0), (-26, 0)]
+    # Rings of candidate positions at growing radius. Eight directions per
+    # ring and four rings give enough slots that a dense cluster of takeovers
+    # still finds free space, instead of falling back onto a neighbour.
+    directions = [(0, 1), (0, -1), (1, 0.45), (-1, 0.45), (1, -0.45), (-1, -0.45), (1, 0), (-1, 0)]
+    offsets = [
+        (round(dx * radius), round(dy * radius))
+        for radius in (14, 22, 31, 41, 52)
+        for dx, dy in directions
+    ]
+
+    def _place(point, dx, dy):
+        text = ax.annotate(
+            f"p={int(point['p'])}", (point["x"], point["y"]),
+            textcoords="offset points", xytext=(dx, dy),
+            ha="center", va="center", fontsize=fontsize, color=color,
+            zorder=12, annotation_clip=False,
+        )
+        return text, text.get_window_extent(renderer=renderer).expanded(1.08, 1.08)
+
+    def _overlap_area(bbox):
+        total = 0.0
+        for other in placed:
+            if bbox.overlaps(other):
+                dx = min(bbox.x1, other.x1) - max(bbox.x0, other.x0)
+                dy = min(bbox.y1, other.y1) - max(bbox.y0, other.y0)
+                total += max(dx, 0.0) * max(dy, 0.0)
+        return total
+
     for point in points:
         if point.get("p") is None:
             continue
-        best = None
+        chosen_bbox = None
+        fallback = None  # least-bad option, kept in case nothing is free
         for dx, dy in offsets:
-            text = ax.annotate(
-                f"p={int(point['p'])}", (point["x"], point["y"]),
-                textcoords="offset points", xytext=(dx, dy),
-                ha="center", va="center", fontsize=fontsize, color=color,
-                zorder=12, annotation_clip=False,
-            )
-            bbox = text.get_window_extent(renderer=renderer).expanded(1.08, 1.08)
-            inside = axes_bbox.containsx(bbox.x0) and axes_bbox.containsx(bbox.x1) \
+            text, bbox = _place(point, dx, dy)
+            inside = (
+                axes_bbox.containsx(bbox.x0) and axes_bbox.containsx(bbox.x1)
                 and axes_bbox.containsy(bbox.y0) and axes_bbox.containsy(bbox.y1)
-            if inside and not any(bbox.overlaps(other) for other in placed):
-                best = bbox
-                break
-            text.remove()
-        if best is None:
-            # Nothing fits cleanly; keep the label rather than drop the depth.
-            dx, dy = offsets[0]
-            text = ax.annotate(
-                f"p={int(point['p'])}", (point["x"], point["y"]),
-                textcoords="offset points", xytext=(dx, dy),
-                ha="center", va="center", fontsize=fontsize, color=color,
-                zorder=12, annotation_clip=False,
             )
-            best = text.get_window_extent(renderer=renderer)
-        placed.append(best)
+            area = _overlap_area(bbox)
+            if inside and area == 0.0:
+                chosen_bbox = bbox
+                break
+            penalty = area + (0.0 if inside else 1e6)
+            if fallback is None or penalty < fallback[0]:
+                if fallback is not None:
+                    fallback[1].remove()
+                fallback = [penalty, text, bbox]
+            else:
+                text.remove()
+        if chosen_bbox is None:
+            if fallback is None:
+                continue
+            chosen_bbox = fallback[2]
+        elif fallback is not None:
+            fallback[1].remove()
+        placed.append(chosen_bbox)
 
 
 
@@ -4681,6 +4707,8 @@ def plot_cost_model_comparison_panels(
     approx_ylim: tuple[float, float] | None = None,
     show_error_bars: bool = True,
     show_titles: bool = True,
+    x_pad_decades: float = 0.16,
+    y_margin: float = 0.06,
     footnote: str | None = None,
 ) -> None:
     """Compare the actionable Pareto frontier under two resource cost models.
@@ -4706,6 +4734,11 @@ def plot_cost_model_comparison_panels(
         Shared response limits. Derived from the drawn data when omitted.
     show_error_bars : bool, default=True
         Draw 1-SEM whiskers at each strategy takeover point.
+    x_pad_decades : float, default=0.16
+        Blank space kept left of the cheapest point, in decades (half that on
+        the right, where curves already run flat).
+    y_margin : float, default=0.06
+        Blank space above and below the data, as a fraction of its span.
     show_titles : bool, default=True
         Draw each panel's title. Turn off for a figure whose panels are
         identified in the caption instead; the titles are still used for the
@@ -4756,6 +4789,7 @@ def plot_cost_model_comparison_panels(
     y_all: list[float] = []
     for ax, panel, panel_entries in zip(axes, panels, per_panel):
         depth_points: list[dict[str, Any]] = []
+        x_panel: list[float] = []
         for calibration, entries in panel_entries:
             colored = [(lbl, color_map[lbl], xs, ys) for lbl, xs, ys, _, _ in entries]
             bounds = [(xs, lo, hi) for _, xs, _, lo, hi in entries]
@@ -4781,6 +4815,7 @@ def plot_cost_model_comparison_panels(
                 for idx in marker_idx if np.isfinite(envelope[idx])
             )
             y_all.extend(envelope[np.isfinite(envelope)].tolist())
+            x_panel.extend([float(x_lo), float(x_hi)])
 
             if show_error_bars:
                 ci_lower, ci_upper = _pareto_envelope_bounds(bounds, grid, best_idx)
@@ -4808,6 +4843,7 @@ def plot_cost_model_comparison_panels(
             if hw_x.size:
                 hw_y = pd.to_numeric(hardware["frontier_df"]["ar_mean"], errors="coerce")
                 y_all.extend((hw_y.dropna() * 100.0).tolist())
+                x_panel.extend(hw_x[np.isfinite(hw_x)].tolist())
                 depth_points.extend(
                     {"x": float(x), "y": float(y) * 100.0, "p": _label_depth(lbl)}
                     for x, y, lbl in zip(
@@ -4818,6 +4854,12 @@ def plot_cost_model_comparison_panels(
                 )
 
         ax.set_xscale("log")
+        # Explicit padding in decades: without it the cheapest points sit on
+        # the spine and leave the depth labels nowhere to go.
+        if x_panel:
+            lo_dec = np.log10(min(x_panel))
+            hi_dec = np.log10(max(x_panel))
+            ax.set_xlim(10 ** (lo_dec - x_pad_decades), 10 ** (hi_dec + 0.5 * x_pad_decades))
         ax.set_xlabel(xlabel)
         if show_titles and panel.get("title"):
             ax.set_title(panel["title"], fontsize=15)
@@ -4828,7 +4870,9 @@ def plot_cost_model_comparison_panels(
     if approx_ylim is not None:
         axes[0].set_ylim(*approx_ylim)
     elif y_all:
-        axes[0].set_ylim(min(y_all), max(y_all) + 0.5)
+        y_span = max(y_all) - min(y_all)
+        y_pad = max(0.4, y_margin * y_span)
+        axes[0].set_ylim(min(y_all) - y_pad, max(y_all) + y_pad)
 
     source_handles = [
         Line2D([0], [0], color="black",

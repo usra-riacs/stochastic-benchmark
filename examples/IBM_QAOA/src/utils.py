@@ -3540,9 +3540,15 @@ def annotate_frontier_depths(
     axes_bbox = ax.get_window_extent(renderer=renderer)
     obstacles = _display_space_obstacles(ax, renderer)
 
-    # Seed the occupied list with the markers themselves, so a label never
+    # Seed the occupied list with any text already on the axes (panel letters,
+    # legends drawn as text) and with the markers themselves, so a label never
     # lands on the point it describes or on a neighbouring one.
     placed: list[Bbox] = []
+    for artist in ax.texts:
+        try:
+            placed.append(artist.get_window_extent(renderer=renderer).expanded(1.15, 1.15))
+        except Exception:  # an artist that cannot report an extent yet
+            continue
     for point in points:
         x_disp, y_disp = ax.transData.transform((point["x"], point["y"]))
         half = 0.5 * marker_size * fig.dpi / 72.0 + marker_pad
@@ -4838,7 +4844,13 @@ def plot_cost_model_comparison_panels(
         axes = [axes]
 
     y_all: list[float] = []
-    for ax, panel, panel_entries in zip(axes, panels, per_panel):
+    for ax_idx, (ax, panel, panel_entries) in enumerate(zip(axes, panels, per_panel)):
+        # Same top-left "(a)", "(b)" panel letters as plot_ibm_qaoa_performance_panels.
+        ax.text(
+            0.02, 0.97, f"({chr(ord('a') + ax_idx)})",
+            transform=ax.transAxes, fontsize=16, fontweight="normal",
+            va="top", ha="left", zorder=13,
+        )
         depth_points: list[dict[str, Any]] = []
         x_panel: list[float] = []
         for calibration, entries in panel_entries:

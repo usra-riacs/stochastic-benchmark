@@ -3664,7 +3664,11 @@ def add_cluster_inset(
     inset.tick_params(axis="both", which="major", labelsize=max(7.0, fontsize - 1), length=3)
     inset.grid(True, alpha=0.35)
     inset.minorticks_off()
-    ax.indicate_inset_zoom(inset, edgecolor="0.35", alpha=0.7, linewidth=0.9)
+    # Keep the rectangle marking the zoomed region, drop the connector lines:
+    # they cut across the curves between the cluster and the inset.
+    _, connectors = ax.indicate_inset_zoom(inset, edgecolor="0.35", alpha=0.7, linewidth=0.9)
+    for connector in connectors:
+        connector.set_visible(False)
 
     annotate_frontier_depths(inset, [points[i] for i in members], fontsize=fontsize, marker_size=9)
     return members, inset

@@ -3472,6 +3472,48 @@ def family_legend_handles(
     ]
 
 
+def _display_space_obstacles(ax, renderer, step_px: float = 3.0) -> np.ndarray:
+    """Every drawn line and marker on ``ax`` as a cloud of display-space points.
+
+    Lines are densified to ``step_px`` spacing so a label bbox is rejected
+    when it lands anywhere along a curve, not only on a vertex. Error-bar
+    whiskers arrive as LineCollections and are handled the same way.
+    """
+    segments: list[np.ndarray] = []
+    for line in ax.lines:
+        xy = line.get_xydata()
+        if len(xy) == 0:
+            continue
+        disp = ax.transData.transform(xy)
+        disp = disp[np.isfinite(disp).all(axis=1)]
+        if len(disp):
+            segments.append(disp)
+    for coll in ax.collections:
+        if hasattr(coll, "get_segments"):
+            for seg in coll.get_segments():
+                seg = np.asarray(seg, dtype=float)
+                if len(seg):
+                    segments.append(ax.transData.transform(seg))
+        elif hasattr(coll, "get_offsets"):
+            offs = np.asarray(coll.get_offsets(), dtype=float)
+            if len(offs):
+                segments.append(ax.transData.transform(offs))
+
+    points: list[np.ndarray] = []
+    for disp in segments:
+        points.append(disp)
+        if len(disp) < 2:
+            continue
+        a, b = disp[:-1], disp[1:]
+        lengths = np.hypot(*(b - a).T)
+        for p0, p1, length in zip(a, b, lengths):
+            n = int(length // step_px)
+            if n > 0:
+                t = np.linspace(0.0, 1.0, n + 2)[1:-1, None]
+                points.append(p0 + t * (p1 - p0))
+    return np.vstack(points) if points else np.empty((0, 2))
+
+
 def annotate_frontier_depths(
     ax,
     points: list[dict[str, Any]],
@@ -3480,13 +3522,15 @@ def annotate_frontier_depths(
     color: str = "#B00020",
     marker_size: float = 10.0,
     marker_pad: float = 4.0,
+    line_pad: float = 2.0,
 ) -> None:
     """Label each frontier takeover with its QAOA depth, avoiding overlaps.
 
-    ``points`` carries ``x``, ``y`` and ``p`` per marker. Offsets are tried in
-    order and the first that does not collide with an already-placed label is
-    used, which is the same idea as the recommendation plot's annotator but
-    without its marker-and-frontier bbox bookkeeping.
+    ``points`` carries ``x``, ``y`` and ``p`` per marker. A candidate position
+    is rejected if it leaves the axes, overlaps a label already placed,
+    covers any marker, or crosses any drawn curve or whisker. Candidates are
+    tried on rings of growing radius so a dense cluster of takeovers still
+    finds free space; only when every ring collides is the least-bad one kept.
     """
     if not points:
         return
@@ -3494,6 +3538,7 @@ def annotate_frontier_depths(
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     axes_bbox = ax.get_window_extent(renderer=renderer)
+    obstacles = _display_space_obstacles(ax, renderer)
 
     # Seed the occupied list with the markers themselves, so a label never
     # lands on the point it describes or on a neighbouring one.
@@ -3504,13 +3549,11 @@ def annotate_frontier_depths(
         placed.append(Bbox.from_extents(x_disp - half, y_disp - half,
                                         x_disp + half, y_disp + half))
 
-    # Rings of candidate positions at growing radius. Eight directions per
-    # ring and four rings give enough slots that a dense cluster of takeovers
-    # still finds free space, instead of falling back onto a neighbour.
-    directions = [(0, 1), (0, -1), (1, 0.45), (-1, 0.45), (1, -0.45), (-1, -0.45), (1, 0), (-1, 0)]
+    directions = [(0, 1), (0, -1), (1, 0.45), (-1, 0.45), (1, -0.45), (-1, -0.45), (1, 0), (-1, 0),
+                  (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7), (-0.7, -0.7)]
     offsets = [
         (round(dx * radius), round(dy * radius))
-        for radius in (14, 22, 31, 41, 52)
+        for radius in (14, 21, 29, 38, 48, 60)
         for dx, dy in directions
     ]
 
@@ -3523,7 +3566,7 @@ def annotate_frontier_depths(
         )
         return text, text.get_window_extent(renderer=renderer).expanded(1.08, 1.08)
 
-    def _overlap_area(bbox):
+    def _label_overlap(bbox):
         total = 0.0
         for other in placed:
             if bbox.overlaps(other):
@@ -3531,6 +3574,15 @@ def annotate_frontier_depths(
                 dy = min(bbox.y1, other.y1) - max(bbox.y0, other.y0)
                 total += max(dx, 0.0) * max(dy, 0.0)
         return total
+
+    def _line_hits(bbox):
+        if not len(obstacles):
+            return 0
+        inside = (
+            (obstacles[:, 0] >= bbox.x0 - line_pad) & (obstacles[:, 0] <= bbox.x1 + line_pad)
+            & (obstacles[:, 1] >= bbox.y0 - line_pad) & (obstacles[:, 1] <= bbox.y1 + line_pad)
+        )
+        return int(inside.sum())
 
     for point in points:
         if point.get("p") is None:
@@ -3543,11 +3595,10 @@ def annotate_frontier_depths(
                 axes_bbox.containsx(bbox.x0) and axes_bbox.containsx(bbox.x1)
                 and axes_bbox.containsy(bbox.y0) and axes_bbox.containsy(bbox.y1)
             )
-            area = _overlap_area(bbox)
-            if inside and area == 0.0:
+            penalty = _label_overlap(bbox) + 4.0 * _line_hits(bbox) + (0.0 if inside else 1e6)
+            if penalty == 0.0:
                 chosen_bbox = bbox
                 break
-            penalty = area + (0.0 if inside else 1e6)
             if fallback is None or penalty < fallback[0]:
                 if fallback is not None:
                     fallback[1].remove()

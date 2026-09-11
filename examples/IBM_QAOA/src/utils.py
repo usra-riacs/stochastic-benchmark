@@ -3514,6 +3514,162 @@ def _display_space_obstacles(ax, renderer, step_px: float = 3.0) -> np.ndarray:
     return np.vstack(points) if points else np.empty((0, 2))
 
 
+def _densest_point_cluster(
+    ax, points: list[dict[str, Any]], *, radius_px: float = 42.0, min_size: int = 3,
+) -> list[int]:
+    """Indices of the tightest group of takeover points, in display space.
+
+    Grows from the point with the most neighbours within ``radius_px`` and
+    takes everything reachable through neighbour-of-neighbour links, which
+    is what a reader sees as one blob. Empty if no group reaches ``min_size``.
+    """
+    if len(points) < min_size:
+        return []
+    disp = ax.transData.transform([(pt["x"], pt["y"]) for pt in points])
+    dist = np.hypot(*(disp[:, None, :] - disp[None, :, :]).transpose(2, 0, 1))
+    close = dist <= radius_px
+    seed = int(np.argmax(close.sum(axis=1)))
+    if close[seed].sum() < min_size:
+        return []
+    members = {seed}
+    frontier = [seed]
+    while frontier:
+        nxt = frontier.pop()
+        for j in np.flatnonzero(close[nxt]):
+            if int(j) not in members:
+                members.add(int(j))
+                frontier.append(int(j))
+    return sorted(members)
+
+
+# Candidate inset positions, in axes fraction. A fine horizontal grid at
+# three heights rather than six named corners, because a crowded panel can
+# have its only clear region somewhere like x=0.27..0.57 that no corner slot
+# reaches. Ordered so that ties go to the conventional lower-right corner.
+_INSET_W, _INSET_H = 0.28, 0.32
+_INSET_SLOTS: dict[str, tuple[float, float, float, float]] = {
+    f"{row} x={x0:.2f}": (x0, y0, _INSET_W, _INSET_H)
+    for row, y0 in (("lower", 0.08), ("middle", 0.34), ("upper", 0.62))
+    for x0 in sorted(np.round(np.arange(0.69, 0.04, -0.03), 2), reverse=True)
+}
+
+
+def _least_busy_inset_slot(
+    ax, renderer, obstacles: np.ndarray, keep_clear: list[Bbox], markers: np.ndarray,
+) -> tuple:
+    """Pick the inset slot that hides the least.
+
+    Hiding a marker or a text label costs far more than crossing a line: a
+    curve passing behind the inset is still readable from either side, a
+    covered takeover point is simply gone. Slots overlapping ``keep_clear``
+    (the cluster itself, the legend, the panel letter) are never used.
+    """
+    axes_bbox = ax.get_window_extent(renderer=renderer)
+    best = None
+    for name, (fx, fy, fw, fh) in _INSET_SLOTS.items():
+        x0 = axes_bbox.x0 + fx * axes_bbox.width
+        y0 = axes_bbox.y0 + fy * axes_bbox.height
+        bbox = Bbox.from_bounds(x0, y0, fw * axes_bbox.width, fh * axes_bbox.height)
+        if any(bbox.overlaps(other) for other in keep_clear):
+            continue
+
+        def _inside(pts):
+            if not len(pts):
+                return 0
+            return int(((pts[:, 0] >= bbox.x0) & (pts[:, 0] <= bbox.x1)
+                        & (pts[:, 1] >= bbox.y0) & (pts[:, 1] <= bbox.y1)).sum())
+
+        cost = _inside(obstacles) + 400 * _inside(markers)
+        if best is None or cost < best[0]:
+            best = (cost, name, (fx, fy, fw, fh), bbox)
+    return best
+
+
+def add_cluster_inset(
+    ax,
+    points: list[dict[str, Any]],
+    *,
+    radius_px: float = 42.0,
+    min_size: int = 3,
+    x_pad_decades: float = 0.12,
+    fontsize: float = 9.0,
+) -> tuple[list[int], Any]:
+    """Zoom the densest cluster of takeover points into an inset, as the
+    recommendation plot does, so their depth labels have room.
+
+    ``points`` need ``x``, ``y``, ``p``, and optionally ``marker`` and
+    ``style`` (a marker kwargs dict) for redrawing. Returns the indices of the
+    points moved into the inset (the caller should not label them on the main
+    axes) and the inset axes, or ``([], None)`` when no cluster qualifies.
+    """
+    fig = ax.get_figure()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    members = _densest_point_cluster(ax, points, radius_px=radius_px, min_size=min_size)
+    if not members:
+        return [], None
+
+    obstacles = _display_space_obstacles(ax, renderer)
+    all_disp = ax.transData.transform([(pt["x"], pt["y"]) for pt in points])
+    keep_clear = []
+    cluster_disp = all_disp[members]
+    keep_clear.append(Bbox.from_extents(*cluster_disp.min(axis=0), *cluster_disp.max(axis=0)).expanded(1.4, 1.4))
+    legend = ax.get_legend()
+    if legend is not None:
+        keep_clear.append(legend.get_window_extent(renderer=renderer))
+    for artist in ax.texts:  # the panel letter, mostly
+        try:
+            keep_clear.append(artist.get_window_extent(renderer=renderer))
+        except Exception:
+            continue
+    slot = _least_busy_inset_slot(ax, renderer, obstacles, keep_clear, all_disp)
+    if slot is None:
+        return [], None
+    _, _, (fx, fy, fw, fh), _ = slot
+
+    xs = np.array([points[i]["x"] for i in members], dtype=float)
+    ys = np.array([points[i]["y"] for i in members], dtype=float)
+    inset = ax.inset_axes([fx, fy, fw, fh])
+    inset.set_facecolor((1, 1, 1, 0.94))
+    # The zoom window is a fraction of a decade, so a linear axis with plain
+    # numbers reads better than log ticks like 10^-0.70; the padding is still
+    # taken in decades so it scales with where on the log axis the cluster is.
+    inset.set_xlim(10 ** (np.log10(xs.min()) - x_pad_decades), 10 ** (np.log10(xs.max()) + x_pad_decades))
+    y_span = max(float(ys.max() - ys.min()), 0.2)
+    y_pad = max(0.25, 0.6 * y_span)
+    inset.set_ylim(ys.min() - y_pad, ys.max() + y_pad)
+
+    # Every curve on the main axes, replotted without its markers; the
+    # cluster's own markers go on explicitly below, in their family style.
+    for line in ax.lines:
+        xy = line.get_xydata()
+        if len(xy) < 2:
+            continue
+        inset.plot(
+            xy[:, 0], xy[:, 1], color=line.get_color(), linestyle=line.get_linestyle(),
+            linewidth=max(1.0, 0.8 * line.get_linewidth()), path_effects=line.get_path_effects(),
+            zorder=line.get_zorder(), solid_capstyle="round",
+        )
+    for i in members:
+        pt = points[i]
+        style = dict(pt.get("style", {}))
+        inset.plot(
+            pt["x"], pt["y"], linestyle="", marker=pt.get("marker", "o"), markersize=9,
+            color=style.pop("color", pt.get("color", "k")), zorder=11, **style,
+        )
+
+    inset.xaxis.set_major_locator(MaxNLocator(nbins=4))
+    inset.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    inset.yaxis.set_major_locator(MaxNLocator(nbins=3))
+    inset.tick_params(axis="both", which="major", labelsize=max(7.0, fontsize - 1), length=3)
+    inset.grid(True, alpha=0.35)
+    inset.minorticks_off()
+    ax.indicate_inset_zoom(inset, edgecolor="0.35", alpha=0.7, linewidth=0.9)
+
+    annotate_frontier_depths(inset, [points[i] for i in members], fontsize=fontsize, marker_size=9)
+    return members, inset
+
+
 def annotate_frontier_depths(
     ax,
     points: list[dict[str, Any]],
@@ -3523,6 +3679,7 @@ def annotate_frontier_depths(
     marker_size: float = 10.0,
     marker_pad: float = 4.0,
     line_pad: float = 2.0,
+    reserved: Iterable[Bbox] = (),
 ) -> None:
     """Label each frontier takeover with its QAOA depth, avoiding overlaps.
 
@@ -3543,7 +3700,7 @@ def annotate_frontier_depths(
     # Seed the occupied list with any text already on the axes (panel letters,
     # legends drawn as text) and with the markers themselves, so a label never
     # lands on the point it describes or on a neighbouring one.
-    placed: list[Bbox] = []
+    placed: list[Bbox] = list(reserved)
     for artist in ax.texts:
         try:
             placed.append(artist.get_window_extent(renderer=renderer).expanded(1.15, 1.15))
@@ -4766,6 +4923,7 @@ def plot_cost_model_comparison_panels(
     show_titles: bool = True,
     x_pad_decades: float = 0.16,
     y_margin: float = 0.06,
+    cluster_inset: bool = True,
     footnote: str | None = None,
 ) -> None:
     """Compare the actionable Pareto frontier under two resource cost models.
@@ -4796,6 +4954,9 @@ def plot_cost_model_comparison_panels(
         the right, where curves already run flat).
     y_margin : float, default=0.06
         Blank space above and below the data, as a fraction of its span.
+    cluster_inset : bool, default=True
+        Zoom each panel's densest cluster of takeover points into an inset,
+        as the recommendation plot in Analysis.ipynb does.
     show_titles : bool, default=True
         Draw each panel's title. Turn off for a figure whose panels are
         identified in the caption instead; the titles are still used for the
@@ -4874,7 +5035,10 @@ def plot_cost_model_comparison_panels(
             )
             depth_points.extend(
                 {"x": float(grid[idx]), "y": float(envelope[idx]),
-                 "p": _label_depth(colored[int(best_idx[idx])][0])}
+                 "p": _label_depth(colored[int(best_idx[idx])][0]),
+                 "marker": calibration.get("marker", "o"),
+                 "color": method_colors[int(best_idx[idx])],
+                 "style": method_marker_styles[int(best_idx[idx])]}
                 for idx in marker_idx if np.isfinite(envelope[idx])
             )
             y_all.extend(envelope[np.isfinite(envelope)].tolist())
@@ -4908,7 +5072,11 @@ def plot_cost_model_comparison_panels(
                 y_all.extend((hw_y.dropna() * 100.0).tolist())
                 x_panel.extend(hw_x[np.isfinite(hw_x)].tolist())
                 depth_points.extend(
-                    {"x": float(x), "y": float(y) * 100.0, "p": _label_depth(lbl)}
+                    {"x": float(x), "y": float(y) * 100.0, "p": _label_depth(lbl),
+                     "marker": hardware.get("marker", "s"),
+                     "color": color_map.get(lbl, "#777777"),
+                     "style": {"markeredgecolor": "white", "markeredgewidth": 0.8,
+                               "markerfacecolor": color_map.get(lbl, "#777777")}}
                     for x, y, lbl in zip(
                         hw_x, hw_y.to_numpy(dtype=float),
                         hardware["frontier_df"]["method_label"].tolist(),
@@ -4979,9 +5147,21 @@ def plot_cost_model_comparison_panels(
                    handlelength=2.2, handletextpad=0.6, columnspacing=1.8,
                    bbox_to_anchor=(0.5, 0.005))
 
-    # Annotated last, so the axes limits and layout are already final.
+    # Annotated last, so the axes limits and layout are already final. The
+    # densest cluster on each panel is zoomed into an inset first (as the
+    # recommendation plot does) and labelled there; the main axes then label
+    # the rest while steering clear of the inset.
     for ax in axes:
-        annotate_frontier_depths(ax, getattr(ax, "_depth_points", []))
+        points = getattr(ax, "_depth_points", [])
+        members, inset = ([], None)
+        if cluster_inset:
+            members, inset = add_cluster_inset(ax, points)
+        reserved = []
+        if inset is not None:
+            fig.canvas.draw()
+            reserved.append(inset.get_window_extent(fig.canvas.get_renderer()).expanded(1.06, 1.06))
+        remaining = [pt for i, pt in enumerate(points) if i not in set(members)]
+        annotate_frontier_depths(ax, remaining, reserved=reserved)
 
     save_current_plot(filename, plot_dir)
     plt.show()

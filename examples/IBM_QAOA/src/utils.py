@@ -3664,11 +3664,8 @@ def add_cluster_inset(
     inset.tick_params(axis="both", which="major", labelsize=max(7.0, fontsize - 1), length=3)
     inset.grid(True, alpha=0.35)
     inset.minorticks_off()
-    # Keep the rectangle marking the zoomed region, drop the connector lines:
-    # they cut across the curves between the cluster and the inset.
-    _, connectors = ax.indicate_inset_zoom(inset, edgecolor="0.35", alpha=0.7, linewidth=0.9)
-    for connector in connectors:
-        connector.set_visible(False)
+    # No zoom rectangle or connectors on the main axes: the inset's own axis
+    # ticks say which region it shows, and the box only clutters the cluster.
 
     annotate_frontier_depths(inset, [points[i] for i in members], fontsize=fontsize, marker_size=9)
     return members, inset
@@ -5098,7 +5095,10 @@ def plot_cost_model_comparison_panels(
         ax.set_xlabel(xlabel)
         if show_titles and panel.get("title"):
             ax.set_title(panel["title"], fontsize=15)
-        ax.grid(alpha=0.25, which="both")
+        # Major grid distinctly darker than the light-grey Param. Transfer
+        # curve, but thin so it stays in the background; minor lines fainter.
+        ax.grid(True, which="major", color="0.45", alpha=0.55, linewidth=0.7)
+        ax.grid(True, which="minor", color="0.65", alpha=0.35, linewidth=0.5)
         ax._depth_points = depth_points
 
     axes[0].set_ylabel(ylabel)

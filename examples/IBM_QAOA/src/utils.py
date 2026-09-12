@@ -4923,7 +4923,7 @@ def plot_cost_model_comparison_panels(
     show_error_bars: bool = True,
     show_titles: bool = True,
     x_pad_decades: float = 0.16,
-    y_margin: float = 0.06,
+    y_margin: float = 0.08,
     cluster_inset: bool = True,
     footnote: str | None = None,
 ) -> None:
@@ -4953,8 +4953,9 @@ def plot_cost_model_comparison_panels(
     x_pad_decades : float, default=0.16
         Blank space kept left of the cheapest point, in decades (half that on
         the right, where curves already run flat).
-    y_margin : float, default=0.06
-        Blank space above and below the data, as a fraction of its span.
+    y_margin : float, default=0.08
+        Blank space above and below the data (whisker ends included), as a
+        fraction of its span.
     cluster_inset : bool, default=True
         Zoom each panel's densest cluster of takeover points into an inset,
         as the recommendation plot in Analysis.ipynb does.
@@ -5057,6 +5058,7 @@ def plot_cost_model_comparison_panels(
                         fmt="none", ecolor=method_colors[int(best_idx[idx])],
                         capsize=3, elinewidth=1.1, zorder=5.5,
                     )
+                    y_all.extend([float(lo), float(hi)])
 
         hardware = panel.get("hardware")
         if hardware and hardware.get("frontier_df") is not None:
@@ -5071,6 +5073,10 @@ def plot_cost_model_comparison_panels(
             if hw_x.size:
                 hw_y = pd.to_numeric(hardware["frontier_df"]["ar_mean"], errors="coerce")
                 y_all.extend((hw_y.dropna() * 100.0).tolist())
+                if show_error_bars and "ar_sem" in hardware["frontier_df"].columns:
+                    hw_sem = pd.to_numeric(hardware["frontier_df"]["ar_sem"], errors="coerce").fillna(0.0)
+                    y_all.extend(((hw_y - hw_sem).dropna() * 100.0).tolist())
+                    y_all.extend(((hw_y + hw_sem).dropna() * 100.0).tolist())
                 x_panel.extend(hw_x[np.isfinite(hw_x)].tolist())
                 depth_points.extend(
                     {"x": float(x), "y": float(y) * 100.0, "p": _label_depth(lbl),

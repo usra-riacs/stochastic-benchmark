@@ -8,16 +8,15 @@ build_cumulative_budget_frontier, and filter_pss_exact_points.
 
 Out of scope here, matching the exclusions used for utils.py and
 Processing.py: the qiskit/Aer circuit-building and sampling functions
-(build_bound_qaoa_circuit, MPSAerSampleEvaluator, sample_bound_circuit_counts,
-sample_fixed_angles, ...), the external-pipeline-repo-dependent functions
+(build_bound_qaoa_circuit, MPSAerSampleEvaluator, ...), the
+external-pipeline-repo-dependent functions
 (generate_linear_ramp_angles, run_method_from_config,
 register_local_pipeline_evaluators, ensure_pipeline_imports,
 ensure_qiskit_imports), the heavy multi-hundred-line orchestration functions
 (run_pt_pss_exact_points, run_fa_pss_exact_points, generate_pss_exact_points,
 run_stochastic_benchmark_pss, setup_stochastic_benchmark_campaign,
 build_test_instance_set_from_repo, generate_training_instances_like_qps,
-build_train_test_instance_sets), and build_binned_budget_dataset (dead code,
-its only caller's import was dropped in the Step 4 cleanup commit).
+build_train_test_instance_sets).
 
 Step 5 ("Extend") of the IBM_QAOA cleanup plan, simulation_validation.py pass.
 """
@@ -40,9 +39,7 @@ from src.simulation_validation import (  # noqa: E402
     DEFAULT_PIPELINE_REPO,
     InstanceSpec,
     _build_response_summary_from_rec_params,
-    _centers_from_edges,
     _deduplicate_exact_points,
-    _edges_from_centers,
     _encode_categories,
     _exact_group_filter,
     _exact_group_is_complete,
@@ -52,11 +49,8 @@ from src.simulation_validation import (  # noqa: E402
     _resolve_time_per_shot,
     _resource_distance,
     align_projection_resources,
-    apply_circuit_prep_to_prescription,
     assign_deterministic_train_split,
     attach_ws_codebook_columns,
-    build_budget_bin_edges,
-    circuit_submissions_for_n,
     build_budget_frontier,
     build_dense_budget_grid,
     build_pss_proxy_costs,
@@ -312,29 +306,6 @@ class TestBuildDenseBudgetGrid:
     def test__build_dense_budget_grid__given_a_single_distinct_value__returns_that_one_value(self):
         df = pd.DataFrame({"T_exact_proxy": [5.0, 5.0]})
         assert build_dense_budget_grid(df) == [5.0]
-
-
-class TestBuildBudgetBinEdges:
-    def test__build_budget_bin_edges__returns_num_bins_plus_one_edges(self):
-        df = pd.DataFrame({"T_exact_proxy": [1.0, 100.0]})
-        edges = build_budget_bin_edges(df, num_bins=4)
-        assert len(edges) == 5
-        assert edges[0] == pytest.approx(1.0)
-        assert edges[-1] == pytest.approx(100.0)
-
-
-class TestCentersAndEdgesRoundtrip:
-    def test__centers_from_edges__log_scale_uses_geometric_midpoint(self):
-        edges = np.array([1.0, 4.0, 16.0])
-        centers = _centers_from_edges(edges, scale="log")
-        np.testing.assert_allclose(centers, [2.0, 8.0])
-
-    def test__edges_from_centers__given_a_single_center__brackets_it_symmetrically_in_log_space(self):
-        edges = _edges_from_centers(np.array([4.0]), scale="log")
-        np.testing.assert_allclose(edges, [4.0 / np.sqrt(2.0), 4.0 * np.sqrt(2.0)])
-
-    def test__edges_from_centers__given_no_centers__returns_empty_array(self):
-        assert _edges_from_centers(np.array([])).size == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1105,98 +1076,3 @@ class TestBuildPssProxyCosts:
 # cost, without rebuilding the frontier, so the baseline panel of the
 # cost-model figure stays byte-identical to the published Fig. 12.
 # ---------------------------------------------------------------------------
-
-class TestCircuitSubmissionsForN:
-    def test__circuit_submissions_for_n__reproduces_the_measured_counts(self):
-        # ARRANGE / ACT -- COBYLA submits more circuits than the requested maxiter
-        out = circuit_submissions_for_n([10, 20, 40, 100, 150])
-
-        # ASSERT
-        np.testing.assert_allclose(out, [15, 30, 51, 114, 165])
-
-    def test__circuit_submissions_for_n__zero_training_submits_nothing(self):
-        np.testing.assert_allclose(circuit_submissions_for_n([0, 0]), [0.0, 0.0])
-
-    def test__circuit_submissions_for_n__interpolates_a_fitted_non_integer_n(self):
-        # ARRANGE -- prescriptions carry fitted N, so N=15 sits between the
-        # measured N=10 (15 evals) and N=20 (30 evals)
-        out = circuit_submissions_for_n([15.0])
-
-        # ASSERT
-        assert out[0] == pytest.approx(22.5)
-
-    def test__circuit_submissions_for_n__extends_the_trend_past_the_measured_range(self):
-        # ARRANGE / ACT -- beyond N=150 the count keeps growing rather than clamping
-        out = circuit_submissions_for_n([200.0])
-
-        # ASSERT -- last measured slope is (165-114)/(150-100) = 1.02 per unit
-        assert out[0] == pytest.approx(165 + 1.02 * 50)
-
-
-class TestApplyCircuitPrepToPrescription:
-    def _prescription(self):
-        return pd.DataFrame({
-            "resource": [0.12, 5.0],
-            "N": [10.0, 0.0],          # optimized, then zero-training
-            "M": [10.0, 0.0],
-            "Q": [200.0, 1000.0],
-            "response": [0.85, 0.90],
-        })
-
-    def test__apply_circuit_prep__charges_every_submitted_circuit_plus_sampling(self):
-        # ARRANGE / ACT -- N=10 means 15 training submissions plus 1 sampling
-        out = apply_circuit_prep_to_prescription(self._prescription(), circuit_prep_time=13.87)
-
-        # ASSERT
-        assert out.loc[0, "n_circuit_submissions"] == pytest.approx(16.0)
-        assert out.loc[0, "resource"] == pytest.approx(0.12 + 16 * 13.87)
-
-    def test__apply_circuit_prep__zero_training_pays_exactly_one_submission(self):
-        # ARRANGE / ACT -- this is what stops zero-training looking free
-        out = apply_circuit_prep_to_prescription(self._prescription(), circuit_prep_time=13.87)
-
-        # ASSERT
-        assert out.loc[1, "n_circuit_submissions"] == pytest.approx(1.0)
-        assert out.loc[1, "resource"] == pytest.approx(5.0 + 13.87)
-
-    def test__apply_circuit_prep__preserves_the_published_resource(self):
-        original = self._prescription()["resource"].tolist()
-        out = apply_circuit_prep_to_prescription(self._prescription(), circuit_prep_time=13.87)
-        assert out["resource_zero_prep"].tolist() == original
-
-    def test__apply_circuit_prep__leaves_the_prescription_itself_untouched(self):
-        # ARRANGE / ACT -- only the price changes, not which (N, M, Q) is advised
-        out = apply_circuit_prep_to_prescription(self._prescription(), circuit_prep_time=13.87)
-
-        # ASSERT
-        assert out["N"].tolist() == [10.0, 0.0]
-        assert out["M"].tolist() == [10.0, 0.0]
-        assert out["Q"].tolist() == [200.0, 1000.0]
-        assert out["response"].tolist() == [0.85, 0.90]
-
-    def test__apply_circuit_prep__zero_charge_is_a_no_op_on_the_resource(self):
-        out = apply_circuit_prep_to_prescription(self._prescription(), circuit_prep_time=0.0)
-        np.testing.assert_allclose(out["resource"], [0.12, 5.0])
-
-    def test__apply_circuit_prep__can_skip_the_sampling_submission(self):
-        out = apply_circuit_prep_to_prescription(
-            self._prescription(), circuit_prep_time=13.87, charge_sampling_job=False
-        )
-        assert out.loc[1, "resource"] == pytest.approx(5.0)      # zero-training, nothing submitted
-        assert out.loc[0, "resource"] == pytest.approx(0.12 + 15 * 13.87)
-
-    def test__apply_circuit_prep__does_not_mutate_the_input(self):
-        df = self._prescription()
-        apply_circuit_prep_to_prescription(df, circuit_prep_time=13.87)
-        assert df["resource"].tolist() == [0.12, 5.0]
-
-    def test__apply_circuit_prep__given_empty_input__returns_empty(self):
-        assert apply_circuit_prep_to_prescription(pd.DataFrame(), circuit_prep_time=13.87).empty
-
-    def test__apply_circuit_prep__given_missing_resource_column__raises_keyerror(self):
-        with pytest.raises(KeyError):
-            apply_circuit_prep_to_prescription(pd.DataFrame({"N": [10]}), circuit_prep_time=13.87)
-
-    def test__apply_circuit_prep__given_negative_charge__raises_valueerror(self):
-        with pytest.raises(ValueError):
-            apply_circuit_prep_to_prescription(self._prescription(), circuit_prep_time=-1.0)

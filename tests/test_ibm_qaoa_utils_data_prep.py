@@ -27,8 +27,6 @@ from src.utils import (  # noqa: E402
     _pareto_envelope_and_owner,
     _pareto_envelope_bounds,
     collect_cost_model_panel_entries,
-    _percent_approx_ylabel,
-    _percent_axis_values,
     attach_result_metadata,
     concat_summary,
     counts_to_samples_df,
@@ -376,26 +374,6 @@ class TestSharedApproxYticks:
 # ---------------------------------------------------------------------------
 # _percent_approx_ylabel / _percent_axis_values
 # ---------------------------------------------------------------------------
-
-class TestPercentApproxYlabel:
-    def test__percent_approx_ylabel__given_approximation_ratio_label__appends_percent(self):
-        assert _percent_approx_ylabel("Approximation ratio") == "Approximation ratio (%)"
-
-    def test__percent_approx_ylabel__given_unrelated_label__still_appends_percent_suffix(self):
-        assert _percent_approx_ylabel("Something else") == "Something else (%)"
-
-
-class TestPercentAxisValues:
-    def test__percent_axis_values__scales_ylim_and_yticks_by_100(self):
-        ylim, yticks = _percent_axis_values((0.5, 0.9), [0.5, 0.7, 0.9])
-        assert ylim == (50.0, 90.0)
-        assert yticks == [50.0, 70.0, 90.0]
-
-    def test__percent_axis_values__given_none__passes_through_none(self):
-        ylim, yticks = _percent_axis_values(None, None)
-        assert ylim is None
-        assert yticks is None
-
 
 # ---------------------------------------------------------------------------
 # prepare_training_bricks_data

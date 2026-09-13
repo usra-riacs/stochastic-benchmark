@@ -18,11 +18,7 @@ _evaluation_label_from_training_method, _optimization_size_maps,
 _optimization_level, _optimization_alpha, _evaluator_edge_width) -- lower-
 value style plumbing already implicitly exercised via
 _method_label_from_training_method's existing coverage in
-test_ibm_qaoa_simulation_validation.py, and the six functions dropped from
-every import list in the Step 4 dead-code pass (title_from_instance_names,
-make_asof_per_file, plot_training_bricks, plot_method_curves,
-plot_multi_method_window_sticker_components, build_binned_budget_dataset),
-since testing code nothing calls isn't a good use of this pass.
+test_ibm_qaoa_simulation_validation.py.
 """
 import sys
 from pathlib import Path
@@ -38,14 +34,9 @@ for path in (REPO_ROOT / "src", IBM_QAOA_ROOT):
         sys.path.insert(0, str(path))
 
 from src.utils import (  # noqa: E402
-    _display_cross_strategy_envelope,
     _ensure_save_dir,
     _lighten_color,
     _prepare_parameter_curve,
-    _shade_color,
-    _window_sticker_label_base,
-    _window_sticker_label_depth,
-    _ws_display_method_label,
     draw_hardware_frontier_steps,
     load_cost_model_panels,
     load_multi_strategy_summaries,
@@ -54,7 +45,6 @@ from src.utils import (  # noqa: E402
     rebuild_strategy_budget_summary,
     resolve_result_root,
     window_sticker_method_color,
-    window_sticker_method_color_map,
 )
 
 
@@ -62,37 +52,9 @@ from src.utils import (  # noqa: E402
 # _window_sticker_label_base / _window_sticker_label_depth
 # ---------------------------------------------------------------------------
 
-class TestWindowStickerLabelBase:
-    def test__window_sticker_label_base__strips_depth_optimization_markers_and_case(self):
-        assert _window_sticker_label_base("Fixed Angles$^\\star$ (p=5)") == "fixed angles"
-
-    def test__window_sticker_label_base__given_no_markers__still_lowercases(self):
-        assert _window_sticker_label_base("Linear Ramp") == "linear ramp"
-
-
-class TestWindowStickerLabelDepth:
-    def test__window_sticker_label_depth__given_depth_suffix__extracts_it(self):
-        assert _window_sticker_label_depth("Fixed Angles* (p=7)") == 7
-
-    def test__window_sticker_label_depth__given_no_suffix__returns_none(self):
-        assert _window_sticker_label_depth("Fixed Angles*") is None
-
-
 # ---------------------------------------------------------------------------
 # _shade_color / _lighten_color
 # ---------------------------------------------------------------------------
-
-class TestShadeColor:
-    def test__shade_color__given_positive_amount__lightens_toward_white(self):
-        r, g, b = _shade_color("#000000", 0.5)
-        assert r == pytest.approx(0.5)
-        assert g == pytest.approx(0.5)
-        assert b == pytest.approx(0.5)
-
-    def test__shade_color__given_negative_amount__darkens_toward_black(self):
-        r, g, b = _shade_color("#FFFFFF", -0.5)
-        assert r == pytest.approx(0.5)
-
 
 class TestLightenColor:
     def test__lighten_color__given_default_amount__blends_halfway_to_white(self):
@@ -120,38 +82,9 @@ class TestWindowStickerMethodColor:
         assert window_sticker_method_color(label) == expected_color
 
 
-class TestWindowStickerMethodColorMap:
-    def test__window_sticker_method_color_map__given_one_label_per_family__uses_canonical_colors(self):
-        labels = ["Fixed Angles* (p=5)", "Linear Ramp (p=5)"]
-        color_map = window_sticker_method_color_map(labels)
-        assert color_map["Fixed Angles* (p=5)"] == "#4477AA"
-        assert color_map["Linear Ramp (p=5)"] == "#CCBB44"
-
-    def test__window_sticker_method_color_map__given_several_depths_of_one_family__shades_them_apart(self):
-        # ARRANGE -- same family (Fixed Angles), three different depths
-        labels = ["Fixed Angles* (p=5)", "Fixed Angles* (p=6)", "Fixed Angles* (p=7)"]
-
-        # ACT
-        color_map = window_sticker_method_color_map(labels)
-
-        # ASSERT -- all three get distinct colors (shaded apart by depth)
-        assert len({color_map[lbl] for lbl in labels}) == 3
-
-
 # ---------------------------------------------------------------------------
 # _ws_display_method_label
 # ---------------------------------------------------------------------------
-
-class TestWsDisplayMethodLabel:
-    def test__ws_display_method_label__converts_latex_star_to_unicode_asterisk(self):
-        assert _ws_display_method_label("Fixed Angles$^\\star$ (p=5)") == "Fixed Angles* (p=5)"
-
-    def test__ws_display_method_label__converts_latex_dagger_to_unicode_dagger(self):
-        assert _ws_display_method_label("Fixed Angles$^\\dagger$ (p=5)") == "Fixed Angles† (p=5)"
-
-    def test__ws_display_method_label__given_no_marker__leaves_label_unchanged(self):
-        assert _ws_display_method_label("Linear Ramp (p=5)") == "Linear Ramp (p=5)"
-
 
 # ---------------------------------------------------------------------------
 # _ensure_save_dir
@@ -170,37 +103,6 @@ class TestEnsureSaveDir:
 # ---------------------------------------------------------------------------
 # _display_cross_strategy_envelope
 # ---------------------------------------------------------------------------
-
-class TestDisplayCrossStrategyEnvelope:
-    def test__display_cross_strategy_envelope__envelope_is_the_running_max_across_methods(self):
-        # ARRANGE -- "A" is flat at 0.5; "B" rises from 0.2 to 0.9 across the
-        # same resource range, so the envelope should start near A's level
-        # and end at B's higher level, non-decreasing throughout.
-        curve_df = pd.DataFrame([
-            {"method_label": "A", "resource": 1.0, "response_monotone": 0.5},
-            {"method_label": "A", "resource": 10.0, "response_monotone": 0.5},
-            {"method_label": "B", "resource": 1.0, "response_monotone": 0.2},
-            {"method_label": "B", "resource": 10.0, "response_monotone": 0.9},
-        ])
-
-        # ACT
-        envelope = _display_cross_strategy_envelope(curve_df, "resource", num_points=50)
-
-        # ASSERT
-        values = envelope["response_monotone"].to_numpy()
-        assert values[0] == pytest.approx(0.5, abs=1e-6)
-        assert values[-1] == pytest.approx(0.9, abs=1e-6)
-        assert np.all(np.diff(values) >= -1e-9)  # non-decreasing (running max)
-
-    def test__display_cross_strategy_envelope__given_empty_dataframe__returns_empty_with_expected_columns(self):
-        result = _display_cross_strategy_envelope(pd.DataFrame(), "resource")
-        assert result.empty
-        assert list(result.columns) == ["resource", "response_monotone"]
-
-    def test__display_cross_strategy_envelope__given_missing_required_column__returns_empty(self):
-        result = _display_cross_strategy_envelope(pd.DataFrame({"resource": [1.0]}), "resource")
-        assert result.empty
-
 
 # ---------------------------------------------------------------------------
 # _prepare_parameter_curve

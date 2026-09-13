@@ -1,8 +1,8 @@
 """Tests for the functions in examples/IBM_QAOA/src/approx_ratio_calc.py that
 aren't already exercised by test_ibm_qaoa_processing.py's
 test_maxcut_helpers_compute_energy_counts_and_ratio (which covers
-load_maxcut_instance_context, counts_from_bitstring_samples,
-maxcut_energy_from_bitstring, and maxcut_approximation_ratio).
+load_maxcut_instance_context, maxcut_energy_from_bitstring, and
+maxcut_approximation_ratio).
 
 Step 5 of the IBM_QAOA cleanup plan: get_minmax, extract_minmax_args, and
 best_prefix_metrics had no coverage at all before this file.

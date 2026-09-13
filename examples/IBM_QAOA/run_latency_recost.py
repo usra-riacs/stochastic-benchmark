@@ -69,6 +69,7 @@ DEFAULT_TAGS = [
     "heavy_hex_144_FA_PP_opt_p7_expanded",
     "heavy_hex_144_LR_opt_p5_expanded",
     "heavy_hex_144_LR_angle_opt_p5_expanded",
+    "heavy_hex_144_LR_opt_p7_expanded",
     "heavy_hex_144_I_full_p7_expanded",
     "heavy_hex_144_PT_p7_expanded",
     "heavy_hex_144_PT_p6_expanded",
@@ -79,6 +80,7 @@ DEFAULT_TAGS = [
     "heavy_hex_144_FA_no_opt_p3_expanded",
     "heavy_hex_144_FA_no_opt_p4_expanded",
     "heavy_hex_144_FA_no_opt_p6_expanded",
+    "heavy_hex_144_FA_no_opt_p7_expanded",
 ]
 
 RAW_POINT_FILENAMES = [
@@ -144,22 +146,40 @@ def hardware_shot_times(exact_df: pd.DataFrame, hardware_root: Path, graph_type:
     return by_p
 
 
+def price_variant(exact_df: pd.DataFrame, circuit_prep_time: float) -> pd.DataFrame:
+    """Price the exact points under one cost model.
+
+    With no charge the points keep the published model as recorded in
+    ``T_proxy``: ``N * M`` requested training shots plus ``Q`` sampling shots
+    at ``t_shot``. With a charge they follow the charged equation
+
+        T = t_pre + n_evals * (t_prep + M * t_shot) + (t_prep + Q * t_shot),
+
+    where ``n_evals * M`` is the ``total_training_shots`` each run actually
+    recorded. That is the same accounting the equation states, and it is what
+    distinguishes the two models beyond the charge itself: the charged model
+    bills the shots COBYLA consumed, the published one the shots it was asked
+    for. For Interpolation the recorded count also carries its recursive
+    sub-depth evaluations, which ``N * M`` would drop.
+    """
+    if circuit_prep_time <= 0:
+        return exact_df
+    priced = recost_exact_points_with_circuit_prep(
+        exact_df,
+        circuit_prep_time=circuit_prep_time,
+        time_per_shot=None,
+        use_recorded_shots=True,
+        charge_sampling_job=True,
+    )
+    priced["T_proxy"] = priced["T_exact_proxy"]
+    return priced
+
+
 def build_variant(exact_df: pd.DataFrame, out_root: Path, codebooks: dict,
                   *, circuit_prep_time: float, num_bins: int,
                   bootstrap_range, train_test_split: float) -> dict:
     """Cost, bin and run the prescription pipeline for one variant."""
-    priced = exact_df
-    if circuit_prep_time > 0:
-        # use_recorded_shots=False keeps the published N*M shot accounting, so
-        # the only difference from the baseline is the preparation charge.
-        priced = recost_exact_points_with_circuit_prep(
-            exact_df,
-            circuit_prep_time=circuit_prep_time,
-            time_per_shot=None,
-            use_recorded_shots=False,
-            charge_sampling_job=True,
-        )
-        priced["T_proxy"] = priced["T_exact_proxy"]
+    priced = price_variant(exact_df, circuit_prep_time)
 
     frontier_df = build_resource_frontier_from_exact_points(
         priced, codebooks=codebooks, num_bins=num_bins, budget_col="T_proxy", scale="log",

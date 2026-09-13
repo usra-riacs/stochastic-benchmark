@@ -97,6 +97,30 @@ class TestPriceVariant:
         assert seen["priced"]["T_proxy"].iloc[0] == pytest.approx(228.03336, abs=1e-5)
 
 
+    def test__build_variant__seeds_the_global_generator_right_before_the_stochastic_stages(self, monkeypatch, tmp_path):
+        # ARRANGE -- src/bootstrap.py draws from numpy's global RNG (issue #86);
+        # record the generator state the stochastic stage actually sees
+        import numpy as np
+        seen: dict = {}
+        monkeypatch.setattr(recost, "build_resource_frontier_from_exact_points",
+                            lambda priced, **k: pd.DataFrame({"T": priced["T_proxy"], "BestApproximationRatio": [0.9],
+                                                              "split": priced["split"], "strategy": priced["strategy"]}))
+        monkeypatch.setattr(recost, "run_stochastic_benchmark_pss",
+                            lambda *a, **k: seen.setdefault("draw", np.random.random()) and {})
+        monkeypatch.setattr(recost, "build_strategy_budget_summary", lambda *a, **k: pd.DataFrame())
+
+        # ACT -- two builds with the same seed, after perturbing the global state in between
+        recost.build_variant(_reviewer_row(), tmp_path / "a", {}, circuit_prep_time=T_PREP, num_bins=10,
+                             bootstrap_range=range(1, 2), train_test_split=0.5, random_seed=7)
+        first = seen.pop("draw")
+        np.random.random(1000)
+        recost.build_variant(_reviewer_row(), tmp_path / "b", {}, circuit_prep_time=T_PREP, num_bins=10,
+                             bootstrap_range=range(1, 2), train_test_split=0.5, random_seed=7)
+
+        # ASSERT -- the stochastic stage sees the same generator state both times
+        assert seen["draw"] == first
+
+
 # ---------------------------------------------------------------------------
 # DEFAULT_TAGS: the documented command must regenerate every campaign the
 # notebook's cost-model figure reads

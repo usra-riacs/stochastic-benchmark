@@ -3132,7 +3132,7 @@ def annotate_frontier_depths(
     points: list[dict[str, Any]],
     *,
     fontsize: float = 9.0,
-    color: str = "#B00020",
+    color: str | None = None,
     marker_size: float = 10.0,
     marker_pad: float = 4.0,
     line_pad: float = 2.0,
@@ -3140,7 +3140,11 @@ def annotate_frontier_depths(
 ) -> None:
     """Label each frontier takeover with its QAOA depth, avoiding overlaps.
 
-    ``points`` carries ``x``, ``y`` and ``p`` per marker. A candidate position
+    ``points`` carries ``x``, ``y`` and ``p`` per marker, and optionally
+    ``color``: each label is drawn in its own strategy's colour so it reads
+    with the curve it belongs to, over a thin white halo so the lighter
+    colours stay legible on the grid. ``color`` overrides that for every
+    label. A candidate position
     is rejected if it leaves the axes, overlaps a label already placed,
     covers any marker, or crosses any drawn curve or whisker. Candidates are
     tried on rings of growing radius so a dense cluster of takeovers still
@@ -3181,8 +3185,10 @@ def annotate_frontier_depths(
         text = ax.annotate(
             f"p={int(point['p'])}", (point["x"], point["y"]),
             textcoords="offset points", xytext=(dx, dy),
-            ha="center", va="center", fontsize=fontsize, color=color,
-            zorder=12, annotation_clip=False,
+            ha="center", va="center", fontsize=fontsize,
+            color=color if color is not None else point.get("color", "0.15"),
+            fontweight="bold", zorder=12, annotation_clip=False,
+            path_effects=[_pe.withStroke(linewidth=2.2, foreground="white")],
         )
         return text, text.get_window_extent(renderer=renderer).expanded(1.08, 1.08)
 

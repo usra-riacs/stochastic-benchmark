@@ -45,6 +45,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 HERE = Path(__file__).resolve().parent
@@ -177,14 +178,26 @@ def price_variant(exact_df: pd.DataFrame, circuit_prep_time: float) -> pd.DataFr
 
 def build_variant(exact_df: pd.DataFrame, out_root: Path, codebooks: dict,
                   *, circuit_prep_time: float, num_bins: int,
-                  bootstrap_range, train_test_split: float) -> dict:
-    """Cost, bin and run the prescription pipeline for one variant."""
+                  bootstrap_range, train_test_split: float,
+                  random_seed: int | None = 0) -> dict:
+    """Cost, bin and run the prescription pipeline for one variant.
+
+    ``random_seed`` is applied to numpy's global generator right before the
+    stochastic stages. src/bootstrap.py resamples through that generator and
+    never seeds it (issue #86), so without this two runs of the same variant
+    retain different bootstrap draws and the frontier's fine structure, which
+    strategy holds a given window and by how much, moves between runs. Seeding
+    here makes a variant root a pure function of its inputs; pass ``None`` to
+    get the old behaviour.
+    """
     priced = price_variant(exact_df, circuit_prep_time)
 
     frontier_df = build_resource_frontier_from_exact_points(
         priced, codebooks=codebooks, num_bins=num_bins, budget_col="T_proxy", scale="log",
     )
     out_root.mkdir(parents=True, exist_ok=True)
+    if random_seed is not None:
+        np.random.seed(random_seed)
     results = run_stochastic_benchmark_pss(
         frontier_df,
         output_dir=out_root / "window_sticker",
@@ -249,6 +262,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--variant-tag", default="",
                         help='Prefix distinguishing an alternative shot-time calibration '
                              '(see --shot-time-by-depth) in the output directory names.')
+    parser.add_argument("--random-seed", type=int, default=0,
+                        help="Seed for the bootstrap resampling, so a variant root is "
+                             "reproducible. Negative disables seeding.")
     parser.add_argument("--num-bins", type=int, default=1000)
     parser.add_argument("--train-test-split", type=float, default=0.5)
     parser.add_argument("--bootstrap-start", type=int, default=10)
@@ -324,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
                     priced_base, out_root, codebooks,
                     circuit_prep_time=prep, num_bins=args.num_bins,
                     bootstrap_range=bootstrap_range, train_test_split=args.train_test_split,
+                    random_seed=None if args.random_seed < 0 else args.random_seed,
                 )
             except Exception as exc:  # noqa: BLE001
                 print(f"  FAIL {tag} [{label}]: {type(exc).__name__}: {exc}")

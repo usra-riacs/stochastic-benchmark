@@ -3408,7 +3408,7 @@ _QPS_FAMILY_COLORS: dict[str, str] = {
 
 
 def _family_marker_style(family: str, color: Any) -> dict[str, Any]:
-    """Fill/edge convention separating optimization levels within one colour.
+    r"""Fill/edge convention separating optimization levels within one colour.
 
     Matches :func:`_style_plot_kwargs`: a dagger method is hollow, a starred
     method is filled with a dark edge, and method-parameter optimization is

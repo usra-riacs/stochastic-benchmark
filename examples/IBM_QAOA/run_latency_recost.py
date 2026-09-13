@@ -189,9 +189,9 @@ def build_variant(exact_df: pd.DataFrame, out_root: Path, codebooks: dict,
 def variant_label(circuit_prep_time: float, variant_tag: str = "") -> str:
     """Directory suffix for one (calibration, charge) combination.
 
-    ``variant_tag`` distinguishes shot-time calibrations, e.g. "nc" for the
-    noise-corrected basis, so those roots do not collide with the noiseless
-    ones. An empty tag keeps the plain ``prep0`` / ``prep<t>s`` names.
+    ``variant_tag`` distinguishes alternative shot-time calibrations (anything
+    passed through ``--shot-time-by-depth``) so their roots do not collide with
+    the default ones. An empty tag keeps the plain ``prep0`` / ``prep<t>s`` names.
     """
     charge = "prep0" if circuit_prep_time <= 0 else "prep" + f"{circuit_prep_time:g}".replace(".", "p") + "s"
     return f"{variant_tag}_{charge}" if variant_tag else charge
@@ -227,8 +227,8 @@ def main(argv: list[str] | None = None) -> int:
         default=True, help="Skip the measured per-depth hardware lookup.",
     )
     parser.add_argument("--variant-tag", default="",
-                        help='Prefix distinguishing a shot-time calibration in the output '
-                             'directory names, e.g. "nc" for noise-corrected.')
+                        help='Prefix distinguishing an alternative shot-time calibration '
+                             '(see --shot-time-by-depth) in the output directory names.')
     parser.add_argument("--num-bins", type=int, default=1000)
     parser.add_argument("--train-test-split", type=float, default=0.5)
     parser.add_argument("--bootstrap-start", type=int, default=10)

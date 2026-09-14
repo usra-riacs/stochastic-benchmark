@@ -2881,6 +2881,19 @@ def _family_marker_style(family: str, color: Any) -> dict[str, Any]:
     return {"markerfacecolor": color, "markeredgecolor": "none", "markeredgewidth": 0.0}
 
 
+def family_label_color(family: str, color: Any) -> Any:
+    """Colour for a depth label so it reads with its marker.
+
+    A starred family draws a filled marker, which reads darker than the
+    hollow dagger marker of the same colour; give its label the same darker
+    shade so the two are told apart at a glance.
+    """
+    if family.endswith("_star"):
+        r, g, b = mcolors.to_rgb(color)
+        return (0.6 * r, 0.6 * g, 0.6 * b)
+    return color
+
+
 def build_qps_method_color_map(
     labels: Iterable[str],
 ) -> tuple[dict[str, Any], dict[str, list[str]], dict[str, dict[str, Any]]]:
@@ -4253,7 +4266,8 @@ def plot_cost_model_comparison_panels(
                 {"x": float(grid[idx]), "y": float(envelope[idx]),
                  "p": _label_depth(colored[int(best_idx[idx])][0]),
                  "marker": calibration.get("marker", "o"),
-                 "color": method_colors[int(best_idx[idx])],
+                 "color": family_label_color(_detect_method_family(colored[int(best_idx[idx])][0]),
+                                             method_colors[int(best_idx[idx])]),
                  "style": method_marker_styles[int(best_idx[idx])]}
                 for idx in marker_idx if np.isfinite(envelope[idx])
             )
@@ -4295,7 +4309,7 @@ def plot_cost_model_comparison_panels(
                 depth_points.extend(
                     {"x": float(x), "y": float(y) * 100.0, "p": _label_depth(lbl),
                      "marker": hardware.get("marker", "s"),
-                     "color": color_map.get(lbl, "#777777"),
+                     "color": family_label_color(_detect_method_family(lbl), color_map.get(lbl, "#777777")),
                      "style": {"markeredgecolor": "white", "markeredgewidth": 0.8,
                                "markerfacecolor": color_map.get(lbl, "#777777")}}
                     for x, y, lbl in zip(

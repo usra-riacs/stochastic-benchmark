@@ -4057,8 +4057,13 @@ def draw_hardware_frontier_steps(
             ax.plot([x[i], x[i]], [y[i - 1], y[i]], color=colors[i], linestyle=linestyle,
                     linewidth=linewidth, path_effects=halo, zorder=zorder)
 
-    ax.scatter(x, y, c=colors, marker=marker, s=markersize,
-               edgecolor="white", linewidth=0.8, zorder=zorder + 1)
+    # Same fill/rim convention as the simulated takeover markers, so a
+    # starred hardware point is told from a dagger one the same way.
+    for xi, yi, label, colour in zip(x, y, frontier_df["method_label"], colors):
+        style = _family_marker_style(_detect_method_family(str(label)), colour)
+        ax.scatter([xi], [yi], marker=marker, s=markersize, zorder=zorder + 1,
+                   c=[style["markerfacecolor"]], edgecolor=style["markeredgecolor"],
+                   linewidth=max(style["markeredgewidth"], 0.8))
 
     if show_error_bars and {"dur_sem", "ar_sem"}.issubset(frontier_df.columns):
         x_sem = pd.to_numeric(frontier_df["dur_sem"], errors="coerce").to_numpy(dtype=float)
@@ -4310,8 +4315,7 @@ def plot_cost_model_comparison_panels(
                     {"x": float(x), "y": float(y) * 100.0, "p": _label_depth(lbl),
                      "marker": hardware.get("marker", "s"),
                      "color": family_label_color(_detect_method_family(lbl), color_map.get(lbl, "#777777")),
-                     "style": {"markeredgecolor": "white", "markeredgewidth": 0.8,
-                               "markerfacecolor": color_map.get(lbl, "#777777")}}
+                     "style": _family_marker_style(_detect_method_family(lbl), color_map.get(lbl, "#777777"))}
                     for x, y, lbl in zip(
                         hw_x, hw_y.to_numpy(dtype=float),
                         hardware["frontier_df"]["method_label"].tolist(),

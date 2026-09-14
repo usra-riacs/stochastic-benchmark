@@ -3134,8 +3134,8 @@ def annotate_frontier_depths(
     fontsize: float = 9.0,
     color: str | None = None,
     marker_size: float = 10.0,
-    marker_pad: float = 4.0,
-    line_pad: float = 2.0,
+    marker_pad: float = 2.0,
+    line_pad: float = 1.5,
     reserved: Iterable[Bbox] = (),
 ) -> None:
     """Label each frontier takeover with its QAOA depth, avoiding overlaps.
@@ -3173,24 +3173,36 @@ def annotate_frontier_depths(
         placed.append(Bbox.from_extents(x_disp - half, y_disp - half,
                                         x_disp + half, y_disp + half))
 
-    directions = [(0, 1), (0, -1), (1, 0.45), (-1, 0.45), (1, -0.45), (-1, -0.45), (1, 0), (-1, 0),
-                  (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7), (-0.7, -0.7)]
+    # Sixteen directions, and the label is anchored by the edge that faces the
+    # marker rather than by its centre, so "just outside the marker" really is
+    # just outside it. Radii are in points from the marker centre to that
+    # edge, starting at the marker's own half-size plus a small gap, and only
+    # grow when every direction at the current radius collides.
+    directions = [
+        (0, 1), (0, -1), (1, 0), (-1, 0),
+        (0.71, 0.71), (-0.71, 0.71), (0.71, -0.71), (-0.71, -0.71),
+        (0.38, 0.92), (-0.38, 0.92), (0.38, -0.92), (-0.38, -0.92),
+        (0.92, 0.38), (-0.92, 0.38), (0.92, -0.38), (-0.92, -0.38),
+    ]
+    marker_edge_pt = 0.5 * marker_size + 1.5
     offsets = [
-        (round(dx * radius), round(dy * radius))
-        for radius in (14, 21, 29, 38, 48, 60)
+        (dx * (marker_edge_pt + extra), dy * (marker_edge_pt + extra), dx, dy)
+        for extra in (0, 3, 7, 12, 18, 26, 36)
         for dx, dy in directions
     ]
 
-    def _place(point, dx, dy):
+    def _place(point, dx, dy, ux, uy):
+        ha = "left" if ux > 0.3 else "right" if ux < -0.3 else "center"
+        va = "bottom" if uy > 0.3 else "top" if uy < -0.3 else "center"
         text = ax.annotate(
             f"p={int(point['p'])}", (point["x"], point["y"]),
             textcoords="offset points", xytext=(dx, dy),
-            ha="center", va="center", fontsize=fontsize,
+            ha=ha, va=va, fontsize=fontsize,
             color=color if color is not None else point.get("color", "0.15"),
             fontweight="bold", zorder=12, annotation_clip=False,
-            path_effects=[_pe.withStroke(linewidth=2.2, foreground="white")],
+            path_effects=[_pe.withStroke(linewidth=2.0, foreground="white")],
         )
-        return text, text.get_window_extent(renderer=renderer).expanded(1.08, 1.08)
+        return text, text.get_window_extent(renderer=renderer).expanded(1.04, 1.04)
 
     def _label_overlap(bbox):
         total = 0.0
@@ -3215,8 +3227,8 @@ def annotate_frontier_depths(
             continue
         chosen_bbox = None
         fallback = None  # least-bad option, kept in case nothing is free
-        for dx, dy in offsets:
-            text, bbox = _place(point, dx, dy)
+        for dx, dy, ux, uy in offsets:
+            text, bbox = _place(point, dx, dy, ux, uy)
             inside = (
                 axes_bbox.containsx(bbox.x0) and axes_bbox.containsx(bbox.x1)
                 and axes_bbox.containsy(bbox.y0) and axes_bbox.containsy(bbox.y1)

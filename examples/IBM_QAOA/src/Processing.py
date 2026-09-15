@@ -15,9 +15,6 @@ from typing import Any, Callable
 # Add stochastic-benchmark src to path
 sys.path.append('../../src')
 
-# Path config
-cwd = Path.cwd()
-
 def set_data_path(data_dir: str, hardware: bool = False, training: bool = True, graph_type: str = "default") -> str:    
     """Build data directory paths for QAOA runs.
 

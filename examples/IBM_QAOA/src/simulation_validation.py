@@ -16,14 +16,12 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 
-from .Processing import expected_energy_from_counts, load_problem_instance
+from .Processing import load_problem_instance
 from .approx_ratio_calc import (
     best_prefix_metrics,
     extract_minmax_args,
     get_minmax,
     load_maxcut_instance_context,
-    maxcut_approximation_ratio,
-    maxcut_energy_from_bitstring,
 )
 
 
@@ -40,13 +38,6 @@ SAMPLED_BACKEND_METHODS = {
     "MPSAer": "matrix_product_state",
     # Backward-compatible alias for old notebook state.
     "MPS": "matrix_product_state",
-}
-
-EVALUATOR_NAMES = {
-    "SV": "StatevectorEvaluator",
-    "MPSAer": "MPSAerEvaluator",
-    "MPS": "MPSAerEvaluator",
-    "PP": "PPEvaluator",
 }
 
 TRANSFER_DATABASE_FALLBACKS = {
@@ -839,19 +830,6 @@ def build_cost_operator_from_graph(
     return imports["input_to_operator"](imports["load_input"](str(graph_path)), pre_factor=pre_factor)
 
 
-def build_cost_operator_from_serialized(serialized_cost_operator: Any):
-    qiskit_imports = ensure_qiskit_imports()
-    SparsePauliOp = qiskit_imports["SparsePauliOp"]
-
-    if isinstance(serialized_cost_operator, SparsePauliOp):
-        return serialized_cost_operator
-    if isinstance(serialized_cost_operator, list):
-        return SparsePauliOp.from_list(
-            [(str(pauli), complex(coeff)) for pauli, coeff in serialized_cost_operator]
-        )
-    raise TypeError("Unsupported serialized cost operator format.")
-
-
 def generate_linear_ramp_angles(
     cost_op,
     reps: int,
@@ -1238,29 +1216,6 @@ class MPSAerSampleEvaluator:
         return cls(**(config or {}))
 
 
-def sample_bound_circuit_counts(
-    circuit,
-    backend_choice: str,
-    shots: int = 4096,
-    simulator_options: dict[str, Any] | None = None,
-    simulator: Any | None = None,
-) -> dict[str, int]:
-    backend_choice = "MPSAer" if backend_choice == "MPS" else backend_choice
-    if backend_choice not in SAMPLED_BACKEND_METHODS:
-        raise ValueError(f"{backend_choice} is not a sampled backend.")
-
-    if simulator is None:
-        simulator = build_bound_circuit_simulator(backend_choice, simulator_options)
-
-    measured = circuit.copy()
-    measured.measure_all()
-    result = simulator.run(measured, shots=shots).result()
-    counts = result.get_counts()
-    if isinstance(counts, list):
-        counts = counts[0]
-    return {str(bitstring): int(count) for bitstring, count in counts.items()}
-
-
 def build_bound_circuit_simulator(backend_choice: str, simulator_options: dict[str, Any] | None = None):
     """Build an AerSimulator for repeated reuse across many sample_bound_circuit_* calls.
 
@@ -1300,107 +1255,6 @@ def sample_bound_circuit_memory(
     if isinstance(memory, list):
         return [str(bitstring) for bitstring in memory]
     return [str(memory)]
-
-
-def counts_to_metric_rows(
-    counts: dict[str, int],
-    instance_context: dict[str, Any],
-    min_cut: float,
-    max_cut: float,
-    sum_weights: float,
-    extra: dict[str, Any] | None = None,
-) -> pd.DataFrame:
-    rows = []
-    extra = extra or {}
-    total = int(sum(counts.values()))
-    for bitstring, count in counts.items():
-        energy = maxcut_energy_from_bitstring(bitstring, instance_context)
-        cut_value = energy + 0.5 * sum_weights
-        approx_ratio = maxcut_approximation_ratio(min_cut, max_cut, sum_weights, energy)
-        rows.append(
-            {
-                "bitstring": bitstring,
-                "count": int(count),
-                "probability": float(count) / float(total) if total else np.nan,
-                "expected_energy": float(energy),
-                "cut_value": float(cut_value),
-                "approximation_ratio": float(approx_ratio),
-                **extra,
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def summarize_counts_metrics(
-    counts: dict[str, int],
-    instance_context: dict[str, Any],
-    min_cut: float,
-    max_cut: float,
-    sum_weights: float,
-) -> dict[str, Any]:
-    metric_rows = counts_to_metric_rows(counts, instance_context, min_cut, max_cut, sum_weights)
-    expected_energy = expected_energy_from_counts(
-        counts,
-        maxcut_energy_from_bitstring,
-        objective_context=instance_context,
-    )
-    return {
-        "expected_energy_from_counts": expected_energy,
-        "approx_ratio_mean": float(np.average(metric_rows["approximation_ratio"], weights=metric_rows["count"])),
-        "approx_ratio_best": float(metric_rows["approximation_ratio"].max()),
-        "best_cut_value": float(metric_rows["cut_value"].max()),
-        "metric_rows": metric_rows,
-    }
-
-
-def sample_fixed_angles(
-    cost_op,
-    params: list[float],
-    context: dict[str, Any],
-    backend_choice: str,
-    shots: int = 4096,
-    evaluator_init: dict[str, Any] | None = None,
-    simulator_options: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    backend_choice = "MPSAer" if backend_choice == "MPS" else backend_choice
-    start = time.perf_counter()
-    expected_energy_eval = None
-    backend_metadata: dict[str, Any] = {}
-    if backend_choice == "MPSAer":
-        evaluator = MPSAerSampleEvaluator(shots=shots, **(evaluator_init or {}))
-        expected_energy_eval = evaluator.evaluate(cost_op=cost_op, params=params)
-        counts = evaluator.get_results_from_last_iteration()["counts"]
-        backend_metadata["evaluator_init"] = evaluator.to_config()
-    else:
-        counts = sample_bound_circuit_counts(
-            build_bound_qaoa_circuit(cost_op, params),
-            backend_choice=backend_choice,
-            shots=shots,
-            simulator_options=simulator_options,
-        )
-        if simulator_options:
-            backend_metadata["simulator_options"] = dict(simulator_options)
-    runtime = time.perf_counter() - start
-    summary = summarize_counts_metrics(
-        counts,
-        context["instance_context"],
-        context["min_cut"],
-        context["max_cut"],
-        context["sum_weights"],
-    )
-    result = {
-        "simulation_method": backend_choice,
-        "supports_sampling": True,
-        "counts": counts,
-        "num_shots": shots,
-        "runtime_seconds": runtime,
-        **{key: value for key, value in summary.items() if key != "metric_rows"},
-        "metric_rows": summary["metric_rows"],
-        **backend_metadata,
-    }
-    if expected_energy_eval is not None:
-        result["expected_energy_eval"] = expected_energy_eval
-    return result
 
 
 def strategy_family(method_name: str) -> str:
@@ -1501,150 +1355,6 @@ def build_sampled_training_config(
                 nested_init["minimize_args"] = nested_minimize_args
 
     return sampled_config
-
-
-def run_strategy_with_final_sampling(
-    spec: InstanceSpec,
-    strategy_name: str,
-    reps: int,
-    *,
-    final_shots: int,
-    pipeline_repo: str | Path | None = None,
-    main_repo: str | Path | None = None,
-    method_configs: dict[str, Path] | None = None,
-    linear_ramp_slopes: tuple[float, float] = (0.5, 0.5),
-    training_mode: str = "native",
-    cobyla_maxiter: int | None = None,
-    training_shots_per_eval: int | None = None,
-    sample_config: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    context = load_instance_context(spec, main_repo)
-    cost_op = None
-
-    if strategy_name == "linear_ramp_no_opt":
-        cost_op = build_cost_operator_from_graph(context["graph_path"], pipeline_repo)
-        angle_payload = generate_angle_payload(
-            cost_op,
-            angle_method=strategy_name,
-            reps=reps,
-            method_configs=method_configs,
-            main_repo=main_repo,
-            pipeline_repo=pipeline_repo,
-            linear_ramp_slopes=linear_ramp_slopes,
-            disable_transfer_evaluator=True,
-            spec=spec,
-            graph_path=context["graph_path"],
-        )
-        result_bundle = angle_payload["result_bundle"]
-    elif training_mode == "native":
-        if "_PP" not in strategy_name:
-            cost_op = build_cost_operator_from_graph(context["graph_path"], pipeline_repo)
-        angle_payload = generate_angle_payload(
-            cost_op,
-            angle_method=strategy_name,
-            reps=reps,
-            method_configs=method_configs,
-            main_repo=main_repo,
-            pipeline_repo=pipeline_repo,
-            linear_ramp_slopes=linear_ramp_slopes,
-            disable_transfer_evaluator=strategy_name in ZERO_TRAINING_METHODS,
-            spec=spec,
-            graph_path=context["graph_path"],
-        )
-        if cost_op is None:
-            saved_cost_operator = angle_payload.get("saved_cost_operator")
-            if saved_cost_operator is None:
-                raise ValueError(
-                    f"Saved training result for {strategy_name} did not include a serialized cost operator."
-                )
-            cost_op = build_cost_operator_from_serialized(saved_cost_operator)
-        result_bundle = angle_payload["result_bundle"]
-    elif training_mode == "sampled_mps":
-        cost_op = build_cost_operator_from_graph(context["graph_path"], pipeline_repo)
-        if method_configs is None or strategy_name not in method_configs:
-            raise ValueError(f"Unknown strategy {strategy_name} for sampled training.")
-        sampled_config = build_sampled_training_config(
-            strategy_name,
-            load_method_config(method_configs[strategy_name]),
-            reps=reps,
-            cobyla_maxiter=cobyla_maxiter,
-            shots_per_evaluation=int(training_shots_per_eval or final_shots),
-            sample_config=sample_config,
-        )
-        result_bundle = run_method_from_config(
-            cost_op,
-            sampled_config,
-            pipeline_repo=pipeline_repo,
-            main_repo=main_repo,
-            train_kwargs_overrides=native_train_kwargs_overrides(
-                sampled_config,
-                reps=reps,
-                spec=spec,
-                graph_path=context["graph_path"],
-            ),
-            disable_transfer_evaluator=strategy_name in ZERO_TRAINING_METHODS,
-        )
-        angle_payload = {
-            "angle_method": strategy_name,
-            "angles": latest_stage_data(result_bundle)["optimized_qaoa_angles"],
-            "raw_result": latest_stage_data(result_bundle),
-            "result_bundle": result_bundle,
-        }
-    else:
-        raise ValueError(f"Unsupported training_mode {training_mode}.")
-
-    sample_result = sample_fixed_angles(
-        cost_op,
-        angle_payload["angles"],
-        context,
-        backend_choice="MPSAer",
-        shots=final_shots,
-        evaluator_init=sample_config,
-    )
-
-    training_shots_used = total_training_shots_from_bundle(result_bundle)
-    num_objective_evaluations = total_objective_evaluations_from_bundle(result_bundle)
-    runtime_train = total_train_duration_from_bundle(result_bundle)
-
-    if strategy_name in ZERO_TRAINING_METHODS:
-        training_shots_used = 0
-        num_objective_evaluations = 0
-
-    return {
-        "strategy": strategy_name,
-        "strategy_family": strategy_family(strategy_name),
-        "strategy_runtime_label": strategy_runtime_label(strategy_name, reps),
-        "angle_method": angle_payload["angle_method"],
-        "saved_result_path": angle_payload.get("saved_result_path"),
-        "training_mode": training_mode,
-        "simulation_method": "MPSAer",
-        "family": spec.graph_type,
-        "graph_type": spec.graph_type,
-        "num_nodes": spec.num_nodes,
-        "instance_id": spec.instance_id,
-        "short_name": context["short_name"],
-        "p": int(reps),
-        "angles": [float(value) for value in angle_payload["angles"]],
-        "counts": sample_result["counts"],
-        "num_shots_final": int(final_shots),
-        "runtime_train_wallclock": runtime_train,
-        "runtime_sample_wallclock": float(sample_result["runtime_seconds"]),
-        "runtime_seconds": float(runtime_train + sample_result["runtime_seconds"]),
-        "num_objective_evaluations": int(num_objective_evaluations),
-        "total_training_shots": int(training_shots_used),
-        "supports_sampling": True,
-        "expected_energy_eval": sample_result.get("expected_energy_eval"),
-        "expected_energy_from_counts": sample_result["expected_energy_from_counts"],
-        "Approximation_Ratio": sample_result["approx_ratio_mean"],
-        "BestApproximationRatio": sample_result["approx_ratio_best"],
-        "approx_ratio_mean": sample_result["approx_ratio_mean"],
-        "approx_ratio_best": sample_result["approx_ratio_best"],
-        "best_found_value": sample_result["best_cut_value"],
-        "best_cut_value": sample_result["best_cut_value"],
-        "metric_rows": sample_result["metric_rows"],
-        "evaluator_init": sample_result.get("evaluator_init"),
-        "result_bundle": result_bundle,
-    }
 
 
 def _mpsaer_simulator_options(sample_config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -2084,6 +1794,245 @@ def run_fa_pss_exact_points(
     return pd.DataFrame(rows)
 
 
+_INTERP_STRATEGY_NAMES = {"I_MPSAer", "I_PP", "I_MPS", "I_SV"}
+
+# Alphanumeric-only boundaries rather than \b, which counts underscore as a
+# word character: strategy names like "FA_PP_opt" and "LR_opt" both contain
+# the substring "pt" and must NOT be treated as Parameter Transfer.
+_PT_STRATEGY_PATTERN = (
+    r"(?<![a-zA-Z0-9])PT(?![a-zA-Z0-9])"
+    r"|Param\.? Transfer|Parameter Transfer"
+    r"|(?<![a-zA-Z0-9])transfer(?![a-zA-Z0-9])"
+)
+
+
+def pt_transfer_strategy_mask(df: pd.DataFrame) -> pd.Series:
+    """Rows whose strategy metadata identifies them as Parameter Transfer."""
+    mask = pd.Series(False, index=df.index)
+    for col in ["strategy", "strategy_family", "method_label", "strategy_runtime_label"]:
+        if col in df.columns:
+            mask |= df[col].astype(str).str.contains(
+                _PT_STRATEGY_PATTERN, case=False, regex=True, na=False
+            )
+    return mask
+
+
+def build_pss_proxy_costs(
+    exact_df: pd.DataFrame,
+    *,
+    time_per_shot_by_p: dict[int, float] | None = None,
+    default_time_per_shot: float,
+    include_pt_transfer_cost: bool = True,
+    pt_transfer_cost_seconds: float | None = None,
+) -> pd.DataFrame:
+    """Attach the clean proxy resource columns to a frame of exact points.
+
+    This is the resource model the Window Sticker figures are built on,
+
+    ``T_proxy = t_preprocessing + N M t_shot + Q t_shot``
+
+    with two wrinkles that matter. Interpolation strategies route through
+    RecursionTrainer, which chains sub-optimizations at every depth from 1 up
+    to the target and shares one shot-based evaluator across all of them, so
+    ``N * M`` understates their shot count badly; those rows bill the recorded
+    ``total_training_shots`` instead. Parameter Transfer pays a classical
+    preprocessing cost for its angle lookup, taken from the measured
+    ``runtime_train_wallclock`` unless overridden.
+
+    Parameters
+    ----------
+    exact_df : pandas.DataFrame
+        Exact points with ``N``, ``M``, ``Q`` and strategy metadata.
+    time_per_shot_by_p : dict, optional
+        Per-depth hardware shot times. Depths absent from the mapping fall
+        back to ``default_time_per_shot``.
+    default_time_per_shot : float
+        Shot time used when no per-depth value applies.
+    include_pt_transfer_cost : bool, default=True
+        Charge Parameter Transfer for its angle-lookup preprocessing.
+    pt_transfer_cost_seconds : float, optional
+        Fixed preprocessing cost. When omitted the measured per-row value is
+        used.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy of ``exact_df`` with ``_hardware_time_per_shot``,
+        ``classical_setup_cost_proxy``, ``training_cost_proxy``,
+        ``sampling_cost_proxy``, ``T_proxy`` and ``T_exact_proxy`` set.
+    """
+    out = exact_df.copy()
+    for col in ["N", "M", "Q"]:
+        if col not in out.columns:
+            out[col] = 0
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+
+    by_p = dict(time_per_shot_by_p or {})
+    if "p" in out.columns and by_p:
+        depth = pd.to_numeric(out["p"], errors="coerce").round().astype("Int64")
+        out["_hardware_time_per_shot"] = depth.map(by_p).astype(float).fillna(default_time_per_shot)
+    else:
+        out["_hardware_time_per_shot"] = float(default_time_per_shot)
+
+    training_shot_cost = out["N"] * out["M"] * out["_hardware_time_per_shot"]
+
+    interp_mask = pd.Series(False, index=out.index)
+    if "strategy" in out.columns:
+        interp_mask = out["strategy"].astype(str).isin(_INTERP_STRATEGY_NAMES)
+    if interp_mask.any() and "total_training_shots" in out.columns:
+        interp_shots = pd.to_numeric(out.loc[interp_mask, "total_training_shots"], errors="coerce")
+        training_shot_cost = training_shot_cost.copy()
+        training_shot_cost.loc[interp_mask] = (
+            interp_shots * out.loc[interp_mask, "_hardware_time_per_shot"]
+        )
+
+    transfer_mask = pt_transfer_strategy_mask(out)
+    transfer_cost = pd.Series(0.0, index=out.index)
+    if include_pt_transfer_cost and transfer_mask.any():
+        if pt_transfer_cost_seconds is None:
+            for col in ["runtime_train_wallclock", "classical_setup_cost"]:
+                if col in out.columns:
+                    measured = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+                    break
+            else:
+                measured = pd.Series(0.0, index=out.index)
+            transfer_cost.loc[transfer_mask] = measured.loc[transfer_mask]
+        else:
+            transfer_cost.loc[transfer_mask] = float(pt_transfer_cost_seconds)
+
+    out["classical_setup_cost_proxy"] = transfer_cost
+    out["training_cost_proxy"] = training_shot_cost + transfer_cost
+    out["sampling_cost_proxy"] = out["Q"] * out["_hardware_time_per_shot"]
+    out["T_proxy"] = out["training_cost_proxy"] + out["sampling_cost_proxy"]
+    out["T_exact_proxy"] = out["T_proxy"]
+    return out
+
+
+def infer_proxy_time_per_shot(df: pd.DataFrame) -> float:
+    """Recover the per-shot time baked into a campaign's stored proxy costs.
+
+    ``sampling_cost_proxy`` was written as ``Q * t_shot`` using whatever
+    hardware shot rate that campaign was calibrated against, so the rate can
+    be read straight back off any row with a positive ``Q``. Campaigns differ
+    slightly (measured per run), which is why this is inferred per dataframe
+    rather than assumed.
+    """
+    required = {"Q", "sampling_cost_proxy"}
+    missing = required - set(df.columns)
+    if missing:
+        raise KeyError(f"Cannot infer time-per-shot, missing columns: {sorted(missing)}")
+
+    q = pd.to_numeric(df["Q"], errors="coerce")
+    cost = pd.to_numeric(df["sampling_cost_proxy"], errors="coerce")
+    usable = q.notna() & cost.notna() & (q > 0) & (cost > 0)
+    if not usable.any():
+        raise ValueError("No rows with positive Q and sampling_cost_proxy to infer time-per-shot from.")
+    return float((cost[usable] / q[usable]).median())
+
+
+def recost_exact_points_with_circuit_prep(
+    df: pd.DataFrame,
+    *,
+    circuit_prep_time: float,
+    time_per_shot: float | None = None,
+    use_recorded_shots: bool = True,
+    charge_sampling_job: bool = True,
+) -> pd.DataFrame:
+    """Recharge stored exact points for per-job circuit-preparation time.
+
+    The proxy resource model as originally written bills only shot time,
+
+    ``T_proxy = N * M * t_shot + Q * t_shot``
+
+    which treats a job's shots as the whole cost of getting results off the
+    device. Hardware measurements say otherwise: a single submitted circuit
+    takes on the order of ten seconds to return regardless of whether it asks
+    for ten shots or ten thousand, because compilation, transfer, queueing and
+    control-electronics load dominate. This recharges each submitted job for
+    that fixed cost,
+
+    ``T_proxy = t_setup + n_evals * t_prep + S_train * t_shot + t_prep + Q * t_shot``
+
+    where ``n_evals`` is the number of objective evaluations the optimizer
+    actually ran and ``S_train`` the training shots it actually consumed.
+
+    Two corrections are applied, not one. Besides the ``t_prep`` charge, the
+    training shot count comes from the recorded ``total_training_shots``
+    rather than ``N * M``. Those differ because a COBYLA run with
+    ``maxiter = N`` submits somewhat more than ``N`` circuits, so the original
+    model undercounted training shots as well. Pass
+    ``use_recorded_shots=False`` to keep the old ``N * M`` accounting and
+    isolate the effect of ``t_prep`` alone.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Exact points carrying ``N``, ``M``, ``Q``, ``num_objective_evaluations``,
+        ``total_training_shots``, ``sampling_cost_proxy`` and
+        ``classical_setup_cost_proxy``.
+    circuit_prep_time : float
+        Seconds charged per submitted circuit job.
+    time_per_shot : float, optional
+        Per-shot time. Inferred from the frame via
+        :func:`infer_proxy_time_per_shot` when omitted.
+    use_recorded_shots : bool, default=True
+        Bill ``total_training_shots`` rather than ``N * M``.
+    charge_sampling_job : bool, default=True
+        Charge one additional ``t_prep`` for the final sampling job. This is
+        what keeps zero-training strategies from appearing free.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy of ``df`` with ``training_cost_proxy``, ``sampling_cost_proxy``
+        and ``T_exact_proxy`` recomputed, the pre-existing values preserved
+        under a ``*_zero_prep`` suffix, and the settings used recorded in
+        ``circuit_prep_time`` / ``proxy_time_per_shot`` columns.
+    """
+    if df.empty:
+        return df.copy()
+
+    required = [
+        "Q",
+        "sampling_cost_proxy",
+        "training_cost_proxy",
+        "T_exact_proxy",
+        "num_objective_evaluations",
+    ]
+    missing = [col for col in required if col not in df.columns]
+    if missing:
+        raise KeyError(f"recost_exact_points_with_circuit_prep is missing columns: {missing}")
+
+    t_prep = float(circuit_prep_time)
+    if t_prep < 0:
+        raise ValueError("circuit_prep_time must be non-negative.")
+    t_shot = float(time_per_shot) if time_per_shot is not None else infer_proxy_time_per_shot(df)
+
+    out = df.copy()
+    for col in ("training_cost_proxy", "sampling_cost_proxy", "T_exact_proxy"):
+        out[f"{col}_zero_prep"] = out[col]
+
+    n_evals = pd.to_numeric(out["num_objective_evaluations"], errors="coerce").fillna(0.0)
+    q_shots = pd.to_numeric(out["Q"], errors="coerce").fillna(0.0)
+
+    if use_recorded_shots and "total_training_shots" in out.columns:
+        train_shots = pd.to_numeric(out["total_training_shots"], errors="coerce").fillna(0.0)
+    else:
+        train_shots = (
+            pd.to_numeric(out.get("N", 0.0), errors="coerce").fillna(0.0)
+            * pd.to_numeric(out.get("M", 0.0), errors="coerce").fillna(0.0)
+        )
+
+    setup = pd.to_numeric(out.get("classical_setup_cost_proxy", 0.0), errors="coerce").fillna(0.0)
+
+    out["training_cost_proxy"] = setup + n_evals * t_prep + train_shots * t_shot
+    out["sampling_cost_proxy"] = (t_prep if charge_sampling_job else 0.0) + q_shots * t_shot
+    out["T_exact_proxy"] = out["training_cost_proxy"] + out["sampling_cost_proxy"]
+    out["circuit_prep_time"] = t_prep
+    out["proxy_time_per_shot"] = t_shot
+    return out
+
+
 def build_dense_budget_grid(
     exact_df: pd.DataFrame,
     *,
@@ -2120,126 +2069,6 @@ def build_dense_budget_grid(
         grid = np.linspace(lo, hi, count)
 
     return [float(val) for val in np.unique(np.round(grid, 12))]
-
-
-def build_budget_bin_edges(
-    exact_df: pd.DataFrame,
-    *,
-    num_bins: int = 1000,
-    resource_col: str = "T_exact_proxy",
-    scale: str = "log",
-) -> np.ndarray:
-    if exact_df.empty:
-        return np.array([], dtype=float)
-
-    values = (
-        exact_df[resource_col]
-        .astype(float)
-        .replace([np.inf, -np.inf], np.nan)
-        .dropna()
-        .sort_values()
-    )
-    if values.empty:
-        return np.array([], dtype=float)
-
-    lo = float(values.iloc[0])
-    hi = float(values.iloc[-1])
-    if hi <= lo:
-        return np.array([lo, hi], dtype=float)
-
-    count = max(int(num_bins), 1) + 1
-    if scale == "log":
-        positive = values[values > 0]
-        if positive.empty:
-            return np.linspace(lo, hi, count)
-        lo = float(positive.iloc[0])
-        return np.geomspace(lo, hi, count)
-
-    return np.linspace(lo, hi, count)
-
-
-def _centers_from_edges(edges: np.ndarray, *, scale: str = "log") -> np.ndarray:
-    if edges.size < 2:
-        return np.array([], dtype=float)
-
-    if scale == "log":
-        return np.sqrt(edges[:-1] * edges[1:])
-
-    return 0.5 * (edges[:-1] + edges[1:])
-
-
-def _edges_from_centers(centers: np.ndarray, *, scale: str = "log") -> np.ndarray:
-    if centers.size == 0:
-        return np.array([], dtype=float)
-    if centers.size == 1:
-        center = float(centers[0])
-        if scale == "log" and center > 0:
-            return np.array([center / np.sqrt(2.0), center * np.sqrt(2.0)], dtype=float)
-        width = max(abs(center) * 0.5, 1e-12)
-        return np.array([center - width, center + width], dtype=float)
-
-    edges = np.empty(centers.size + 1, dtype=float)
-    if scale == "log" and np.all(centers > 0):
-        log_centers = np.log(centers)
-        log_edges = np.empty(centers.size + 1, dtype=float)
-        log_edges[1:-1] = 0.5 * (log_centers[:-1] + log_centers[1:])
-        log_edges[0] = log_centers[0] - (log_edges[1] - log_centers[0])
-        log_edges[-1] = log_centers[-1] + (log_centers[-1] - log_edges[-2])
-        return np.exp(log_edges)
-
-    edges[1:-1] = 0.5 * (centers[:-1] + centers[1:])
-    edges[0] = centers[0] - (edges[1] - centers[0])
-    edges[-1] = centers[-1] + (centers[-1] - edges[-2])
-    return edges
-
-
-def build_binned_budget_dataset(
-    exact_df: pd.DataFrame,
-    *,
-    t_grid: list[float] | None = None,
-    num_bins: int = 1000,
-    budget_col: str = "T_exact_proxy",
-    scale: str = "log",
-) -> pd.DataFrame:
-    if exact_df.empty:
-        return pd.DataFrame()
-
-    binned = exact_df.copy()
-    if t_grid is not None:
-        centers = np.asarray(sorted({float(val) for val in t_grid}), dtype=float)
-        edges = _edges_from_centers(centers, scale=scale)
-    else:
-        edges = build_budget_bin_edges(
-            exact_df,
-            num_bins=num_bins,
-            resource_col=budget_col,
-            scale=scale,
-        )
-        centers = _centers_from_edges(edges, scale=scale)
-
-    if edges.size < 2 or centers.size == 0:
-        return pd.DataFrame()
-
-    values = pd.to_numeric(binned[budget_col], errors="coerce").to_numpy(dtype=float)
-    finite_mask = np.isfinite(values)
-    if not finite_mask.any():
-        return pd.DataFrame()
-
-    valid_values = values[finite_mask]
-    bin_idx = np.searchsorted(edges, valid_values, side="right") - 1
-    bin_idx = np.clip(bin_idx, 0, len(centers) - 1)
-
-    assigned = binned.loc[finite_mask].copy()
-    assigned["budget_bin"] = bin_idx.astype(int)
-    assigned["budget_left"] = edges[bin_idx].astype(float)
-    assigned["budget_right"] = edges[bin_idx + 1].astype(float)
-    assigned["T"] = centers[bin_idx].astype(float)
-    assigned["resource"] = assigned["T"].astype(float)
-    assigned["selected_exact_T"] = assigned.get("T_exact", np.nan)
-    assigned["selected_exact_T_proxy"] = assigned.get("T_exact_proxy", np.nan)
-    assigned["budget_distance"] = 0.0
-
-    return assigned.reset_index(drop=True)
 
 
 def build_cumulative_budget_frontier(
@@ -2452,178 +2281,6 @@ def build_resource_frontier_from_exact_points(
         scale=scale,
     )
     return attach_ws_codebook_columns(frontier_df, codebooks)
-
-
-def _positive_numeric_frame(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    out = df.copy()
-    for col in columns:
-        out[col] = pd.to_numeric(out[col], errors="coerce")
-    out = out.replace([np.inf, -np.inf], np.nan)
-    return out.dropna(subset=columns)
-
-
-def _fit_exact_resource_model(
-    train_df: pd.DataFrame,
-    model: str,
-    *,
-    target_col: str,
-) -> dict[str, Any]:
-    n = train_df["N"].to_numpy(dtype=float)
-    m = train_df["M"].to_numpy(dtype=float)
-    q = train_df["Q"].to_numpy(dtype=float)
-    y = train_df[target_col].to_numpy(dtype=float)
-
-    if model == "proxy_like_nm_q":
-        x = np.column_stack([n * m, q])
-        beta = np.linalg.lstsq(x, y, rcond=None)[0]
-        expression = f"T_exact = {beta[0]:.6g} N M + {beta[1]:.6g} Q"
-    elif model == "linear_n_m_q":
-        x = np.column_stack([np.ones(len(train_df)), n, m, q])
-        beta = np.linalg.lstsq(x, y, rcond=None)[0]
-        expression = f"T_exact = {beta[0]:.6g} + {beta[1]:.6g} N + {beta[2]:.6g} M + {beta[3]:.6g} Q"
-    elif model == "linear_n_m_q_nm":
-        x = np.column_stack([np.ones(len(train_df)), n, m, q, n * m])
-        beta = np.linalg.lstsq(x, y, rcond=None)[0]
-        expression = (
-            f"T_exact = {beta[0]:.6g} + {beta[1]:.6g} N + {beta[2]:.6g} M "
-            f"+ {beta[3]:.6g} Q + {beta[4]:.6g} N M"
-        )
-    elif model == "interaction_n_m_q":
-        x = np.column_stack([np.ones(len(train_df)), n, m, q, n * m, n * q, m * q])
-        beta = np.linalg.lstsq(x, y, rcond=None)[0]
-        expression = (
-            f"T_exact = {beta[0]:.6g} + {beta[1]:.6g} N + {beta[2]:.6g} M + {beta[3]:.6g} Q "
-            f"+ {beta[4]:.6g} N M + {beta[5]:.6g} N Q + {beta[6]:.6g} M Q"
-        )
-    elif model == "power_law_n_m_q":
-        x = np.column_stack([np.ones(len(train_df)), np.log(n), np.log(m), np.log(q)])
-        beta = np.linalg.lstsq(x, np.log(y), rcond=None)[0]
-        expression = f"T_exact = {np.exp(beta[0]):.6g} N^{beta[1]:.6g} M^{beta[2]:.6g} Q^{beta[3]:.6g}"
-    else:
-        raise ValueError(f"Unknown exact-resource model: {model}")
-
-    return {"model": model, "beta": beta, "expression": expression}
-
-
-def _predict_exact_resource_model(df: pd.DataFrame, fit: dict[str, Any]) -> np.ndarray:
-    model = str(fit["model"])
-    beta = np.asarray(fit["beta"], dtype=float)
-    n = df["N"].to_numpy(dtype=float)
-    m = df["M"].to_numpy(dtype=float)
-    q = df["Q"].to_numpy(dtype=float)
-
-    if model == "proxy_like_nm_q":
-        pred = beta[0] * n * m + beta[1] * q
-    elif model == "linear_n_m_q":
-        pred = beta[0] + beta[1] * n + beta[2] * m + beta[3] * q
-    elif model == "linear_n_m_q_nm":
-        pred = beta[0] + beta[1] * n + beta[2] * m + beta[3] * q + beta[4] * n * m
-    elif model == "interaction_n_m_q":
-        pred = beta[0] + beta[1] * n + beta[2] * m + beta[3] * q + beta[4] * n * m + beta[5] * n * q + beta[6] * m * q
-    elif model == "power_law_n_m_q":
-        pred = np.exp(beta[0] + beta[1] * np.log(n) + beta[2] * np.log(m) + beta[3] * np.log(q))
-    else:
-        raise ValueError(f"Unknown exact-resource model: {model}")
-
-    return np.maximum(pred, 1e-12)
-
-
-def _exact_resource_model_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
-    mask = np.isfinite(y_true) & np.isfinite(y_pred) & (y_true > 0) & (y_pred > 0)
-    if not mask.any():
-        return {
-            "log10_rmse": np.nan,
-            "median_factor_error": np.nan,
-            "p90_factor_error": np.nan,
-            "log_r2": np.nan,
-        }
-
-    y = y_true[mask]
-    pred = y_pred[mask]
-    log_y = np.log(y)
-    log_pred = np.log(pred)
-    factor = np.maximum(pred / y, y / pred)
-    denom = np.sum((log_y - np.mean(log_y)) ** 2)
-    log_r2 = np.nan if denom <= 0 else 1.0 - float(np.sum((log_y - log_pred) ** 2) / denom)
-    return {
-        "log10_rmse": float(np.sqrt(np.mean((np.log10(pred) - np.log10(y)) ** 2))),
-        "median_factor_error": float(np.median(factor)),
-        "p90_factor_error": float(np.quantile(factor, 0.9)),
-        "log_r2": log_r2,
-    }
-
-
-def fit_exact_resource_models(
-    exact_df: pd.DataFrame,
-    *,
-    target_col: str = "T_exact",
-    model_names: tuple[str, ...] = (
-        "proxy_like_nm_q",
-        "linear_n_m_q",
-        "linear_n_m_q_nm",
-        "interaction_n_m_q",
-        "power_law_n_m_q",
-    ),
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Fit compact models that predict measured resource from N, M, and Q."""
-    required = ["N", "M", "Q", target_col]
-    if "split" not in exact_df.columns:
-        raise KeyError("fit_exact_resource_models requires a 'split' column.")
-
-    data = _positive_numeric_frame(exact_df, required)
-    data = data[(data["N"] > 0) & (data["M"] > 0) & (data["Q"] > 0) & (data[target_col] > 0)].copy()
-    if data.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    group_cols = [col for col in ["split", "N", "M", "Q"] if col in data.columns]
-    data = (
-        data.groupby(group_cols, as_index=False)
-        .agg(**{target_col: (target_col, "median")})
-        .sort_values(group_cols)
-        .reset_index(drop=True)
-    )
-    train_df = data[data["split"].astype(str).eq("train")].copy()
-    test_df = data[data["split"].astype(str).eq("test")].copy()
-    if train_df.empty:
-        train_df = data.copy()
-    if test_df.empty:
-        test_df = data.copy()
-
-    summary_rows: list[dict[str, Any]] = []
-    prediction_frames: list[pd.DataFrame] = []
-    for model in model_names:
-        fit = _fit_exact_resource_model(train_df, model, target_col=target_col)
-        model_predictions = data.copy()
-        model_predictions["model"] = model
-        model_predictions["expression"] = fit["expression"]
-        model_predictions["T_exact_pred"] = _predict_exact_resource_model(model_predictions, fit)
-        model_predictions["factor_error"] = np.maximum(
-            model_predictions["T_exact_pred"] / model_predictions[target_col],
-            model_predictions[target_col] / model_predictions["T_exact_pred"],
-        )
-        prediction_frames.append(model_predictions)
-
-        train_pred = _predict_exact_resource_model(train_df, fit)
-        test_pred = _predict_exact_resource_model(test_df, fit)
-        train_metrics = _exact_resource_model_metrics(train_df[target_col].to_numpy(dtype=float), train_pred)
-        test_metrics = _exact_resource_model_metrics(test_df[target_col].to_numpy(dtype=float), test_pred)
-        summary_rows.append(
-            {
-                "model": model,
-                "expression": fit["expression"],
-                "n_train": int(len(train_df)),
-                "n_test": int(len(test_df)),
-                **{f"train_{key}": value for key, value in train_metrics.items()},
-                **{f"test_{key}": value for key, value in test_metrics.items()},
-            }
-        )
-
-    summary_df = pd.DataFrame(summary_rows).sort_values(
-        ["test_log10_rmse", "test_median_factor_error"],
-        ascending=[True, True],
-    ).reset_index(drop=True)
-    prediction_df = pd.concat(prediction_frames, ignore_index=True) if prediction_frames else pd.DataFrame()
-    return summary_df, prediction_df
 
 
 def _exact_group_filter(

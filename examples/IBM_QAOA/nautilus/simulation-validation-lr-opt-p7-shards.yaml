@@ -1,13 +1,13 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ibm-qaoa-fa-opt-p5-shards
+  name: ibm-qaoa-lr-opt-p7-shards
   namespace: usra-expedition
 spec:
   completions: 10
   parallelism: 10
   completionMode: Indexed
-  backoffLimit: 0
+  backoffLimit: 2
   activeDeadlineSeconds: 172800
   template:
     spec:
@@ -27,32 +27,38 @@ spec:
               apt-get install -y --no-install-recommends git build-essential
               rm -rf /var/lib/apt/lists/*
 
-              export WORKDIR="/workspace/workdirs/shard-${JOB_COMPLETION_INDEX}"
+              if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+                git config --global credential.helper "store --file=/tmp/git-credentials"
+                printf 'https://x-access-token:%s@github.com\n' "${GITHUB_TOKEN}" > /tmp/git-credentials
+                chmod 0600 /tmp/git-credentials
+              fi
+
+              export WORKDIR="/workspace/workdirs/lr-opt-p7-shard-${JOB_COMPLETION_INDEX}"
               mkdir -p "${WORKDIR}" /workspace/results /workspace/data
               rm -rf "${WORKDIR}/repos"
               mkdir -p "${WORKDIR}/repos"
-              export REPOS_DIR="/workspace/repos"
+              export REPOS_DIR="${WORKDIR}/repos"
               export DATA_DIR="/workspace/data"
               export RESULTS_DIR="/workspace/results"
-              export IBM_QAOA_SKIP_REPO_UPDATE=1
 
-              bash "/workspace/repos/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
-                --output-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_expanded \
-                --reuse-output-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_PP_opt_p5_expanded \
-                --reuse-output-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_expanded \
+              git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \
+                "${STOCHASTIC_BENCHMARK_REPO}" "${REPOS_DIR}/stochastic-benchmark"
+
+              bash "${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
+                --output-root /workspace/results/pss_window_sticker/heavy_hex_144_LR_opt_p7_expanded \
                 --instance-cache-root /workspace/data/generated_instances \
-                --shards-root /workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_expanded/shards \
+                --shards-root /workspace/results/pss_window_sticker/heavy_hex_144_LR_opt_p7_expanded/shards \
                 --exact-only \
                 --restart \
                 --shard-count 10 \
                 --shard-index "${JOB_COMPLETION_INDEX}" \
                 --graph-type heavy_hex \
                 --num-nodes 144 \
-                --p-values 5 \
+                --p-values 7 \
                 --train-count 20 \
                 --test-count 10 \
                 --start-train-index 100 \
-                --fa-method-name FA_PP_opt \
+                --fa-method-name LR_PP_opt \
                 --pt-method-name "" \
                 --fa-n-values 10,20,40,60,80,100,150 \
                 --fa-m-values 10,25,50,100,200,500,1000 \
@@ -60,7 +66,7 @@ spec:
                 --t-grid-points 1000 \
                 --t-grid-scale log \
                 --mps-chi 20 \
-                --max-parallel-threads 8
+                --max-parallel-threads 1
           env:
             - name: JOB_COMPLETION_INDEX
               valueFrom:
@@ -69,7 +75,7 @@ spec:
             - name: STOCHASTIC_BENCHMARK_REPO
               value: https://github.com/usra-riacs/stochastic-benchmark.git
             - name: STOCHASTIC_BENCHMARK_BRANCH
-              value: main
+              value: IBM_QAOA_audit_recursion_and_paper_draft
             - name: QPS_REPO_URL
               value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
             - name: QPS_BRANCH
@@ -78,6 +84,10 @@ spec:
               value: https://github.com/qiskit-community/qaoa_training_pipeline.git
             - name: QAOA_PIPELINE_BRANCH
               value: main
+            - name: QPS_COMMIT
+              value: "1c43d955499920ce2d4d746abee56a3474f03a5f"
+            - name: QAOA_PIPELINE_COMMIT
+              value: "5139dde6e40b13688d4d82672017e06594e19beb"
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -86,11 +96,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: "4"
-              memory: 16Gi
+              cpu: "2"
+              memory: 2Gi
             limits:
-              cpu: "8"
-              memory: 32Gi
+              cpu: "4"
+              memory: 8Gi
           volumeMounts:
             - name: workspace
               mountPath: /workspace

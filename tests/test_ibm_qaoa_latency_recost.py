@@ -36,8 +36,14 @@ _SPEC = importlib.util.spec_from_file_location("run_latency_recost", IBM_QAOA_RO
 recost = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(recost)
 
+# The reviewer's reproduction used the earlier calibration (1/2470 Hz, 13.87 s);
+# the pricing tests below pass those explicitly so his numbers stay pinned.
 T_SHOT = 1.0 / 2470.0
 T_PREP = 13.87
+# Current defaults: the 2.47 kHz wall-clock rate folds in a ~6 s per-job
+# preparation time (6 s + 20,000 x 100 us = 8.0 s vs 20,000 / 2470 Hz = 8.1 s).
+DEFAULT_T_PREP = 6.0
+DEFAULT_T_SHOT = 100e-6
 NOTEBOOK = IBM_QAOA_ROOT / "notebooks" / "Simulation_Method_Validation_and_WS.ipynb"
 
 
@@ -135,6 +141,17 @@ def _notebook_cost_panel_tags() -> set[str]:
     excluded_block = re.search(r"COST_PANEL_EXCLUDED_TAGS = \[([^\]]*)\]", code).group(1)
     excluded = set(re.findall(r"'([^']+)'", excluded_block))
     return tags - excluded
+
+
+class TestDefaultCalibration:
+    def test__defaults__separate_the_per_job_offset_from_the_per_shot_rate(self):
+        args = recost.build_parser().parse_args([])
+        assert args.circuit_prep_time == pytest.approx(DEFAULT_T_PREP)
+        assert args.time_per_shot == pytest.approx(DEFAULT_T_SHOT)
+
+    def test__defaults__reproduce_the_published_wall_clock_rate_on_a_20000_shot_job(self):
+        # 6 s offset + 20,000 shots at 100 us  vs  20,000 shots at the quoted 2.47 kHz
+        assert DEFAULT_T_PREP + 20_000 * DEFAULT_T_SHOT == pytest.approx(20_000 / 2470.0, rel=0.02)
 
 
 class TestDefaultTags:

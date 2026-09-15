@@ -230,14 +230,15 @@ def variant_label(circuit_prep_time: float, variant_tag: str = "") -> str:
     return f"{variant_tag}_{charge}" if variant_tag else charge
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--results-base", default=str(HERE / "results" / "pss_window_sticker"))
     parser.add_argument("--tags", default=None,
                         help="Comma-separated campaign roots (default: the Fig. 12 set).")
-    parser.add_argument("--circuit-prep-time", type=float, default=13.87,
-                        help="Seconds charged per submitted circuit job.")
+    parser.add_argument("--circuit-prep-time", type=float, default=6.0,
+                        help="Seconds charged per submitted circuit job, before any shot is "
+                             "taken (measured ~6 s on ibm_boston).")
     parser.add_argument("--q-cap", type=int, default=0,
                         help="Drop points above this Q. Use to compare families on a "
                              "common sampling grid; 0 disables.")
@@ -246,7 +247,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--graph-type", default="heavy_hex")
     parser.add_argument("--num-nodes", type=int, default=144)
     parser.add_argument("--hardware-root", default=None)
-    parser.add_argument("--time-per-shot", type=float, default=1.0 / 2470.0,
+    # The 2.47 kHz wall-clock rate quoted in the paper was measured on
+    # 20,000-shot jobs and folds the ~6 s per-job offset in; the per-shot rate
+    # with that offset separated out is 10 kHz (6 + 20,000 x 100e-6 = 8.0 s
+    # against 20,000 / 2470 = 8.1 s).
+    parser.add_argument("--time-per-shot", type=float, default=100e-6,
                         help="Fallback shot time when no hardware measurement applies.")
     parser.add_argument(
         "--shot-time-by-depth", default=None,
@@ -271,7 +276,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bootstrap-stop", type=int, default=51)
     parser.add_argument("--bootstrap-step", type=int, default=10)
     parser.add_argument("--refresh-cache", action="store_true")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     results_base = Path(args.results_base).resolve()
     cache_dir = results_base / "_slim_cache"

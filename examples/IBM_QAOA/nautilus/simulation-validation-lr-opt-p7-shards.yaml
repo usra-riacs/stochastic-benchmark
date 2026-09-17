@@ -7,7 +7,7 @@ spec:
   completions: 10
   parallelism: 10
   completionMode: Indexed
-  backoffLimit: 2
+  backoffLimit: 8
   activeDeadlineSeconds: 172800
   template:
     spec:
@@ -41,8 +41,16 @@ spec:
               export DATA_DIR="/workspace/data"
               export RESULTS_DIR="/workspace/results"
 
-              git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \
-                "${STOCHASTIC_BENCHMARK_REPO}" "${REPOS_DIR}/stochastic-benchmark"
+              # GitHub clones on this cluster fail transiently (curl 18/55 mid-transfer);
+              # retry rather than let one blip count against the job's backoff limit.
+              for attempt in 1 2 3 4 5 6; do
+                rm -rf "${REPOS_DIR}/stochastic-benchmark"
+                git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \
+                  "${STOCHASTIC_BENCHMARK_REPO}" "${REPOS_DIR}/stochastic-benchmark" && break
+                echo "clone attempt ${attempt} failed; retrying in 60 s"
+                sleep 60
+              done
+              test -d "${REPOS_DIR}/stochastic-benchmark/.git"
 
               bash "${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
                 --output-root /workspace/results/pss_window_sticker/heavy_hex_144_LR_opt_p7_expanded \

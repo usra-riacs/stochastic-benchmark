@@ -31,6 +31,23 @@ if [[ -n "${GITHUB_TOKEN:-}" ]]; then
     chmod 0600 /tmp/git-credentials
 fi
 
+# GitHub clones from the cluster fail transiently (curl 18/55 mid-transfer).
+# The last argument is the destination; it is wiped between attempts so a
+# half-written checkout cannot poison the next one.
+retry_clone() {
+    local dest="${@: -1}"
+    local attempt
+    for attempt in 1 2 3 4 5 6; do
+        rm -rf "${dest}"
+        if "$@"; then
+            return 0
+        fi
+        echo "clone attempt ${attempt} failed; retrying in 60 s" >&2
+        sleep 60
+    done
+    return 1
+}
+
 clone_or_update() {
     local url="$1"
     local branch="$2"
@@ -45,7 +62,7 @@ clone_or_update() {
         git -C "${dest}" checkout "${branch}"
         git -C "${dest}" pull --ff-only origin "${branch}"
     else
-        git clone --branch "${branch}" --depth 1 "${url}" "${dest}"
+        retry_clone git clone --branch "${branch}" --depth 1 "${url}" "${dest}"
     fi
 }
 
@@ -65,7 +82,7 @@ clone_or_update_sparse() {
         git -C "${dest}" checkout "${branch}"
         git -C "${dest}" pull --ff-only origin "${branch}"
     else
-        git clone --branch "${branch}" --depth 1 --filter=blob:none --sparse "${url}" "${dest}"
+        retry_clone git clone --branch "${branch}" --depth 1 --filter=blob:none --sparse "${url}" "${dest}"
     fi
     git -C "${dest}" sparse-checkout set --no-cone "${paths[@]}"
 }

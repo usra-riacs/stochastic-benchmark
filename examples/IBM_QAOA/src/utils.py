@@ -3665,12 +3665,19 @@ def plot_multi_method_window_sticker_component_panels(
     show_ci: bool = True,
     xlim: tuple[float, float] | None = None,
     extend_curves_to_xlim: bool = False,
-    xlabel: str | None = None,
+    xlabel: str | list[str] | None = None,
+    panel_labels: tuple[str, str] = ("Training instances", "Test instances"),
 ) -> None:
     """Plot training and test multi-method Window Sticker curves as shared-y panels.
 
     ``xlabel`` overrides the resource-axis label, e.g. to spell out a cost
-    model that charges more than the default ``T_proxy`` terms.
+    model that charges more than the default ``T_proxy`` terms; a list gives
+    one label per panel. ``panel_labels`` is the text after the "(a)"/"(b)"
+    letter in each panel's corner; pass empty strings to show the letter
+    alone. ``xlim`` may likewise be one ``(lo, hi)`` for both panels or a
+    list of two. The "training"/"test" slots are only names: passing the
+    same split under two cost models, each with its own ``xlim``, gives a
+    with/without-latency comparison.
 
     Depths are annotated in red on each virtual-best curve so the legend can be
     collapsed to one entry per method family.  The legend is placed in the gap
@@ -3698,14 +3705,14 @@ def plot_multi_method_window_sticker_component_panels(
 
     panel_data = [
         (
-            "Training instances",
+            panel_labels[0],
             {
                 "Actionable fit prescription": curve_from_response_summary(training_fitted_prescription_df),
                 "Virtual best": curve_from_response_summary(training_virtual_best_df),
             },
         ),
         (
-            "Test instances",
+            panel_labels[1],
             {
                 "Actionable fit prescription": curve_from_response_summary(test_fitted_prescription_df),
                 "Virtual best": curve_from_response_summary(test_virtual_best_df),
@@ -3746,6 +3753,7 @@ def plot_multi_method_window_sticker_component_panels(
 
     for panel_idx, (panel_label, curves) in enumerate(panel_data):
         ax = axes[panel_idx]
+        panel_xlim = xlim[panel_idx] if isinstance(xlim, list) else xlim
         panel_x: list[float] = []
         panel_y: list[float] = []
         for curve_name, curve in curves.items():
@@ -3758,8 +3766,8 @@ def plot_multi_method_window_sticker_component_panels(
                 group["response_monotone"] = pd.to_numeric(group["response_monotone"], errors="coerce")
                 group = group.dropna(subset=["resource", "response_monotone"])
                 group = group[group["resource"] > 0].sort_values("resource")
-                if xlim is not None:
-                    group = group[(group["resource"] >= xlim[0]) & (group["resource"] <= xlim[1])]
+                if panel_xlim is not None:
+                    group = group[(group["resource"] >= panel_xlim[0]) & (group["resource"] <= panel_xlim[1])]
                 if group.empty:
                     continue
                 # Natural (pre-extension) endpoint and series: used for the depth
@@ -3778,8 +3786,8 @@ def plot_multi_method_window_sticker_component_panels(
                 # Drawn dashed and at reduced alpha below (not the solid natural-data
                 # style) so a reader doesn't mistake the flat hold for a measurement.
                 extend_to = None
-                if extend_curves_to_xlim and xlim is not None and float(group["resource"].iloc[-1]) < xlim[1]:
-                    extend_to = xlim[1]
+                if extend_curves_to_xlim and panel_xlim is not None and float(group["resource"].iloc[-1]) < panel_xlim[1]:
+                    extend_to = panel_xlim[1]
 
                 lower_col = "response_lower_monotone" if "response_lower_monotone" in group.columns else "response_lower"
                 upper_col = "response_upper_monotone" if "response_upper_monotone" in group.columns else "response_upper"
@@ -3847,14 +3855,14 @@ def plot_multi_method_window_sticker_component_panels(
                     ))
 
         finite_x = np.asarray([x for x in panel_x if np.isfinite(x) and x > 0], dtype=float)
-        if xlim is not None:
-            ax.set_xlim(xlim[0], xlim[1])
+        if panel_xlim is not None:
+            ax.set_xlim(panel_xlim[0], panel_xlim[1])
         elif finite_x.size:
             ax.set_xlim(float(finite_x.min()), float(finite_x.max()))
         all_y.extend(panel_y)
         ax.set_xscale("log")
         ax.set_xlabel(
-            xlabel if xlabel is not None else
+            (xlabel[panel_idx] if isinstance(xlabel, (list, tuple)) else xlabel) if xlabel is not None else
             r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + t_{\mathrm{train}} + Qt_{\mathrm{shot}}$) [s]",
             fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
         )
@@ -3864,7 +3872,7 @@ def plot_multi_method_window_sticker_component_panels(
         ax.text(
             0.03,
             0.97,
-            f"({chr(ord('a') + panel_idx)}) {panel_label}",
+            f"({chr(ord('a') + panel_idx)}) {panel_label}".rstrip(),
             transform=ax.transAxes,
             fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
             va="top",

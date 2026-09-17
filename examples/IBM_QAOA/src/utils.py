@@ -3665,8 +3665,12 @@ def plot_multi_method_window_sticker_component_panels(
     show_ci: bool = True,
     xlim: tuple[float, float] | None = None,
     extend_curves_to_xlim: bool = False,
+    xlabel: str | None = None,
 ) -> None:
     """Plot training and test multi-method Window Sticker curves as shared-y panels.
+
+    ``xlabel`` overrides the resource-axis label, e.g. to spell out a cost
+    model that charges more than the default ``T_proxy`` terms.
 
     Depths are annotated in red on each virtual-best curve so the legend can be
     collapsed to one entry per method family.  The legend is placed in the gap
@@ -3850,6 +3854,7 @@ def plot_multi_method_window_sticker_component_panels(
         all_y.extend(panel_y)
         ax.set_xscale("log")
         ax.set_xlabel(
+            xlabel if xlabel is not None else
             r"Resource ($T_{\mathrm{proxy}} = t_{\mathrm{preprocessing}} + t_{\mathrm{train}} + Qt_{\mathrm{shot}}$) [s]",
             fontsize=WINDOW_STICKER_LABEL_FONTSIZE,
         )

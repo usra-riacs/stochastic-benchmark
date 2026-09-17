@@ -41,16 +41,23 @@ spec:
               export DATA_DIR="/workspace/data"
               export RESULTS_DIR="/workspace/results"
 
-              # GitHub clones on this cluster fail transiently (curl 18/55 mid-transfer);
-              # retry rather than let one blip count against the job's backoff limit.
+              # A full checkout of this repository is ~760 MB (mostly unrelated example
+              # checkpoints) and GitHub transfers of that size from the cluster are
+              # truncated more often than not. A blob-filtered sparse clone of only the
+              # paths a campaign needs is a few MB. Retried, since even that can blip.
               for attempt in 1 2 3 4 5 6; do
                 rm -rf "${REPOS_DIR}/stochastic-benchmark"
-                git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \
-                  "${STOCHASTIC_BENCHMARK_REPO}" "${REPOS_DIR}/stochastic-benchmark" && break
+                git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 --filter=blob:none --sparse \
+                  "${STOCHASTIC_BENCHMARK_REPO}" "${REPOS_DIR}/stochastic-benchmark" \
+                && git -C "${REPOS_DIR}/stochastic-benchmark" sparse-checkout set --no-cone \
+                  src examples/IBM_QAOA/src examples/IBM_QAOA/run_prepare_pss_campaign.py \
+                  examples/IBM_QAOA/nautilus examples/IBM_QAOA/data \
+                  requirements.txt requirements-examples.txt pyproject.toml setup.py README.md \
+                && break
                 echo "clone attempt ${attempt} failed; retrying in 60 s"
                 sleep 60
               done
-              test -d "${REPOS_DIR}/stochastic-benchmark/.git"
+              test -f "${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/run_prepare_pss_campaign.py"
 
               bash "${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
                 --output-root /workspace/results/pss_window_sticker/heavy_hex_144_LR_angle_opt_p7_expanded \

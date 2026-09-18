@@ -3667,6 +3667,7 @@ def plot_multi_method_window_sticker_component_panels(
     extend_curves_to_xlim: bool = False,
     xlabel: str | list[str] | None = None,
     panel_labels: tuple[str, str] = ("Training instances", "Test instances"),
+    show_pareto: bool = True,
 ) -> None:
     """Plot training and test multi-method Window Sticker curves as shared-y panels.
 
@@ -3677,7 +3678,9 @@ def plot_multi_method_window_sticker_component_panels(
     alone. ``xlim`` may likewise be one ``(lo, hi)`` for both panels or a
     list of two. The "training"/"test" slots are only names: passing the
     same split under two cost models, each with its own ``xlim``, gives a
-    with/without-latency comparison.
+    with/without-latency comparison. ``show_pareto=False`` drops the dotted
+    actionable envelope (and its legend entry) while keeping the background
+    shading that says which family owns each budget.
 
     Depths are annotated in red on each virtual-best curve so the legend can be
     collapsed to one entry per method family.  The legend is placed in the gap
@@ -3909,7 +3912,7 @@ def plot_multi_method_window_sticker_component_panels(
 
         # Draw Pareto envelope as black dotted line on top of everything.
         valid = np.isfinite(envelope)
-        if valid.any():
+        if show_pareto and valid.any():
             ax.plot(
                 grid[valid], envelope[valid],
                 color="black", linestyle=":", linewidth=2.2, zorder=8, label=None,
@@ -3955,7 +3958,7 @@ def plot_multi_method_window_sticker_component_panels(
 
     # Place curve-type legend above colorbars.
     fig.legend(
-        handles=curve_handles + [pareto_handle],
+        handles=curve_handles + ([pareto_handle] if show_pareto else []),
         loc="lower center",
         bbox_to_anchor=(0.5, cb_area_top + 0.01),
         bbox_transform=fig.transFigure,

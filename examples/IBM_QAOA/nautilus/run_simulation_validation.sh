@@ -14,6 +14,15 @@ QPS_BRANCH="${QPS_BRANCH:-main}"
 QAOA_PIPELINE_REPO_URL="${QAOA_PIPELINE_REPO_URL:-https://github.com/qiskit-community/qaoa_training_pipeline.git}"
 QAOA_PIPELINE_BRANCH="${QAOA_PIPELINE_BRANCH:-main}"
 
+# Optional exact-commit pins. Both upstreams have moved on incompatibly since
+# the campaigns were run: qaoa_training_pipeline dropped the TRAINERS registry
+# that src/simulation_validation.py imports, so a run against a bare "main"
+# dies on ImportError. Pinning also keeps a new campaign comparable with the
+# roots already on disk, which matters because the p-sweeps are combined into
+# one Pareto frontier. Leave empty to track the branch head.
+QPS_COMMIT="${QPS_COMMIT:-}"
+QAOA_PIPELINE_COMMIT="${QAOA_PIPELINE_COMMIT:-}"
+
 mkdir -p "${REPOS_DIR}" "${DATA_DIR}" "${RESULTS_DIR}" /tmp/matplotlib /tmp/numba-cache
 
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
@@ -21,6 +30,23 @@ if [[ -n "${GITHUB_TOKEN:-}" ]]; then
     printf 'https://x-access-token:%s@github.com\n' "${GITHUB_TOKEN}" > /tmp/git-credentials
     chmod 0600 /tmp/git-credentials
 fi
+
+# GitHub clones from the cluster fail transiently (curl 18/55 mid-transfer).
+# The last argument is the destination; it is wiped between attempts so a
+# half-written checkout cannot poison the next one.
+retry_clone() {
+    local dest="${@: -1}"
+    local attempt
+    for attempt in 1 2 3 4 5 6; do
+        rm -rf "${dest}"
+        if "$@"; then
+            return 0
+        fi
+        echo "clone attempt ${attempt} failed; retrying in 60 s" >&2
+        sleep 60
+    done
+    return 1
+}
 
 clone_or_update() {
     local url="$1"
@@ -36,7 +62,7 @@ clone_or_update() {
         git -C "${dest}" checkout "${branch}"
         git -C "${dest}" pull --ff-only origin "${branch}"
     else
-        git clone --branch "${branch}" --depth 1 "${url}" "${dest}"
+        retry_clone git clone --branch "${branch}" --depth 1 "${url}" "${dest}"
     fi
 }
 
@@ -56,9 +82,24 @@ clone_or_update_sparse() {
         git -C "${dest}" checkout "${branch}"
         git -C "${dest}" pull --ff-only origin "${branch}"
     else
-        git clone --branch "${branch}" --depth 1 --filter=blob:none --sparse "${url}" "${dest}"
+        retry_clone git clone --branch "${branch}" --depth 1 --filter=blob:none --sparse "${url}" "${dest}"
     fi
     git -C "${dest}" sparse-checkout set --no-cone "${paths[@]}"
+}
+
+checkout_commit() {
+    local dest="$1"
+    local commit="$2"
+
+    if [[ -z "${commit}" ]]; then
+        return
+    fi
+
+    # The clones above are --depth 1, so the pinned object is usually absent.
+    # Fetch just that commit rather than deepening the whole history.
+    git -C "${dest}" fetch --depth 1 origin "${commit}"
+    git -C "${dest}" checkout --detach "${commit}"
+    echo "Pinned $(basename "${dest}") to ${commit}"
 }
 
 clone_or_update "${STOCHASTIC_BENCHMARK_REPO}" "${STOCHASTIC_BENCHMARK_BRANCH}" "${REPOS_DIR}/stochastic-benchmark"
@@ -72,7 +113,9 @@ clone_or_update_sparse "${QPS_REPO_URL}" "${QPS_BRANCH}" "${REPOS_DIR}/QAOA-Para
   requirements.txt \
   VERSION.txt \
   README.md
+checkout_commit "${REPOS_DIR}/QAOA-Parameter-Setting" "${QPS_COMMIT}"
 clone_or_update "${QAOA_PIPELINE_REPO_URL}" "${QAOA_PIPELINE_BRANCH}" "${REPOS_DIR}/qaoa_training_pipeline"
+checkout_commit "${REPOS_DIR}/qaoa_training_pipeline" "${QAOA_PIPELINE_COMMIT}"
 
 SB_REPO="${REPOS_DIR}/stochastic-benchmark"
 QPS_REPO="${REPOS_DIR}/QAOA-Parameter-Setting"
@@ -80,7 +123,11 @@ PIPELINE_REPO="${REPOS_DIR}/qaoa_training_pipeline"
 
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r "${SB_REPO}/requirements.txt" -r "${SB_REPO}/requirements-examples.txt"
-python -m pip install -e "${PIPELINE_REPO}" "qiskit-aer==0.17.2"
+# qaoa_training_pipeline.evaluation imports its MPS evaluator at package
+# import time, which pulls in quimb. quimb is declared only in the "tns"
+# optional extra, so a plain "pip install -e" leaves it out and every
+# evaluator import dies with ModuleNotFoundError.
+python -m pip install -e "${PIPELINE_REPO}[tns]" "qiskit-aer==0.17.2"
 python -m pip install -e "${QPS_REPO}"
 python -m pip install -e "${SB_REPO}"
 

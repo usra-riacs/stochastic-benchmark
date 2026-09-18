@@ -173,12 +173,6 @@ def maxcut_energy_from_bitstring(
     return cut_val - 0.5 * sum_weights
 
 
-def counts_from_bitstring_samples(bitstrings: list[str]) -> dict[str, int]:
-    """Aggregate a sample stream into a counts dictionary."""
-
-    return {str(bitstring): int(count) for bitstring, count in Counter(bitstrings).items()}
-
-
 def best_prefix_metrics(
     bitstrings: list[str],
     checkpoints: list[int],

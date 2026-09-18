@@ -37,11 +37,14 @@ if [[ -n "${VIRTUAL_ENV:-}" ]] && type deactivate >/dev/null 2>&1; then
     deactivate
 fi
 
-conda activate QAOA
+# The env that has qaoa_training_pipeline (+ quimb) installed. Override with
+# CONDA_ENV=<name> if yours is called something else.
+CONDA_ENV="${CONDA_ENV:-stochastic-benchmark}"
+conda activate "$CONDA_ENV"
 
 PYTHON_BIN="${CONDA_PREFIX}/bin/python"
 if [[ ! -x "$PYTHON_BIN" ]]; then
-    echo "Could not find Python inside conda env QAOA at: $PYTHON_BIN" >&2
+    echo "Could not find Python inside conda env $CONDA_ENV at: $PYTHON_BIN" >&2
     exit 1
 fi
 
@@ -54,7 +57,7 @@ mkdir -p "$NUMBA_CACHE_DIR"
 cd "$REPO_ROOT"
 
 echo "Running IBM QAOA PSS preparation from: $REPO_ROOT"
-echo "Using conda environment: QAOA"
+echo "Using conda environment: $CONDA_ENV"
 echo "Using Python interpreter: $PYTHON_BIN"
 
 DEFAULT_REUSE_ROOT="${SCRIPT_DIR}/results/pss_window_sticker/heavy_hex_144_small"

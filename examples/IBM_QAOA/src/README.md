@@ -19,8 +19,7 @@ This folder contains utilities used by the IBM QAOA example notebooks and campai
   - General helper utilities used by the notebooks:
     - DataFrame helpers (e.g., expanding IBM counts into sample rows)
     - Plotting helpers used in the analysis and simulation-validation notebooks
-    - Small statistical/label helpers used by plots (e.g., `sem`, `title_from_instance_names`)
-    - Factory helper `make_asof_per_file` to build the groupby-apply function used when merging cumulative training duration.
+    - Small statistical/label helpers used by plots (e.g., `sem`)
     - Window Sticker notebook helpers for shared approximation-ratio axes, monotone curves, multi-strategy summaries, and plot saving.
 
 - `simulation_validation.py`

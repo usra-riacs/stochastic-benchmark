@@ -1507,6 +1507,10 @@ def plot_ibm_qaoa_training_bricks(
     ax.set_ylim(0, main_ymax)
     ax.set_xlim(-0.5, x[-1] + 0.5)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{int(v):,}"))
+    # Same top-left panel letters the other two-panel figures use, so the
+    # caption can refer to (a) and (b).
+    ax.text(0.02, 0.97, "(a)", transform=ax.transAxes, fontsize=fs_label,
+            va="top", ha="left", zorder=20)
 
     n_all = len(methods)
     bw_all = 0.8 / max(1, n_all)
@@ -1580,6 +1584,8 @@ def plot_ibm_qaoa_training_bricks(
     inset_ax.yaxis.set_major_formatter(LogFormatterMathtext(base=10.0))
     inset_ax.grid(True, which="major", axis="y", alpha=0.45)
     inset_ax.grid(True, which="minor", axis="y", alpha=0.18)
+    inset_ax.text(0.02, 0.97, "(b)", transform=inset_ax.transAxes, fontsize=fs_label,
+                  va="top", ha="left", zorder=20)
 
     kw_inset = dict(transform=inset_ax.transAxes, color="k", clip_on=False, lw=1.6)
     inset_ax.plot((-d, +d), (-d, +d), **kw_inset)
@@ -2827,20 +2833,26 @@ def cross_strategy_envelope(
 # ramp-parameter + full angle optimization (LR_PP_angle_opt). Same YlOrBr
 # colormap as before, split into three disjoint bands -- more optimization
 # reads as a darker/more saturated shade, matching FA's convention.
+#
+# Each band is widened to whatever the neighbouring family leaves free, so
+# consecutive depths within one family stay apart: a reviewer found p=2 and
+# p=3 of Fixed Angles-dagger, five depths packed into 0.15-0.42 of Blues,
+# indistinguishable.  The bands the widening has to clear are checked by
+# test_fa_star_and_fa_dagger_do_not_collide / test_lr_star_and_lr_do_not_collide.
 _FAMILY_CMAP_SPEC: dict[str, tuple] = {
-    "FA_star":   (plt.cm.Blues,   0.55, 0.92),
-    "FA_dagger": (plt.cm.Blues,   0.15, 0.42),
-    "PT":        (plt.cm.Greys,   0.35, 0.60),
-    "LR_star":   (plt.cm.YlOrBr,  0.65, 0.92),
-    "LR":        (plt.cm.YlOrBr,  0.42, 0.58),
+    "FA_star":   (plt.cm.Blues,   0.60, 0.95),
+    "FA_dagger": (plt.cm.Blues,   0.15, 0.48),
+    "PT":        (plt.cm.Greys,   0.25, 0.72),
+    "LR_star":   (plt.cm.YlOrBr,  0.72, 0.95),
+    "LR":        (plt.cm.YlOrBr,  0.40, 0.62),
     "LR_dagger": (plt.cm.YlOrBr,  0.15, 0.32),
     "Interp":    (plt.cm.Greens,  0.35, 0.85),
 }
 _FAMILY_DISPLAY: dict[str, str] = {
-    "FA_star":   r"Fixed Angles$^*$",
+    "FA_star":   r"Fixed Angles$^\star$",
     "FA_dagger": r"Fixed Angles$^\dagger$",
     "PT":        "Param. Transfer",
-    "LR_star":   r"Linear Ramp$^*$",
+    "LR_star":   r"Linear Ramp$^\star$",
     "LR":        "Linear Ramp",
     "LR_dagger": r"Linear Ramp$^\dagger$",
     "Interp":    "Interpolation",
@@ -3290,6 +3302,20 @@ def _label_depth(label: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _family_depth_colors(family: str, n_depths: int) -> list:
+    """The ``n_depths`` discrete shades a family uses, lightest (lowest p) first.
+
+    One colour per depth rather than a point sampled off a continuous ramp, so
+    the curves and the colorbar below them are drawn from the same list and a
+    reader can match a line to a block exactly.  A single-depth family sits at
+    the middle of its band; otherwise the shades span the band end to end.
+    """
+    cmap_fn, lo, hi = _FAMILY_CMAP_SPEC.get(family, (plt.cm.viridis, 0.3, 0.9))
+    if n_depths <= 1:
+        return [cmap_fn((lo + hi) / 2)]
+    return [cmap_fn(lo + i / (n_depths - 1) * (hi - lo)) for i in range(n_depths)]
+
+
 def _build_family_color_map(
     labels: Iterable[str],
 ) -> tuple[dict[str, Any], dict[str, list[str]], dict[str, list[int]]]:
@@ -3305,15 +3331,12 @@ def _build_family_color_map(
 
     color_map: dict[str, Any] = {}
     for fam, fam_lbls in family_labels.items():
-        cmap_fn, lo, hi = _FAMILY_CMAP_SPEC.get(fam, (plt.cm.viridis, 0.3, 0.9))
         p_vals = family_p_vals[fam]
+        shades = _family_depth_colors(fam, len(p_vals))
         for lbl in fam_lbls:
             p = _label_depth(lbl)
-            if p is not None and len(p_vals) > 1:
-                t = p_vals.index(p) / (len(p_vals) - 1)
-                color_map[lbl] = cmap_fn(lo + t * (hi - lo))
-            elif p is not None:
-                color_map[lbl] = cmap_fn((lo + hi) / 2)
+            if p is not None and p in p_vals:
+                color_map[lbl] = shades[p_vals.index(p)]
             else:
                 color_map[lbl] = window_sticker_method_color(lbl)
     return color_map, family_labels, family_p_vals
@@ -3603,7 +3626,7 @@ def _draw_family_colorbars(
     callers reserve enough total height for however many rows this ends up
     drawing (see the ``n_rows`` calc at each call site).
     """
-    from matplotlib.colors import Normalize, LinearSegmentedColormap
+    from matplotlib.colors import BoundaryNorm, ListedColormap
     from matplotlib.cm import ScalarMappable
 
     cb_families = [f for f in _FAMILY_ORDER if f in family_labels]
@@ -3626,24 +3649,26 @@ def _draw_family_colorbars(
         cb_bottom = bottom + row_idx * row_gap
         for i, fam in enumerate(row_families):
             p_vals = family_p_vals.get(fam, [])
-            cmap_fn, lo, hi = _FAMILY_CMAP_SPEC.get(fam, (plt.cm.viridis, 0.3, 0.9))
-            # Build a 2-stop gradient matching the curve colours for this family.
-            c_lo = cmap_fn(lo)
-            c_hi = cmap_fn(hi)
-            grad_cmap = LinearSegmentedColormap.from_list("", [c_lo, c_hi])
+            # One flat block per depth, not a smooth ramp: the depths a family
+            # actually ran are rarely consecutive, so a ramp drawn over
+            # p_min..p_max spaced them unevenly and, for a family with four or
+            # five depths, left neighbouring shades too close to tell apart.
+            # Equal blocks give each depth the same width and a hard edge, and
+            # they are the same colours _build_family_color_map gives the curves.
+            shades = _family_depth_colors(fam, len(p_vals)) if p_vals else _family_depth_colors(fam, 2)
+            disc_cmap = ListedColormap(shades)
             ax_cb = fig.add_axes([
                 row_start + i * (cb_w + spacing),
                 cb_bottom,
                 cb_w,
                 row_h,
             ])
-            p_min = min(p_vals) if p_vals else 0
-            p_max = max(p_vals) if p_vals else 1
-            norm = Normalize(vmin=p_min - 0.5, vmax=p_max + 0.5)
-            sm = ScalarMappable(cmap=grad_cmap, norm=norm)
+            norm = BoundaryNorm(np.arange(len(shades) + 1) - 0.5, len(shades))
+            sm = ScalarMappable(cmap=disc_cmap, norm=norm)
             sm.set_array([])
             cb = fig.colorbar(sm, cax=ax_cb, orientation="horizontal")
-            cb.set_ticks(p_vals if p_vals else [p_min, p_max])
+            cb.set_ticks(list(range(len(shades))))
+            cb.set_ticklabels([str(p) for p in p_vals] if p_vals else ["", ""])
             cb.ax.tick_params(labelsize=11)
             ax_cb.set_title(_FAMILY_DISPLAY.get(fam, fam), fontsize=12, pad=3)
             # "circuit depth p" as an axis label below the tick numbers (not
@@ -3668,6 +3693,7 @@ def plot_multi_method_window_sticker_component_panels(
     xlabel: str | list[str] | None = None,
     panel_labels: tuple[str, str] = ("Training instances", "Test instances"),
     show_pareto: bool = True,
+    x_pad_left_decades: float = 0.12,
 ) -> None:
     """Plot training and test multi-method Window Sticker curves as shared-y panels.
 
@@ -3676,7 +3702,10 @@ def plot_multi_method_window_sticker_component_panels(
     one label per panel. ``panel_labels`` is the text after the "(a)"/"(b)"
     letter in each panel's corner; pass empty strings to show the letter
     alone. ``xlim`` may likewise be one ``(lo, hi)`` for both panels or a
-    list of two. The "training"/"test" slots are only names: passing the
+    list of two, and the drawn axis starts ``x_pad_left_decades`` decades
+    below it so the marker on a curve's first point is not cut in half by the
+    left spine (the data is still filtered at the unpadded ``xlim``). The
+    "training"/"test" slots are only names: passing the
     same split under two cost models, each with its own ``xlim``, gives a
     with/without-latency comparison. ``show_pareto=False`` drops the dotted
     actionable envelope (and its legend entry) while keeping the background
@@ -3858,10 +3887,19 @@ def plot_multi_method_window_sticker_component_panels(
                     ))
 
         finite_x = np.asarray([x for x in panel_x if np.isfinite(x) and x > 0], dtype=float)
+        # Pad the left edge only. The right edge is where extend_curves_to_xlim
+        # holds each curve's last value to, so padding it would open a gap
+        # between the curves and the spine.
         if panel_xlim is not None:
-            ax.set_xlim(panel_xlim[0], panel_xlim[1])
+            x_lo, x_hi = float(panel_xlim[0]), float(panel_xlim[1])
         elif finite_x.size:
-            ax.set_xlim(float(finite_x.min()), float(finite_x.max()))
+            x_lo, x_hi = float(finite_x.min()), float(finite_x.max())
+        else:
+            x_lo = x_hi = None
+        if x_lo is not None and x_lo > 0:
+            ax.set_xlim(10 ** (np.log10(x_lo) - x_pad_left_decades), x_hi)
+        elif x_lo is not None:
+            ax.set_xlim(x_lo, x_hi)
         all_y.extend(panel_y)
         ax.set_xscale("log")
         ax.set_xlabel(

@@ -22,15 +22,19 @@ exact points, re-costs them, and redoes only the cheap post-processing
 (budget frontier plus the stochastic-benchmark prescription pipeline).
 
 Both the baseline and the charged variant are regenerated through this same
-code path, so the two differ by the preparation charge alone rather than by
-months of accumulated code drift.
+code path. The charged variant adds the preparation cost and bills recorded
+training shots; the baseline retains the published shot accounting. Both use
+the same per-shot calibration, with bootstrap resampling seeded by default.
 
 Usage
 -----
-    python run_latency_recost.py                      # baseline + 13.87 s
+    python run_latency_recost.py                      # baseline + 6 s per job
     python run_latency_recost.py --circuit-prep-time 10
     python run_latency_recost.py --tags heavy_hex_144_PT_p5_expanded
     python run_latency_recost.py --q-cap 10000        # fairness sensitivity
+
+The default fallback shot time is 100 microseconds; pass
+``--no-hardware-shot-times`` to use it for every depth.
 
 Writes ``<results-base>/<tag>__<label>/`` per campaign, laid out exactly like
 the original roots so the notebook's ``load_multi_strategy_summaries`` reads

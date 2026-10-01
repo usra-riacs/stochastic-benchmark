@@ -9,27 +9,40 @@ the Nautilus helper files are only launch instructions.
 ## Files
 
 - `pvc.yaml` creates a shared PVC mounted at `/workspace`.
-- `simulation-validation-job.yaml` launches the batch run.
-- `simulation-validation-sharded-job.yaml` launches the Nautilus-only sharded
-  exact-point run.
-- `simulation-validation-finalize-job.yaml` merges shard outputs and writes the
-  final frontier files after the sharded job completes.
+- `simulation-validation-lr-opt-p7-shards.yaml` runs a training campaign
+  (here Linear Ramp, `LR_PP_opt`, at p=7) as ten exact-point shards.
+- `simulation-validation-lr-opt-p7-finalize-job.yaml` merges those shards and
+  writes the final frontier files after they complete.
+- `simulation-validation-fa-no-opt-p7-job.yaml` runs a zero-training campaign
+  (Fixed Angles-dagger, `FA_PP_no_opt`, at p=7) as a single pod; a Q-only
+  sweep is cheap enough not to need shards.
 - `dev-pod.yaml` launches an idle pod you can attach to from VS Code.
 - `run_simulation_validation.sh` clones/updates the full `stochastic-benchmark`
   repo, sparse-checks out the large `QAOA-Parameter-Setting` dependency paths
   needed by the run, installs Python dependencies, and runs
   `examples/IBM_QAOA/run_prepare_pss_campaign.py`.
 
+These three are the templates for any new campaign: copy one, then change the
+job name, the `--output-root`, `--p-values`, and the method flags
+(`--fa-method-name` for a family that trains, `--pt-method-name` for a
+zero-training one; `run_job.sh` shows which is which).
+
 ## Before Running
 
-The manifests default to cloning `main`. If you are testing changes on a
-feature branch instead, push it and update the `STOCHASTIC_BENCHMARK_BRANCH`
-value in the job YAML (or the script's `STOCHASTIC_BENCHMARK_BRANCH` env var)
-to that branch name:
+The manifests clone `STOCHASTIC_BENCHMARK_BRANCH` from this repository, so
+push the branch you want run first:
 
 ```bash
 git push upstream your-feature-branch
 ```
+
+They also pin the two dependency repositories to exact commits through the
+`QPS_COMMIT` and `QAOA_PIPELINE_COMMIT` env vars. Keep those pins. Both
+upstreams have moved on incompatibly since the campaigns on disk were run
+(`qaoa_training_pipeline` no longer exports the `TRAINERS` registry that
+`src/simulation_validation.py` imports), so a manifest that tracks their
+`main` fails at import time, and a new campaign should in any case come from
+the same code as the ones it will share a Pareto frontier with.
 
 If your namespace spelling differs from `usra-expedition`, update the
 `metadata.namespace` field in the YAML files.
@@ -62,62 +75,54 @@ kubectl get pvc -n usra-expedition
 The default storage class is `rook-cephfs`. If Nautilus reports that this class
 does not exist, replace it with the storage class available in your namespace.
 
-## Submit The Batch Job
+## Submit A Single-Pod Campaign
 
-The regular manifest runs the same single-process workflow as the local script:
+For a zero-training family the whole sweep fits in one pod:
 
 ```bash
-kubectl apply -f examples/IBM_QAOA/nautilus/simulation-validation-job.yaml
+kubectl apply -f examples/IBM_QAOA/nautilus/simulation-validation-fa-no-opt-p7-job.yaml
 kubectl get pods -n usra-expedition -w
-```
-
-Follow logs:
-
-```bash
-kubectl logs -n usra-expedition -f job/ibm-qaoa-fa-opt-p5
+kubectl logs -n usra-expedition -f job/ibm-qaoa-fa-no-opt-p7
 ```
 
 Results are written under:
 
 ```text
-/workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_expanded
+/workspace/results/pss_window_sticker/heavy_hex_144_FA_no_opt_p7_expanded
 ```
 
-## Submit The Sharded Run
+## Submit A Sharded Campaign
 
-Use this only on Nautilus. It is an opt-in parallel path that calls
+A family that trains runs an (N, M, Q) grid per instance and takes hours, so
+it is split ten ways by instance. This is a Nautilus-only path that calls
 `run_prepare_pss_campaign.py` with `--exact-only`, `--shard-index`, and
-`--shard-count`. Laptop/local scripts do not use these flags.
-Each shard uses the already-pulled dependency repos from `/workspace/repos` and
-disables repo updates inside the pod, so the pods do not need to contact GitHub
-after the PVC checkout has been updated.
+`--shard-count`; laptop/local scripts do not use these flags.
 
 Start ten exact-point shards:
 
 ```bash
-kubectl apply -f examples/IBM_QAOA/nautilus/simulation-validation-sharded-job.yaml
-kubectl get pods -n usra-expedition -l job-name=ibm-qaoa-fa-opt-p5-shards -w
+kubectl apply -f examples/IBM_QAOA/nautilus/simulation-validation-lr-opt-p7-shards.yaml
+kubectl get pods -n usra-expedition -l batch.kubernetes.io/job-name=ibm-qaoa-lr-opt-p7-shards -w
 ```
 
-Follow one shard:
+After all ten complete, merge the shards and write the canonical final
+frontier files:
 
 ```bash
-kubectl logs -n usra-expedition -f job/ibm-qaoa-fa-opt-p5-shards
-```
-
-After all shard pods complete, merge cached root rows plus all shard rows and
-write the canonical final frontier files:
-
-```bash
-kubectl apply -f examples/IBM_QAOA/nautilus/simulation-validation-finalize-job.yaml
-kubectl logs -n usra-expedition -f job/ibm-qaoa-fa-opt-p5-finalize
+kubectl apply -f examples/IBM_QAOA/nautilus/simulation-validation-lr-opt-p7-finalize-job.yaml
+kubectl logs -n usra-expedition -f job/ibm-qaoa-lr-opt-p7-finalize
 ```
 
 Shard outputs are written under:
 
 ```text
-/workspace/results/pss_window_sticker/heavy_hex_144_FA_opt_p5_expanded/shards/shard-XX
+/workspace/results/pss_window_sticker/heavy_hex_144_LR_opt_p7_expanded/shards/shard-XX
 ```
+
+The merged `strategy_raw_points.pkl` carries a per-shot `counts` histogram
+and is ~2.3 GB; everything downstream needs only the other columns, so pull a
+counts-free copy rather than the file itself (`run_latency_recost.py`'s
+`SLIM_COLUMNS` lists what is needed).
 
 The generated instance/minmax cache is stored under:
 
@@ -152,9 +157,9 @@ bash examples/IBM_QAOA/nautilus/run_simulation_validation.sh
 Delete the job or dev pod when finished:
 
 ```bash
-kubectl delete -f examples/IBM_QAOA/nautilus/simulation-validation-job.yaml
-kubectl delete -f examples/IBM_QAOA/nautilus/simulation-validation-sharded-job.yaml
-kubectl delete -f examples/IBM_QAOA/nautilus/simulation-validation-finalize-job.yaml
+kubectl delete -f examples/IBM_QAOA/nautilus/simulation-validation-lr-opt-p7-shards.yaml
+kubectl delete -f examples/IBM_QAOA/nautilus/simulation-validation-lr-opt-p7-finalize-job.yaml
+kubectl delete -f examples/IBM_QAOA/nautilus/simulation-validation-fa-no-opt-p7-job.yaml
 kubectl delete -f examples/IBM_QAOA/nautilus/dev-pod.yaml
 ```
 

@@ -1,13 +1,13 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ibm-qaoa-i-pp-p7-shards
+  name: ibm-qaoa-lr-opt-p7-shards
   namespace: usra-expedition
 spec:
   completions: 10
   parallelism: 10
   completionMode: Indexed
-  backoffLimit: 0
+  backoffLimit: 8
   activeDeadlineSeconds: 172800
   template:
     spec:
@@ -33,7 +33,7 @@ spec:
                 chmod 0600 /tmp/git-credentials
               fi
 
-              export WORKDIR="/workspace/workdirs/i-pp-p7-shard-${JOB_COMPLETION_INDEX}"
+              export WORKDIR="/workspace/workdirs/lr-opt-p7-shard-${JOB_COMPLETION_INDEX}"
               mkdir -p "${WORKDIR}" /workspace/results /workspace/data
               rm -rf "${WORKDIR}/repos"
               mkdir -p "${WORKDIR}/repos"
@@ -41,13 +41,28 @@ spec:
               export DATA_DIR="/workspace/data"
               export RESULTS_DIR="/workspace/results"
 
-              git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 \
-                "${STOCHASTIC_BENCHMARK_REPO}" "${REPOS_DIR}/stochastic-benchmark"
+              # A full checkout of this repository is ~760 MB (mostly unrelated example
+              # checkpoints) and GitHub transfers of that size from the cluster are
+              # truncated more often than not. A blob-filtered sparse clone of only the
+              # paths a campaign needs is a few MB. Retried, since even that can blip.
+              for attempt in 1 2 3 4 5 6; do
+                rm -rf "${REPOS_DIR}/stochastic-benchmark"
+                git clone --branch "${STOCHASTIC_BENCHMARK_BRANCH}" --depth 1 --filter=blob:none --sparse \
+                  "${STOCHASTIC_BENCHMARK_REPO}" "${REPOS_DIR}/stochastic-benchmark" \
+                && git -C "${REPOS_DIR}/stochastic-benchmark" sparse-checkout set --no-cone \
+                  src examples/IBM_QAOA/src examples/IBM_QAOA/run_prepare_pss_campaign.py \
+                  examples/IBM_QAOA/nautilus examples/IBM_QAOA/data \
+                  requirements.txt requirements-examples.txt pyproject.toml setup.py README.md \
+                && break
+                echo "clone attempt ${attempt} failed; retrying in 60 s"
+                sleep 60
+              done
+              test -f "${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/run_prepare_pss_campaign.py"
 
               bash "${REPOS_DIR}/stochastic-benchmark/examples/IBM_QAOA/nautilus/run_simulation_validation.sh" \
-                --output-root /workspace/results/pss_window_sticker/heavy_hex_144_I_p7_expanded \
+                --output-root /workspace/results/pss_window_sticker/heavy_hex_144_LR_opt_p7_expanded \
                 --instance-cache-root /workspace/data/generated_instances \
-                --shards-root /workspace/results/pss_window_sticker/heavy_hex_144_I_p7_expanded/shards \
+                --shards-root /workspace/results/pss_window_sticker/heavy_hex_144_LR_opt_p7_expanded/shards \
                 --exact-only \
                 --restart \
                 --shard-count 10 \
@@ -58,7 +73,7 @@ spec:
                 --train-count 20 \
                 --test-count 10 \
                 --start-train-index 100 \
-                --fa-method-name I_MPSAer \
+                --fa-method-name LR_PP_opt \
                 --pt-method-name "" \
                 --fa-n-values 10,20,40,60,80,100,150 \
                 --fa-m-values 10,25,50,100,200,500,1000 \
@@ -66,7 +81,7 @@ spec:
                 --t-grid-points 1000 \
                 --t-grid-scale log \
                 --mps-chi 20 \
-                --max-parallel-threads 4
+                --max-parallel-threads 1
           env:
             - name: JOB_COMPLETION_INDEX
               valueFrom:
@@ -75,7 +90,7 @@ spec:
             - name: STOCHASTIC_BENCHMARK_REPO
               value: https://github.com/usra-riacs/stochastic-benchmark.git
             - name: STOCHASTIC_BENCHMARK_BRANCH
-              value: main
+              value: IBM_QAOA_audit_recursion_and_paper_draft
             - name: QPS_REPO_URL
               value: https://github.com/Quantum-Working-Groups/QAOA-Parameter-Setting.git
             - name: QPS_BRANCH
@@ -84,6 +99,10 @@ spec:
               value: https://github.com/qiskit-community/qaoa_training_pipeline.git
             - name: QAOA_PIPELINE_BRANCH
               value: main
+            - name: QPS_COMMIT
+              value: "1c43d955499920ce2d4d746abee56a3474f03a5f"
+            - name: QAOA_PIPELINE_COMMIT
+              value: "5139dde6e40b13688d4d82672017e06594e19beb"
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -92,11 +111,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: "4"
-              memory: 32Gi
+              cpu: "2"
+              memory: 2Gi
             limits:
-              cpu: "8"
-              memory: 64Gi
+              cpu: "4"
+              memory: 8Gi
           volumeMounts:
             - name: workspace
               mountPath: /workspace

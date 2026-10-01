@@ -22,11 +22,16 @@ from src.simulation_validation import (  # noqa: E402
 )
 from src.utils import (  # noqa: E402
     _FAMILY_CMAP_SPEC,
+    _FAMILY_DISPLAY,
     _build_family_color_map,
+    _draw_family_colorbars,
+    _family_depth_colors,
     _detect_method_family,
     _label_depth,
     _method_label_from_training_method,
     _pareto_envelope_and_owner,
+    plot_ibm_qaoa_training_bricks,
+    plot_multi_method_window_sticker_component_panels,
 )
 
 
@@ -398,3 +403,112 @@ class TestFitRecommendedRecipeCurvesMonotonic:
         fitted, model = fit_recommended_recipe_curves(pd.DataFrame(), resource_col="resource")
         assert fitted.empty
         assert model.empty
+
+
+# ---------------------------------------------------------------------------
+# Figure styling asked for in review of the submitted manuscript: \star rather
+# than a bare asterisk in the superscripts, discrete rather than smooth depth
+# colormaps, panel letters on the training-duration figure, and a left margin
+# wide enough that the first marker of a curve is not clipped by the spine.
+# ---------------------------------------------------------------------------
+class TestFamilyDepthColors:
+    def test__starred_families__are_labelled_with_star_not_an_asterisk(self):
+        # A bare "*" renders as a raised asterisk, not the \star the rest of
+        # the paper (and Tab. II) uses for a fully angle-optimized method.
+        assert _FAMILY_DISPLAY["FA_star"] == r"Fixed Angles$^\star$"
+        assert _FAMILY_DISPLAY["LR_star"] == r"Linear Ramp$^\star$"
+        assert not any("$^*$" in v for v in _FAMILY_DISPLAY.values())
+
+    def test__family_depth_colors__gives_one_distinct_shade_per_depth(self):
+        shades = _family_depth_colors("FA_dagger", 5)
+        assert len(shades) == 5
+        assert len({tuple(c) for c in shades}) == 5
+        cmap_fn, lo, hi = _FAMILY_CMAP_SPEC["FA_dagger"]
+        assert shades[0] == cmap_fn(lo) and shades[-1] == cmap_fn(hi)
+
+    def test__family_depth_colors__single_depth_sits_mid_band(self):
+        cmap_fn, lo, hi = _FAMILY_CMAP_SPEC["Interp"]
+        assert _family_depth_colors("Interp", 1) == [cmap_fn((lo + hi) / 2)]
+
+    def test__consecutive_depths__stay_far_enough_apart_to_tell_apart(self):
+        # The reviewer's complaint: five depths packed into a narrow band left
+        # neighbouring shades indistinguishable. Guards the widened bands.
+        for fam, n in [("FA_dagger", 5), ("PT", 5), ("FA_star", 3), ("LR", 2)]:
+            shades = _family_depth_colors(fam, n)
+            worst = min(
+                sum((a - b) ** 2 for a, b in zip(c1[:3], c2[:3])) ** 0.5
+                for c1, c2 in zip(shades, shades[1:])
+            )
+            assert worst > 0.07, f"{fam}: adjacent depths only {worst:.3f} apart"
+
+    def test__curve_colors__are_exactly_the_colorbar_shades(self):
+        # Curves and colorbar must be drawn from one list, or a reader cannot
+        # match a line to a block.
+        labels = [f"Param. Transfer (p={p})" for p in (2, 3, 5, 6, 7)]
+        color_map, _, family_p_vals = _build_family_color_map(labels)
+        shades = _family_depth_colors("PT", len(family_p_vals["PT"]))
+        assert [color_map[l] for l in labels] == shades
+
+
+class TestDrawFamilyColorbars:
+    def test__colorbar__is_one_discrete_block_per_depth_labelled_by_p(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.collections import QuadMesh
+        from matplotlib.colors import ListedColormap
+
+        fig = plt.figure()
+        # Non-consecutive depths: a smooth ramp over p_min..p_max used to
+        # space these unevenly and leave 6 and 7 nearly the same shade.
+        _draw_family_colorbars(fig, {"FA_dagger": []}, {"FA_dagger": [2, 3, 4, 6, 7]})
+        cb_ax = [ax for ax in fig.axes if ax.get_xlabel() == "circuit depth $p$"]
+        assert len(cb_ax) == 1
+        assert [t.get_text() for t in cb_ax[0].get_xticklabels()] == ["2", "3", "4", "6", "7"]
+        mesh = [c for c in cb_ax[0].get_children() if isinstance(c, QuadMesh)]
+        assert len(mesh) == 1
+        cmap = mesh[0].cmap
+        assert isinstance(cmap, ListedColormap)
+        assert list(cmap.colors) == _family_depth_colors("FA_dagger", 5)
+        plt.close(fig)
+
+
+class TestPanelStyling:
+    def test__training_bricks__labels_both_panels_a_and_b(self, tmp_path):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        agg = pd.DataFrame([
+            {"method_base": "FA_PP_opt", "job_p": 5, "outer_init": 1.0, "step_1": 2.0,
+             "brick_total": 3.0, "sem_total": 0.1},
+            {"method_base": "FA_PP_opt", "job_p": 10, "outer_init": 1.0, "step_1": 9000.0,
+             "brick_total": 9001.0, "sem_total": 0.1},
+        ])
+        plot_ibm_qaoa_training_bricks(agg, ["step_1"], {}, {}, "t", save_dir=str(tmp_path))
+        letters = [t.get_text() for ax in plt.gcf().axes for t in ax.texts]
+        assert letters.count("(a)") == 1 and letters.count("(b)") == 1
+        plt.close("all")
+
+    def test__window_sticker__pads_the_left_edge_so_first_markers_clear_the_spine(self, tmp_path):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        curve = pd.DataFrame({
+            "method_label": ["Param. Transfer (p=5)"] * 3,
+            "resource": [10.0, 100.0, 1000.0],
+            "response": [0.80, 0.85, 0.90],
+            "response_lower": [0.79, 0.84, 0.89],
+            "response_upper": [0.81, 0.86, 0.91],
+        })
+        plot_multi_method_window_sticker_component_panels(
+            training_virtual_best_df=curve, training_fitted_prescription_df=curve,
+            test_virtual_best_df=curve, test_fitted_prescription_df=curve,
+            plot_dir=str(tmp_path), filename="pad", xlim=(10.0, 1000.0), show_ci=False,
+        )
+        ax = [a for a in plt.gcf().axes if a.get_xlabel().startswith("Resource")][0]
+        lo, hi = ax.get_xlim()
+        assert lo < 10.0, "first data point sits on the left spine"
+        assert hi == pytest.approx(1000.0), "right edge must stay where curves are held to"
+        plt.close("all")

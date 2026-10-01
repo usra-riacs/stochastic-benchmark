@@ -239,6 +239,7 @@ For additional details see [TESTING.md](TESTING.md).
 - [@robinabrown](https://github.com/robinabrown) Robin Brown
 - [@PratikSathe](https://github.com/PratikSathe) Pratik Sathe
 - [@bernalde](https://github.com/bernalde) David Bernal Neira
+- [@anurag-r20](https://github.com/anurag-r20) Anurag Ramesh
 
 ## Acknowledgements
 

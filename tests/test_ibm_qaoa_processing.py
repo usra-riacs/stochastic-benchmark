@@ -20,7 +20,6 @@ from src.Processing import (  # noqa: E402
     set_data_path,
 )
 from src.approx_ratio_calc import (  # noqa: E402
-    counts_from_bitstring_samples,
     load_maxcut_instance_context,
     maxcut_approximation_ratio,
     maxcut_energy_from_bitstring,
@@ -124,7 +123,6 @@ def test_maxcut_helpers_compute_energy_counts_and_ratio(tmp_path):
     context = load_maxcut_instance_context(graph_path)
     assert context["sum_weights"] == pytest.approx(3.0)
     assert np.array_equal(context["u"], np.array([0, 1]))
-    assert counts_from_bitstring_samples(["010", "010", "111"]) == {"010": 2, "111": 1}
 
     energy = maxcut_energy_from_bitstring("010", context)
     assert energy == pytest.approx(1.5)

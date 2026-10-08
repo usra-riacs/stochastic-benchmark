@@ -50,6 +50,25 @@ pytest tests/test_names.py -v
 pytest tests/ --cov=src --cov-report=html
 ```
 
+### Installed distribution smoke checks
+
+CI builds a source distribution and then builds a wheel from that archive on
+Python 3.10, 3.11, and 3.12. It verifies that both artifacts contain every library
+module and the plotting style, installs the wheel and its core dependencies in a
+fresh virtual environment, imports every module outside the checkout with Python
+isolated mode, and saves a plot using the installed style.
+
+Run the same check locally with:
+
+```bash
+python -m pip install build
+python scripts/verify_distribution.py
+```
+
+The check needs network access for isolated build tools and runtime dependencies.
+It uses a temporary directory for the artifacts, environment, and smoke plot;
+setuptools may also generate ignored `src/*.egg-info/` metadata in the checkout.
+
 ### Tutorial notebook smoke checks
 
 The CI tutorial smoke job executes the self-contained notebooks listed in

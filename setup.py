@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import setuptools
 
 with open("README.md", "r", encoding="utf-8") as fh:
@@ -41,9 +43,9 @@ setuptools.setup(
     description="A package to analyze benchmarking results of stochastic optimization solvers",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/bernalde/stochastic-benchmark",
+    url="https://github.com/usra-riacs/stochastic-benchmark",
     project_urls={
-        "Bug Tracker": "https://github.com/bernalde/stochastic-benchmark/issues",
+        "Bug Tracker": "https://github.com/usra-riacs/stochastic-benchmark/issues",
     },
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -52,6 +54,8 @@ setuptools.setup(
     ],
     package_dir={"": "src"},
     packages=setuptools.find_packages(where="src"),
+    py_modules=sorted(path.stem for path in Path("src").glob("*.py")),
+    package_data={"_stochastic_benchmark_assets": ["ws.mplstyle"]},
     python_requires=">=3.10",
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRAS_REQUIRE,

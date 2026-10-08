@@ -158,6 +158,17 @@ for the equation map and validation boundaries.
     pip install -r requirements-generation.txt
     ```
 
+### Installing the Library
+
+To install the library for use outside the repository, run the following from
+the repository root after either download method:
+
+```bash
+pip install .
+```
+
+This installs the core dependencies, the library modules, and the plotting style.
+
 ### Optional Dependency Sets
 
 Core installs use `requirements.txt` and do not include notebook-only or data-generation-only packages. Use these optional sets as needed:

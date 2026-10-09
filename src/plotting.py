@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from importlib.resources import files
 
 import df_utils
 import matplotlib.patches as mpatches
@@ -14,7 +15,7 @@ from matplotlib.collections import LineCollection
 monotone = False
 plot_vb_CI = True
 dir_path = os.path.dirname(os.path.realpath(__file__))
-ws_style = os.path.join(dir_path, "ws.mplstyle")
+ws_style = str(files("_stochastic_benchmark_assets").joinpath("ws.mplstyle"))
 
 plt.style.use(ws_style)
 
